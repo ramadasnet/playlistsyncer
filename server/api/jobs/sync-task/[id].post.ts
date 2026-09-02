@@ -1,0 +1,11 @@
+import {runSyncTask} from "../../../domain/sync/engine"
+import logger from "../../../utils/logger"
+import {parseObjectId} from "../../../utils/object-id"
+import {requireScheduler} from "../../../utils/scheduler-auth"
+
+export default defineEventHandler(async (event) => {
+    requireScheduler(event)
+    const taskId = parseObjectId(getRouterParam(event, "id"), "task id")
+    logger.info("Jobs.syncTask", `Task ${taskId.toHexString()}`)
+    return runSyncTask(taskId, "scheduled")
+})

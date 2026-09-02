@@ -1,0 +1,55 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Local Cloudflare tunnel credentials
+.cloudflared
+
+# Private keys and exported credentials
+*.key
+*.keystore
+*.p12
+*.pem
+*.pfx
+*.jks
+credentials*.json
+client_secret*.json
+service-account*.json
+service_account*.json
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
+# Local authentication config
+.netrc
+.npmrc
+.pypirc
+
+# Local databases and dumps
+*.db
+*.dump
+*.sqlite
+*.sqlite3
+*.sql

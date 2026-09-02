@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      MONGODB_URI: mongodb://mongodb:27017/playlistsync
+      PORT: 3007
+    ports:
+      - "3007:3007"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const response = await fetch('http://localhost:3007/api/health'); process.exit(response.ok ? 0 : 1)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:8.2.5
+    command: ["mongod", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  mongodb-data:

@@ -1,0 +1,19 @@
+import type {Provider} from "~~/shared/types/domain"
+import {spotifyAdapter} from "./spotify"
+import type {ProviderAdapter} from "./types"
+import {youtubeAdapter} from "./youtube"
+
+export function getProviderAdapter(provider: Provider): ProviderAdapter {
+    if (provider === "spotify") {
+        return spotifyAdapter
+    }
+    if (provider === "youtube") {
+        return youtubeAdapter
+    }
+    throw createError({
+        statusCode: 501,
+        statusMessage: "Amazon Music playlist support requires the approved API contract to be configured"
+    })
+}
+
+export type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"

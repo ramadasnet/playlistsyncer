@@ -1,0 +1,84 @@
+import {z} from "zod"
+import {collections} from "../../data/collections"
+import {requireUser} from "../../domain/auth/session"
+import {resolveEntitlement} from "../../domain/billing/entitlement"
+import {getProviderAdapter} from "../../domain/providers"
+import {runSyncTask} from "../../domain/sync/engine"
+import logger from "../../utils/logger"
+import {parseObjectId} from "../../utils/object-id"
+
+const taskSchema = z.object({
+    mode: z.enum(["playlist", "account"]).default("playlist"),
+    source: z.object({accountId: z.string(), playlistId: z.string().min(1), name: z.string().min(1).max(200)}),
+    destination: z.object({
+        accountId: z.string(),
+        playlistId: z.string().min(1),
+        name: z.string().min(1).max(200),
+        createNew: z.boolean().default(false)
+    })
+})
+
+export default defineEventHandler(async (event) => {
+    const user = await requireUser(event)
+    const entitlement = resolveEntitlement(user)
+    const body = taskSchema.parse(await readBody(event))
+    const sourceAccountId = parseObjectId(body.source.accountId, "source account")
+    const destinationAccountId = parseObjectId(body.destination.accountId, "destination account")
+    if (sourceAccountId.equals(destinationAccountId)) {
+        logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Source and destination account are identical")
+        throw createError({statusCode: 400, statusMessage: "Choose two different provider accounts"})
+    }
+    const db = await collections()
+    const accounts = await db.providerAccounts
+        .find({_id: {$in: [sourceAccountId, destinationAccountId]}, userId: user._id!})
+        .toArray()
+    if (accounts.length !== 2) {
+        logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Selected account ownership check failed")
+        throw createError({statusCode: 403, statusMessage: "A selected provider account does not belong to this user"})
+    }
+    if (body.mode === "account" && entitlement.tier === "free") {
+        logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Free tier account sync rejected")
+        throw createError({statusCode: 403, statusMessage: "Synchronizing all playlists requires a PRO account"})
+    }
+    if (entitlement.tier === "free" && (await db.syncTasks.countDocuments({userId: user._id!})) >= 1) {
+        logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Free tier task limit reached")
+        throw createError({statusCode: 403, statusMessage: "Free accounts can synchronize one playlist pair"})
+    }
+    let destinationPlaylistId = body.destination.playlistId
+    if (body.mode === "playlist" && body.destination.createNew) {
+        const destinationAccount = accounts.find((account) => account._id?.equals(destinationAccountId))!
+        const playlist = await getProviderAdapter(destinationAccount.provider).createPlaylist(
+            destinationAccount,
+            body.source.name
+        )
+        destinationPlaylistId = playlist.id
+    }
+    const now = new Date()
+    const result = await db.syncTasks.insertOne({
+        userId: user._id!,
+        mode: body.mode,
+        source: {providerAccountId: sourceAccountId, playlistId: body.source.playlistId, name: body.source.name},
+        destination: {
+            providerAccountId: destinationAccountId,
+            playlistId: destinationPlaylistId,
+            name: body.destination.createNew ? body.source.name : body.destination.name
+        },
+        status: "active",
+        nextRunAt: now,
+        createdAt: now,
+        updatedAt: now
+    })
+    logger.info(
+        "Tasks.create",
+        `Task ${result.insertedId.toHexString()}`,
+        `User ${user._id!.toHexString()}`,
+        `${accounts[0]!.provider} to ${accounts[1]!.provider}`
+    )
+    event.waitUntil(
+        runSyncTask(result.insertedId, "created").catch((error) => {
+            logger.error("Tasks.createRun", `Task ${result.insertedId.toHexString()}`, error)
+        })
+    )
+    setResponseStatus(event, 201)
+    return {id: result.insertedId.toHexString()}
+})
