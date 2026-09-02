@@ -5,8 +5,12 @@ const appHost = new URL(appUrl).hostname
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
     css: ["~/assets/css/main.css"],
-    devtools: {enabled: true},
+    // DevTools instruments the whole app; keep it opt-in so idle `nuxt dev` stays lean.
+    devtools: {enabled: process.env.NUXT_DEVTOOLS === "true"},
     modules: ["@pinia/nuxt"],
+    sourcemap: {
+        server: false
+    },
     vite: {
         server: {
             allowedHosts: [appHost],
@@ -18,7 +22,8 @@ export default defineNuxtConfig({
         }
     },
     nitro: {
-        preset: "bun"
+        preset: "bun",
+        sourceMap: false
     },
     runtimeConfig: {
         public: {
@@ -30,6 +35,8 @@ export default defineNuxtConfig({
     },
     typescript: {
         strict: true,
-        typeCheck: true
+        // Skip the persistent vue-tsc watcher during `nuxt dev` / `nuxt build`.
+        // Typecheck with `bun run typecheck` or `bun run check` instead.
+        typeCheck: false
     }
 })
