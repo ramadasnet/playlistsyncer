@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {ArrowRight, Check, ShieldCheck} from "lucide-vue-next"
+import {providers} from "~~/shared/types/domain"
 
 const config = useRuntimeConfig()
 const auth = useAuthStore()
@@ -76,9 +77,7 @@ const features = [
                 </p>
             </div>
             <div class="provider-stack">
-                <ProviderBadge provider="spotify" /><ProviderBadge provider="youtube" /><ProviderBadge
-                    provider="tidal"
-                /><ProviderBadge provider="amazon" />
+                <ProviderBadge v-for="provider in providers" :key="provider" :provider="provider" />
             </div>
             <ShieldCheck :size="44" aria-hidden="true" />
         </section>

@@ -1,10 +1,10 @@
 # PlaylistSyncer (ALPHA / WIP!!!)
 
-A Nuxt 4 and Bun service for two-way playlist synchronization across Spotify, YouTube Music, TIDAL, and approved Amazon Music integrations. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
+A Nuxt 4 and Bun service for two-way playlist synchronization across Spotify, Amazon Music, YouTube Music, and TIDAL. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
 
 ## Product behavior
 
-- Sign in with Spotify, Google/YouTube, TIDAL, or Login with Amazon and link additional provider identities to the same account.
+- Sign in with Spotify, Login with Amazon, Google/YouTube, or TIDAL and link additional provider identities to the same account.
 - Synchronize one selected playlist bidirectionally between two providers.
 - Mirror every playlist from one provider account to another with durable source/destination mappings.
 - Create, pause, run, inspect, and delete synchronization tasks from the authenticated application.

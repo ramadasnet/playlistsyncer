@@ -1,3 +1,4 @@
+import {providers} from "~~/shared/types/domain"
 import {collections} from "../data/collections"
 import {requireUser} from "../domain/auth/session"
 import {getProviderAdapter} from "../domain/providers"
@@ -5,7 +6,8 @@ import {getProviderAdapter} from "../domain/providers"
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const db = await collections()
-    const accounts = await db.providerAccounts.find({userId: user._id!}).sort({provider: 1}).toArray()
+    const accounts = await db.providerAccounts.find({userId: user._id!}).toArray()
+    accounts.sort((left, right) => providers.indexOf(left.provider) - providers.indexOf(right.provider))
     const includePlaylistCount = getQuery(event).includePlaylistCount === "true"
     return {
         accounts: await Promise.all(
