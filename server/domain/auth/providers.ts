@@ -20,8 +20,10 @@ interface OAuthProvider {
     fetchProfile(accessToken: string): Promise<OAuthProfile>
 }
 
-async function fetchJson<T>(url: string, accessToken: string): Promise<T> {
-    const response = await fetch(url, {headers: {Authorization: `Bearer ${accessToken}`}})
+async function fetchJson<T>(url: string, accessToken: string, extraHeaders?: HeadersInit): Promise<T> {
+    const headers = new Headers(extraHeaders)
+    headers.set("Authorization", `Bearer ${accessToken}`)
+    const response = await fetch(url, {headers})
     if (!response.ok) {
         const requestUrl = new URL(url)
         logger.error("OAuth.fetchProfile", requestUrl.hostname, requestUrl.pathname, `Status ${response.status}`)
@@ -101,6 +103,40 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 email: profile.email,
                 emailVerified: Boolean(profile.email),
                 displayName: profile.name || profile.email || "Amazon user"
+            }
+        }
+    },
+    tidal: {
+        authorizeUrl: "https://login.tidal.com/authorize",
+        tokenUrl: "https://auth.tidal.com/v1/oauth2/token",
+        scopes: ["user.read", "playlists.read", "playlists.write", "search.read"],
+        clientIdKey: "tidalClientId",
+        clientSecretKey: "tidalClientSecret",
+        tokenAuth: "body",
+        async fetchProfile(accessToken) {
+            const document = await fetchJson<{
+                data: {
+                    id: string
+                    attributes?: {
+                        email?: string
+                        emailVerified?: boolean
+                        firstName?: string
+                        lastName?: string
+                        username?: string
+                    }
+                }
+            }>("https://openapi.tidal.com/v2/users/me", accessToken, {Accept: "application/vnd.api+json"})
+            const attributes = document.data.attributes || {}
+            const displayName =
+                [attributes.firstName, attributes.lastName].filter(Boolean).join(" ") ||
+                attributes.username ||
+                attributes.email ||
+                "TIDAL user"
+            return {
+                id: document.data.id,
+                email: attributes.email,
+                emailVerified: attributes.emailVerified === true,
+                displayName
             }
         }
     }

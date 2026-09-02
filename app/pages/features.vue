@@ -71,14 +71,14 @@ const features = [
                 <p class="eyebrow">Provider support</p>
                 <h2>Built on authorized connections</h2>
                 <p>
-                    Spotify and YouTube use their official playlist APIs. Amazon Music support activates against
+                    Spotify, YouTube, and TIDAL use their official playlist APIs. Amazon Music support activates against
                     approved partner API access.
                 </p>
             </div>
             <div class="provider-stack">
                 <ProviderBadge provider="spotify" /><ProviderBadge provider="youtube" /><ProviderBadge
-                    provider="amazon"
-                />
+                    provider="tidal"
+                /><ProviderBadge provider="amazon" />
             </div>
             <ShieldCheck :size="44" aria-hidden="true" />
         </section>
