@@ -27,7 +27,8 @@ services:
 
   mongodb:
     image: mongo:8.2.5
-    command: ["mongod", "--bind_ip_all"]
+    # 256MB WiredTiger cache: default is ~50% of host RAM and dwarfs this dataset.
+    command: ["mongod", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
     ports:
       - "27017:27017"
     volumes:
