@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {ArrowUpRight, CheckCircle2, CreditCard, Link2, LoaderCircle, Plus} from "lucide-vue-next"
 import type {ConnectedAccount} from "~/types/api"
-import type {Provider} from "~~/shared/types/domain"
+import {providers, type Provider} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
 
@@ -11,7 +11,7 @@ const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/acc
 })
 const busy = ref(false)
 const errorMessage = ref("")
-const allProviders: Provider[] = ["spotify", "youtube", "tidal", "amazon"]
+const allProviders = providers
 
 async function openBilling(path: "checkout" | "portal") {
     busy.value = true

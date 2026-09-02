@@ -1,6 +1,6 @@
 import type {ObjectId} from "mongodb"
 
-export const providers = ["amazon", "spotify", "tidal", "youtube"] as const
+export const providers = ["spotify", "amazon", "youtube", "tidal"] as const
 
 export type Provider = (typeof providers)[number]
 export type AccountTier = "free" | "pro"

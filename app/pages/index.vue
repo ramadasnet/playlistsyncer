@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import {ArrowRight, Check, RefreshCw} from "lucide-vue-next"
+import {providers} from "~~/shared/types/domain"
 
 useSeoMeta({
     title: "PlaylistSyncer · Two-way playlist syncing",
-    description: "Keep playlists aligned across Spotify, YouTube Music, TIDAL, and Amazon Music."
+    description: "Keep playlists aligned across Spotify, Amazon Music, YouTube Music, and TIDAL."
 })
 
 const auth = useAuthStore()
@@ -27,10 +28,7 @@ const auth = useAuthStore()
                 <NuxtLink class="button button-ghost-light" to="/features">Compare plans</NuxtLink>
             </div>
             <div class="provider-row" aria-label="Supported providers">
-                <ProviderBadge provider="spotify" />
-                <ProviderBadge provider="youtube" />
-                <ProviderBadge provider="tidal" />
-                <ProviderBadge provider="amazon" />
+                <ProviderBadge v-for="provider in providers" :key="provider" :provider="provider" />
             </div>
         </div>
     </section>
