@@ -11,7 +11,7 @@ const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/acc
 })
 const busy = ref(false)
 const errorMessage = ref("")
-const allProviders: Provider[] = ["spotify", "youtube", "amazon"]
+const allProviders: Provider[] = ["spotify", "youtube", "tidal", "amazon"]
 
 async function openBilling(path: "checkout" | "portal") {
     busy.value = true

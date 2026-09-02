@@ -270,6 +270,9 @@ main {
 .provider-amazon {
     color: #31586b;
 }
+.provider-tidal {
+    color: #0f6b6b;
+}
 
 .hero {
     position: relative;

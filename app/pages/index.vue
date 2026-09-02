@@ -3,7 +3,7 @@ import {ArrowRight, Check, RefreshCw} from "lucide-vue-next"
 
 useSeoMeta({
     title: "PlaylistSyncer · Two-way playlist syncing",
-    description: "Keep playlists aligned across Spotify, YouTube Music, and Amazon Music."
+    description: "Keep playlists aligned across Spotify, YouTube Music, TIDAL, and Amazon Music."
 })
 
 const auth = useAuthStore()
@@ -29,6 +29,7 @@ const auth = useAuthStore()
             <div class="provider-row" aria-label="Supported providers">
                 <ProviderBadge provider="spotify" />
                 <ProviderBadge provider="youtube" />
+                <ProviderBadge provider="tidal" />
                 <ProviderBadge provider="amazon" />
             </div>
         </div>

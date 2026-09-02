@@ -6,6 +6,7 @@ definePageMeta({middleware: () => (useAuthStore().user ? navigateTo("/sync") : u
 const providers = [
     {id: "spotify", detail: "Spotify profile and playlists"},
     {id: "youtube", detail: "Google profile and YouTube playlists"},
+    {id: "tidal", detail: "TIDAL profile and playlists"},
     {id: "amazon", detail: "Amazon profile and approved Music access"}
 ] as const
 </script>

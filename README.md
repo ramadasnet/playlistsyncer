@@ -1,16 +1,16 @@
 # PlaylistSyncer (ALPHA / WIP!!!)
 
-A Nuxt 4 and Bun service for two-way playlist synchronization across Spotify, YouTube Music, and approved Amazon Music integrations. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
+A Nuxt 4 and Bun service for two-way playlist synchronization across Spotify, YouTube Music, TIDAL, and approved Amazon Music integrations. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
 
 ## Product behavior
 
-- Sign in with Spotify, Google/YouTube, or Login with Amazon and link additional provider identities to the same account.
+- Sign in with Spotify, Google/YouTube, TIDAL, or Login with Amazon and link additional provider identities to the same account.
 - Synchronize one selected playlist bidirectionally between two providers.
 - Mirror every playlist from one provider account to another with durable source/destination mappings.
 - Create, pause, run, inspect, and delete synchronization tasks from the authenticated application.
 - Use Creem-hosted Checkout and Customer Portal flows for PRO subscriptions.
 
-Spotify and YouTube use their official APIs. YouTube synchronization operates on video playlists that are also visible in YouTube Music. Login with Amazon is implemented, but Amazon playlist access remains capability-gated until the approved partner API contract is configured; the application does not use private endpoints, browser automation, or credential scraping.
+Spotify, YouTube, and TIDAL use their official APIs. YouTube synchronization operates on video playlists that are also visible in YouTube Music. Login with Amazon is implemented, but Amazon playlist access remains capability-gated until the approved partner API contract is configured; the application does not use private endpoints, browser automation, or credential scraping.
 
 ## Architecture and persistence
 
@@ -132,6 +132,18 @@ ${APP_URL}/api/auth/youtube/callback
 ```
 
 Scopes requested: `openid`, `email`, `profile`, and `https://www.googleapis.com/auth/youtube`. Add test users while the consent screen is in testing mode. Playlist synchronization uses official YouTube video playlists visible in YouTube Music, not an unofficial YouTube Music API.
+
+### TIDAL
+
+Create a TIDAL Developer Platform app and supply `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET`.
+
+Register this redirect URI exactly:
+
+```text
+${APP_URL}/api/auth/tidal/callback
+```
+
+Scopes requested: `user.read`, `playlists.read`, `playlists.write`, and `search.read`. Playlist synchronization uses the official TIDAL JSON:API at `https://openapi.tidal.com/v2`. User-owned playlists are listed, created as unlisted, and matched by ISRC when available.
 
 ### Amazon
 

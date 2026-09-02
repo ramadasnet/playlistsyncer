@@ -9,7 +9,7 @@ export async function providerFetch<T>(
 ): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set("Authorization", `Bearer ${await getAccessToken(account)}`)
-    if (init.body) {
+    if (init.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json")
     }
     const response = await fetch(url, {...init, headers})
