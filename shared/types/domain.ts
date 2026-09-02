@@ -1,6 +1,6 @@
 import type {ObjectId} from "mongodb"
 
-export const providers = ["spotify", "amazon", "youtube", "tidal"] as const
+export const providers = ["spotify", "tidal", "youtube", "amazon"] as const
 
 export type Provider = (typeof providers)[number]
 
@@ -9,17 +9,17 @@ export interface ProviderFlags {
 }
 
 export const providerFlags: Record<Provider, ProviderFlags> = {
-    amazon: {disabled: true},
     spotify: {},
     tidal: {},
-    youtube: {}
+    youtube: {},
+    amazon: {disabled: true}
 }
 
 export const providerDisplayNames: Record<Provider, string> = {
-    amazon: "Amazon Music",
     spotify: "Spotify",
     tidal: "TIDAL",
-    youtube: "YouTube Music"
+    youtube: "YouTube Music",
+    amazon: "Amazon Music"
 }
 
 export function isProviderEnabled(provider: Provider) {

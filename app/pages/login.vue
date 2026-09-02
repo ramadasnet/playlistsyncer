@@ -5,10 +5,10 @@ import {enabledProviders, type Provider} from "~~/shared/types/domain"
 definePageMeta({middleware: () => (useAuthStore().user ? navigateTo("/sync") : undefined)})
 
 const providerDetails: Record<Provider, string> = {
-    amazon: "Amazon profile and approved Music access",
     spotify: "Spotify profile and playlists",
     tidal: "TIDAL profile and playlists",
-    youtube: "Google profile and YouTube playlists"
+    youtube: "Google profile and YouTube playlists",
+    amazon: "Amazon profile and approved Music access"
 }
 </script>
 
