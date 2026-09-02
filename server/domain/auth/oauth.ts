@@ -1,7 +1,7 @@
 import {createHash, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
-import type {Provider} from "~~/shared/types/domain"
+import {isProviderEnabled, type Provider} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
@@ -18,6 +18,9 @@ function normalizeRedirect(value: unknown): string {
 }
 
 export async function beginOAuth(event: H3Event, provider: Provider): Promise<string> {
+    if (!isProviderEnabled(provider)) {
+        throw createError({statusCode: 404, statusMessage: "Unknown provider"})
+    }
     const definition = getOAuthProvider(provider)
     const state = randomBytes(32).toString("base64url")
     const codeVerifier = randomBytes(48).toString("base64url")

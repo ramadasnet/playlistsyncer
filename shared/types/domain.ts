@@ -3,6 +3,42 @@ import type {ObjectId} from "mongodb"
 export const providers = ["spotify", "amazon", "youtube", "tidal"] as const
 
 export type Provider = (typeof providers)[number]
+
+export interface ProviderFlags {
+    disabled?: boolean
+}
+
+export const providerFlags: Record<Provider, ProviderFlags> = {
+    amazon: {disabled: true},
+    spotify: {},
+    tidal: {},
+    youtube: {}
+}
+
+export const providerDisplayNames: Record<Provider, string> = {
+    amazon: "Amazon Music",
+    spotify: "Spotify",
+    tidal: "TIDAL",
+    youtube: "YouTube Music"
+}
+
+export function isProviderEnabled(provider: Provider) {
+    return !providerFlags[provider].disabled
+}
+
+export const enabledProviders = providers.filter(isProviderEnabled)
+
+export function formatProviderNames(list: readonly Provider[] = enabledProviders) {
+    const names = list.map((provider) => providerDisplayNames[provider])
+    if (names.length <= 1) {
+        return names[0] ?? ""
+    }
+    if (names.length === 2) {
+        return `${names[0]} and ${names[1]}`
+    }
+    return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
+}
+
 export type AccountTier = "free" | "pro"
 export type SyncTaskMode = "playlist" | "account"
 export type SyncTaskStatus = "active" | "paused" | "needs_attention"

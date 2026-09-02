@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {AlertTriangle, ArrowRight, CirclePause, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
 import type {ConnectedAccount, PlaylistSummary, SyncTaskSummary} from "~/types/api"
+import {isProviderEnabled} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
 
@@ -22,8 +23,19 @@ const errorMessage = ref("")
 const allPlaylistsId = "__all__"
 const createPlaylistId = "__create__"
 
-const accounts = computed(() => accountData.value?.accounts || [])
-const tasks = computed(() => taskData.value?.tasks || [])
+const allAccounts = computed(() => accountData.value?.accounts || [])
+const accounts = computed(() => allAccounts.value.filter((account) => isProviderEnabled(account.provider)))
+const tasks = computed(() =>
+    (taskData.value?.tasks || []).filter((task) => {
+        const source = allAccounts.value.find((account) => account.id === String(task.source.providerAccountId))
+        const destination = allAccounts.value.find(
+            (account) => account.id === String(task.destination.providerAccountId)
+        )
+        return (
+            (!source || isProviderEnabled(source.provider)) && (!destination || isProviderEnabled(destination.provider))
+        )
+    })
+)
 const canCreate = computed(() => accounts.value.length >= 2 && (auth.user?.tier === "pro" || tasks.value.length === 0))
 const syncAllPlaylists = computed(() => sourcePlaylistId.value === allPlaylistsId)
 const sourcePlaylist = computed(() => sourcePlaylists.value.find((playlist) => playlist.id === sourcePlaylistId.value))

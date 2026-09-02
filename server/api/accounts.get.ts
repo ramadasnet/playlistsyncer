@@ -1,4 +1,4 @@
-import {providers} from "~~/shared/types/domain"
+import {isProviderEnabled, providers} from "~~/shared/types/domain"
 import {collections} from "../data/collections"
 import {requireUser} from "../domain/auth/session"
 import {getProviderAdapter} from "../domain/providers"
@@ -17,7 +17,9 @@ export default defineEventHandler(async (event) => {
                 displayName: account.displayName,
                 email: account.email,
                 playlistCount: includePlaylistCount
-                    ? (await getProviderAdapter(account.provider).listPlaylists(account)).length
+                    ? isProviderEnabled(account.provider)
+                        ? (await getProviderAdapter(account.provider).listPlaylists(account)).length
+                        : 0
                     : undefined,
                 connectedAt: account.connectedAt,
                 tokenExpiresAt: account.tokenExpiresAt

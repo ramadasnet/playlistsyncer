@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ArrowRight, Check, ShieldCheck} from "lucide-vue-next"
-import {providers} from "~~/shared/types/domain"
+import {enabledProviders, formatProviderNames} from "~~/shared/types/domain"
 
 const config = useRuntimeConfig()
 const auth = useAuthStore()
@@ -71,13 +71,10 @@ const features = [
             <div>
                 <p class="eyebrow">Provider support</p>
                 <h2>Built on authorized connections</h2>
-                <p>
-                    Spotify, YouTube, and TIDAL use their official playlist APIs. Amazon Music support activates against
-                    approved partner API access.
-                </p>
+                <p>{{ formatProviderNames() }} use their official playlist APIs.</p>
             </div>
             <div class="provider-stack">
-                <ProviderBadge v-for="provider in providers" :key="provider" :provider="provider" />
+                <ProviderBadge v-for="provider in enabledProviders" :key="provider" :provider="provider" />
             </div>
             <ShieldCheck :size="44" aria-hidden="true" />
         </section>
