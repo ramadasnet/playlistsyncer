@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import {ArrowUpRight, CheckCircle2, CreditCard, Link2, LoaderCircle, Plus} from "lucide-vue-next"
 import type {ConnectedAccount} from "~/types/api"
-import {enabledProviders, type Provider} from "~~/shared/types/domain"
+import type {Provider} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
 
 const auth = useAuthStore()
+const {enabledProviders} = await useEnabledProviders()
 const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/accounts", {
     query: {includePlaylistCount: "true"}
 })

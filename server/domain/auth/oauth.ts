@@ -1,12 +1,13 @@
 import {createHash, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
-import {isProviderEnabled, type Provider} from "~~/shared/types/domain"
+import type {Provider} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
 import {encryptSecret} from "../../utils/secrets"
 import {getOAuthProvider, type OAuthProfile} from "./providers"
+import {isProviderEnabled} from "../../utils/provider-availability"
 import {createSession, getCurrentUser, hashOpaqueToken} from "./session"
 
 function callbackUrl(provider: Provider): string {

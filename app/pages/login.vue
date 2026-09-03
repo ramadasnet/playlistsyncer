@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {ArrowRight, LockKeyhole} from "lucide-vue-next"
-import {enabledProviders, type Provider} from "~~/shared/types/domain"
+import type {Provider} from "~~/shared/types/domain"
 
 definePageMeta({middleware: () => (useAuthStore().user ? navigateTo("/sync") : undefined)})
+
+const {enabledProviders} = await useEnabledProviders()
 
 const providerDetails: Record<Provider, string> = {
     spotify: "Spotify profile and playlists",
@@ -44,6 +46,9 @@ const providerDetails: Record<Provider, string> = {
                     <span>{{ providerDetails[provider] }}</span>
                     <ArrowRight :size="19" />
                 </a>
+                <p v-if="!enabledProviders.length" class="legal-copy">
+                    No music services are available to connect right now.
+                </p>
             </div>
             <p class="legal-copy">
                 By continuing, you authorize PlaylistSyncer to manage only the playlist data required for your sync

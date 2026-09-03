@@ -1,7 +1,8 @@
-import {isProviderEnabled, providers} from "~~/shared/types/domain"
+import {providers} from "~~/shared/types/domain"
 import {collections} from "../data/collections"
 import {requireUser} from "../domain/auth/session"
 import {getProviderAdapter} from "../domain/providers"
+import {isProviderEnabled} from "../utils/provider-availability"
 
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)

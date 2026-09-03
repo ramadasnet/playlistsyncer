@@ -152,4 +152,9 @@ export function getOAuthProvider(provider: Provider): OAuthProvider & {clientId:
     }
 }
 
+export function hasOAuthCredentials(provider: Provider, config: ServerConfig = getServerConfig()): boolean {
+    const definition = oauthProviders[provider]
+    return Boolean(config[definition.clientIdKey] && config[definition.clientSecretKey])
+}
+
 export type {OAuthProfile, OAuthProvider}
