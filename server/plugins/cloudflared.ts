@@ -28,14 +28,23 @@ export default defineNitroPlugin((nitroApp) => {
         cwd: process.cwd(),
         stdio: "ignore"
     })
+    let stopping = false
 
     tunnel.on("error", (error) => logger.error("Cloudflared.process", error, "Failed to start tunnel"))
-    tunnel.on("exit", (code, signal) =>
-        logger.info("Cloudflared.shutdown", signal ? `Signal ${signal}` : `Exit code ${code}`)
-    )
+    tunnel.on("exit", (code, signal) => {
+        const result = signal ? `Signal ${signal}` : `Exit code ${code}`
+        if (stopping) {
+            logger.info("Cloudflared.shutdown", "Stopped")
+        } else if (code === 0) {
+            logger.info("Cloudflared.shutdown", result)
+        } else {
+            logger.error("Cloudflared.process", new Error(result), "Tunnel exited unexpectedly")
+        }
+    })
 
     nitroApp.hooks.hook("close", () => {
         if (tunnel.exitCode === null && tunnel.signalCode === null) {
+            stopping = true
             tunnel.kill()
         }
     })
