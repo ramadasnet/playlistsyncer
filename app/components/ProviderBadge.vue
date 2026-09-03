@@ -1,15 +1,8 @@
 <script setup lang="ts">
 import {Music2, Play, Radio, Waves} from "lucide-vue-next"
-import type {Provider} from "~~/shared/types/domain"
+import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 
 defineProps<{provider: Provider; label?: string}>()
-
-const providerNames: Record<Provider, string> = {
-    amazon: "Amazon Music",
-    spotify: "Spotify",
-    tidal: "TIDAL",
-    youtube: "YouTube Music"
-}
 </script>
 
 <template>
@@ -18,6 +11,6 @@ const providerNames: Record<Provider, string> = {
         <Radio v-else-if="provider === 'amazon'" :size="17" />
         <Play v-else-if="provider === 'youtube'" :size="17" fill="currentColor" />
         <Waves v-else :size="17" />
-        {{ label || providerNames[provider] }}
+        {{ label || providerDisplayNames[provider] }}
     </span>
 </template>
