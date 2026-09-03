@@ -1,10 +1,10 @@
 # PlaylistSyncer (ALPHA / WIP!!!)
 
-A Nuxt 4 and Bun service for two-way playlist synchronization across Spotify, YouTube Music, TIDAL, and approved Amazon Music integrations. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
+A Nuxt 4 and Bun service for two-way playlist synchronization across Spotify, Amazon Music, YouTube Music, and TIDAL. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
 
 ## Product behavior
 
-- Sign in with Spotify, Google/YouTube, TIDAL, or Login with Amazon and link additional provider identities to the same account.
+- Sign in with Spotify, Login with Amazon, Google/YouTube, or TIDAL and link additional provider identities to the same account.
 - Synchronize one selected playlist bidirectionally between two providers.
 - Mirror every playlist from one provider account to another with durable source/destination mappings.
 - Create, pause, run, inspect, and delete synchronization tasks from the authenticated application.
@@ -72,6 +72,8 @@ bun run dev
 ```
 
 Open the origin configured in `APP_URL` (`http://localhost:3007` by default). The app can render public pages without credentials; authentication, readiness, billing, and playlist APIs require their respective environment values.
+
+`nuxt dev` does not run a persistent TypeScript checker (that watcher is what pushed idle memory over 1GB). Use `bun run typecheck` or `bun run check` instead. Nuxt DevTools stays off unless you start the app with `NUXT_DEVTOOLS=true`. Local MongoDB is started with a 256MB WiredTiger cache so it does not reserve half of system RAM while idle.
 
 Run checks:
 

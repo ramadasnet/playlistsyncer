@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import {ArrowRight, LockKeyhole} from "lucide-vue-next"
+import {enabledProviders, type Provider} from "~~/shared/types/domain"
 
 definePageMeta({middleware: () => (useAuthStore().user ? navigateTo("/sync") : undefined)})
 
-const providers = [
-    {id: "spotify", detail: "Spotify profile and playlists"},
-    {id: "youtube", detail: "Google profile and YouTube playlists"},
-    {id: "tidal", detail: "TIDAL profile and playlists"},
-    {id: "amazon", detail: "Amazon profile and approved Music access"}
-] as const
+const providerDetails: Record<Provider, string> = {
+    spotify: "Spotify profile and playlists",
+    tidal: "TIDAL profile and playlists",
+    youtube: "Google profile and YouTube playlists",
+    amazon: "Amazon profile and approved Music access"
+}
 </script>
 
 <template>
@@ -34,13 +35,13 @@ const providers = [
             </div>
             <div class="login-list">
                 <a
-                    v-for="provider in providers"
-                    :key="provider.id"
+                    v-for="provider in enabledProviders"
+                    :key="provider"
                     class="login-option"
-                    :href="`/api/auth/${provider.id}`"
+                    :href="`/api/auth/${provider}`"
                 >
-                    <ProviderBadge :provider="provider.id" />
-                    <span>{{ provider.detail }}</span>
+                    <ProviderBadge :provider="provider" />
+                    <span>{{ providerDetails[provider] }}</span>
                     <ArrowRight :size="19" />
                 </a>
             </div>

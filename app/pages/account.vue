@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {ArrowUpRight, CheckCircle2, CreditCard, Link2, LoaderCircle, Plus} from "lucide-vue-next"
 import type {ConnectedAccount} from "~/types/api"
-import type {Provider} from "~~/shared/types/domain"
+import {enabledProviders, type Provider} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
 
@@ -11,7 +11,6 @@ const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/acc
 })
 const busy = ref(false)
 const errorMessage = ref("")
-const allProviders: Provider[] = ["spotify", "youtube", "tidal", "amazon"]
 
 async function openBilling(path: "checkout" | "portal") {
     busy.value = true
@@ -79,7 +78,7 @@ onMounted(() => refresh())
                 <Link2 :size="22" />
             </div>
             <div class="connection-list">
-                <div v-for="provider in allProviders" :key="provider" class="connection-row">
+                <div v-for="provider in enabledProviders" :key="provider" class="connection-row">
                     <ProviderBadge :provider="provider" />
                     <template v-if="hasProvider(provider)">
                         <div class="connection-copy">
