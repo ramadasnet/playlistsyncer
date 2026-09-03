@@ -24,7 +24,7 @@ export default defineNuxtConfig({
         public: {
             appName: process.env.NUXT_PUBLIC_APP_NAME || "PlaylistSyncer",
             proPrice: process.env.NUXT_PUBLIC_PRO_PRICE || "Configured at checkout",
-            supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || "support@example.com",
+            supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || "info@playlistsyncer.com",
             siteUrl: appUrl
         }
     },
