@@ -22,13 +22,11 @@ export const providerDisplayNames: Record<Provider, string> = {
     amazon: "Amazon Music"
 }
 
-export function isProviderEnabled(provider: Provider) {
+export function isProviderFlagEnabled(provider: Provider) {
     return !providerFlags[provider].disabled
 }
 
-export const enabledProviders = providers.filter(isProviderEnabled)
-
-export function formatProviderNames(list: readonly Provider[] = enabledProviders) {
+export function formatProviderNames(list: readonly Provider[]) {
     const names = list.map((provider) => providerDisplayNames[provider])
     if (names.length <= 1) {
         return names[0] ?? ""
