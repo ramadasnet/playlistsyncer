@@ -44,7 +44,11 @@ export type SyncRunStatus = "running" | "succeeded" | "partial" | "failed"
 
 export interface UserDocument {
     _id?: ObjectId
-    email: string
+    email?: string
+    tempEmail?: string
+    emailVerificationTokenHash?: string
+    emailVerificationExpiresAt?: Date
+    emailConfirmationSentAt?: Date
     displayName: string
     avatarUrl?: string
     tier: AccountTier

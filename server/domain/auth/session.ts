@@ -9,8 +9,8 @@ import {resolveEntitlement} from "../billing/entitlement"
 const sessionCookie = "ps_session"
 const sessionDurationSeconds = 60 * 60 * 24 * 30
 
-export function hashOpaqueToken(value: string): string {
-    return createHmac("sha256", requireConfig("sessionSecret")).update(value).digest("base64url")
+export function hashOpaqueToken(value: string, secret = requireConfig("sessionSecret")): string {
+    return createHmac("sha256", secret).update(value).digest("base64url")
 }
 
 export async function createSession(event: H3Event, userId: ObjectId): Promise<void> {
@@ -71,6 +71,7 @@ export function serializeUser(user: Awaited<ReturnType<typeof requireUser>>) {
     return {
         id: user._id?.toHexString(),
         email: user.email,
+        tempEmail: user.tempEmail,
         displayName: user.displayName,
         avatarUrl: user.avatarUrl,
         tier: entitlement.tier,

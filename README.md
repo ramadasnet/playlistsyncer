@@ -56,7 +56,7 @@ Creem webhook events are the source of truth for paid entitlement. Downgrades re
 
 ## Authentication and security
 
-OAuth uses Authorization Code with PKCE, hashed single-use state, exact callback URLs, and ten-minute transaction expiry. Automatic registration and account matching require a provider-verified email; an already authenticated user may explicitly link another provider account. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies outside development.
+OAuth uses Authorization Code with PKCE, hashed single-use state, exact callback URLs, and ten-minute transaction expiry. Automatic registration matches a provider-verified email to an existing account. If the provider does not share a verified email, the user is signed in and sent to the account page to enter an address. That value is stored as a temporary email until the user confirms it from a mailed link; only then is it set on the profile. An already authenticated user may explicitly link another provider account. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies outside development.
 
 Provider tokens are encrypted at rest with versioned AES-GCM values. Mutating application requests are restricted to the configured origin, scheduler routes require a constant-time-checked bearer secret, and Creem webhooks require valid signatures and unique event IDs. Secrets, authorization headers, OAuth codes and tokens, raw webhook payloads, and email addresses are excluded from logs.
 
@@ -106,6 +106,11 @@ Logged paths include server/database lifecycle, OAuth and sessions, provider req
 - `TOKEN_ENCRYPTION_KEY`: any non-empty string; the service derives a 256-bit AES key from it
 - `SCHEDULER_SECRET`: any non-empty string; callers send this exact value as the bearer token
 - `MONGODB_URI` and `MONGODB_DATABASE`
+
+Optional SMTP values for email confirmation after social registration without a provider email:
+
+- `SMTP_HOST`, `SMTP_PORT` (587 by default), `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`
+- When SMTP is not configured, confirmation emails are skipped. In non-production the account page can expose a development confirmation link.
 
 For local development, set `DEVELOPMENT_PRO_USER_EMAILS` to a comma-separated list of account email addresses that should receive effective PRO access without a subscription. The override is ignored whenever `NODE_ENV=production`, and affected accounts are labeled as development overrides in the UI.
 

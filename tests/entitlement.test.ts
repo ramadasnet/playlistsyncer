@@ -19,6 +19,13 @@ describe("effective entitlement", () => {
         })
     })
 
+    test("does not grant configured users PRO access without a confirmed email", () => {
+        expect(resolveEntitlement({tier: "free"}, config, "development")).toEqual({
+            tier: "free",
+            developmentOverride: false
+        })
+    })
+
     test("does not grant configured users PRO access when the environment is unset", () => {
         expect(resolveEntitlement(freeUser, config, undefined)).toEqual({
             tier: "free",

@@ -9,6 +9,9 @@ export default defineEventHandler(async (event) => {
     if (resolveEntitlement(user).tier === "pro") {
         throw createError({statusCode: 409, statusMessage: "The account already has PRO access"})
     }
+    if (!user.email) {
+        throw createError({statusCode: 400, statusMessage: "Confirm an email address before upgrading"})
+    }
     const checkout = await getCreem().checkouts.create({
         productId: requireConfig("creemProProductId"),
         customer: user.creemCustomerId ? {id: user.creemCustomerId} : {email: user.email, name: user.displayName},

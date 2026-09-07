@@ -2,7 +2,8 @@ import type {AccountTier, Provider, SyncRunStatus, SyncTaskMode, SyncTaskStatus}
 
 export interface SessionUser {
     id: string
-    email: string
+    email?: string
+    tempEmail?: string
     displayName: string
     avatarUrl?: string
     tier: AccountTier

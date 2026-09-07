@@ -17,7 +17,10 @@ logger.setOptions({
             "tokenEncryptionKey",
             "schedulerSecret",
             "creemApiKey",
-            "creemWebhookSecret"
+            "creemWebhookSecret",
+            "smtpPassword",
+            "emailVerificationTokenHash",
+            "confirmationToken"
         ]
     },
     uncaughtExceptions: true,
