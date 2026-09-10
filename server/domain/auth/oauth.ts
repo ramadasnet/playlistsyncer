@@ -1,7 +1,7 @@
 import {createHash, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
-import type {Provider} from "~~/shared/types/domain"
+import type {Provider, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
@@ -91,6 +91,29 @@ async function exchangeCode(provider: Provider, code: string, codeVerifier: stri
     return {token, definition}
 }
 
+export function hasVerifiedProviderEmail(profile: Pick<OAuthProfile, "email" | "emailVerified">): boolean {
+    return Boolean(profile.email?.trim() && profile.emailVerified)
+}
+
+export function newUserFromOAuthProfile(profile: OAuthProfile, now: Date): UserDocument {
+    const email = hasVerifiedProviderEmail(profile) ? profile.email!.trim().toLowerCase() : undefined
+    return {
+        ...(email ? {email} : {}),
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+        tier: "free",
+        createdAt: now,
+        updatedAt: now
+    }
+}
+
+export function oauthRedirectAfterLogin(
+    user: Pick<UserDocument, "email" | "tempEmail">,
+    redirectAfter: string
+): string {
+    return user.email || user.tempEmail ? redirectAfter : "/account"
+}
+
 async function findOrCreateUser(profile: OAuthProfile, linkingUserId?: ObjectId) {
     const db = await collections()
     if (linkingUserId) {
@@ -106,27 +129,58 @@ async function findOrCreateUser(profile: OAuthProfile, linkingUserId?: ObjectId)
         logger.info("OAuth.findOrCreateUser", `Linking existing user ${linkingUserId.toHexString()}`)
         return linkedUser
     }
-    if (!profile.email || !profile.emailVerified) {
-        logger.warn("OAuth.findOrCreateUser", `Provider account ${profile.id}`, "Verified email is unavailable")
-        throw createError({statusCode: 400, statusMessage: "A verified provider email is required for registration"})
-    }
-    const email = profile.email.trim().toLowerCase()
-    const existingUser = await db.users.findOne({email})
-    if (existingUser) {
-        logger.info("OAuth.findOrCreateUser", `Matched existing user ${existingUser._id!.toHexString()}`)
-        return existingUser
+    if (hasVerifiedProviderEmail(profile)) {
+        const email = profile.email!.trim().toLowerCase()
+        const existingUser = await db.users.findOne({email})
+        if (existingUser) {
+            logger.info("OAuth.findOrCreateUser", `Matched existing user ${existingUser._id!.toHexString()}`)
+            return existingUser
+        }
+    } else {
+        logger.info("OAuth.findOrCreateUser", `Provider account ${profile.id}`, "Provider email unavailable")
     }
     const now = new Date()
-    const result = await db.users.insertOne({
-        email,
-        displayName: profile.displayName,
-        avatarUrl: profile.avatarUrl,
-        tier: "free",
-        createdAt: now,
-        updatedAt: now
-    })
-    logger.info("OAuth.findOrCreateUser", `Created user ${result.insertedId.toHexString()}`)
+    const result = await db.users.insertOne(newUserFromOAuthProfile(profile, now))
+    logger.info(
+        "OAuth.findOrCreateUser",
+        `Created user ${result.insertedId.toHexString()}`,
+        hasVerifiedProviderEmail(profile) ? "Login completed" : "Email capture required"
+    )
     return db.users.findOne({_id: result.insertedId}).then((user) => user!)
+}
+
+async function assignVerifiedProviderEmail(user: UserDocument, profile: OAuthProfile): Promise<UserDocument> {
+    if (user.email || !hasVerifiedProviderEmail(profile)) {
+        return user
+    }
+    const email = profile.email!.trim().toLowerCase()
+    const db = await collections()
+    const taken = await db.users.findOne({email})
+    if (taken) {
+        return user
+    }
+    try {
+        const now = new Date()
+        await db.users.updateOne(
+            {_id: user._id},
+            {
+                $set: {email, updatedAt: now},
+                $unset: {
+                    tempEmail: "" as const,
+                    emailVerificationTokenHash: "" as const,
+                    emailVerificationExpiresAt: "" as const,
+                    emailConfirmationSentAt: "" as const
+                }
+            }
+        )
+        logger.info("OAuth.assignEmail", `User ${user._id!.toHexString()}`, "Assigned verified provider email")
+        return {...user, email, tempEmail: undefined}
+    } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === 11000) {
+            return user
+        }
+        throw error
+    }
 }
 
 export async function finishOAuth(event: H3Event, provider: Provider, code: string, state: string): Promise<string> {
@@ -156,9 +210,10 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         )
         throw createError({statusCode: 409, statusMessage: "This provider account is already linked to another user"})
     }
-    const user = conflictingAccount
+    let user: UserDocument = conflictingAccount
         ? await db.users.findOne({_id: conflictingAccount.userId}).then((value) => value!)
         : await findOrCreateUser(profile, transaction.linkingUserId)
+    user = await assignVerifiedProviderEmail(user, profile)
     const now = new Date()
     await db.providerAccounts.updateOne(
         {provider, externalAccountId: profile.id},
@@ -186,5 +241,5 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         `Provider account ${profile.id}`,
         transaction.linkingUserId ? "Account linked" : "Login completed"
     )
-    return transaction.redirectAfter
+    return oauthRedirectAfterLogin(user, transaction.redirectAfter)
 }

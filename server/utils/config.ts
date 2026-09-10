@@ -11,6 +11,10 @@ const emailList = z.preprocess(
             : value,
     z.array(z.email().transform((email) => email.toLowerCase())).default([])
 )
+const optionalPort = z.preprocess(
+    (value) => (value === "" || value === undefined || value === null ? 587 : value),
+    z.coerce.number().int().min(1).max(65535)
+)
 const appUrl = z
     .string()
     .url()
@@ -40,7 +44,12 @@ const serverConfigSchema = z.object({
     creemWebhookSecret: optionalCredential,
     creemProProductId: optionalCredential,
     creemServer: z.enum(["test", "prod"]).default("test"),
-    developmentProUserEmails: emailList
+    developmentProUserEmails: emailList,
+    smtpHost: optionalCredential,
+    smtpPort: optionalPort,
+    smtpUser: optionalCredential,
+    smtpPassword: optionalCredential,
+    smtpFrom: optionalCredential
 })
 
 export type ServerConfig = z.infer<typeof serverConfigSchema>
@@ -77,7 +86,12 @@ export function getServerConfig(): ServerConfig {
             creemWebhookSecret: process.env.CREEM_WEBHOOK_SECRET,
             creemProProductId: process.env.CREEM_PRO_PRODUCT_ID,
             creemServer: process.env.CREEM_SERVER,
-            developmentProUserEmails: process.env.DEVELOPMENT_PRO_USER_EMAILS
+            developmentProUserEmails: process.env.DEVELOPMENT_PRO_USER_EMAILS,
+            smtpHost: process.env.SMTP_HOST,
+            smtpPort: process.env.SMTP_PORT,
+            smtpUser: process.env.SMTP_USER,
+            smtpPassword: process.env.SMTP_PASSWORD,
+            smtpFrom: process.env.SMTP_FROM
         })
     }
 

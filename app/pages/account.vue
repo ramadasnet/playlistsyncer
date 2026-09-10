@@ -1,17 +1,55 @@
 <script setup lang="ts">
-import {ArrowUpRight, CheckCircle2, CreditCard, Link2, LoaderCircle, Plus} from "lucide-vue-next"
-import type {ConnectedAccount} from "~/types/api"
+import {ArrowUpRight, CheckCircle2, CircleAlert, CreditCard, Link2, LoaderCircle, Plus} from "lucide-vue-next"
+import type {ConnectedAccount, SessionUser} from "~/types/api"
 import type {Provider} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
 
 const auth = useAuthStore()
+const route = useRoute()
 const {enabledProviders} = await useEnabledProviders()
 const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/accounts", {
     query: {includePlaylistCount: "true"}
 })
 const busy = ref(false)
+const emailBusy = ref(false)
 const errorMessage = ref("")
+const successMessage = ref(route.query.email === "confirmed" ? "Your email address is confirmed." : "")
+const emailInput = ref(auth.user?.tempEmail || "")
+const devConfirmationUrl = ref("")
+
+const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
+const pendingEmail = computed(() => Boolean(auth.user?.tempEmail && !auth.user?.email))
+const resendSameEmail = computed(
+    () => pendingEmail.value && emailInput.value.trim().toLowerCase() === auth.user?.tempEmail
+)
+
+watch(
+    () => data.value?.accounts,
+    (accounts) => {
+        if (emailInput.value || auth.user?.email) {
+            return
+        }
+        const fromProvider = accounts?.find((account) => account.email)?.email
+        if (fromProvider) {
+            emailInput.value = fromProvider
+        }
+    },
+    {immediate: true}
+)
+
+function statusMessage(error: unknown, fallback: string): string {
+    if (error && typeof error === "object" && "data" in error) {
+        const data = (error as {data?: {statusMessage?: string}}).data
+        if (data?.statusMessage) {
+            return data.statusMessage
+        }
+    }
+    if (error instanceof Error && error.message) {
+        return error.message
+    }
+    return fallback
+}
 
 async function openBilling(path: "checkout" | "portal") {
     busy.value = true
@@ -20,9 +58,36 @@ async function openBilling(path: "checkout" | "portal") {
         const result = await $fetch<{url: string}>(`/api/billing/${path}`, {method: "POST"})
         await navigateTo(result.url, {external: true})
     } catch (error) {
-        errorMessage.value = error instanceof Error ? error.message : "Billing could not be opened"
+        errorMessage.value = statusMessage(error, "Billing could not be opened")
     } finally {
         busy.value = false
+    }
+}
+
+async function saveEmail() {
+    emailBusy.value = true
+    errorMessage.value = ""
+    successMessage.value = ""
+    devConfirmationUrl.value = ""
+    try {
+        const result = await $fetch<{
+            user: SessionUser
+            sent: boolean
+            devConfirmationUrl?: string
+        }>("/api/me/email", {
+            method: "POST",
+            body: {email: emailInput.value}
+        })
+        auth.setUser(result.user)
+        emailInput.value = result.user.tempEmail || emailInput.value
+        devConfirmationUrl.value = result.devConfirmationUrl || ""
+        successMessage.value = result.sent
+            ? "Confirmation email sent. Check your inbox to finish adding this address."
+            : "Email saved. Confirm it from the link we sent, or use the development link if mail is not configured."
+    } catch (error) {
+        errorMessage.value = statusMessage(error, "The email address could not be saved")
+    } finally {
+        emailBusy.value = false
     }
 }
 
@@ -45,6 +110,16 @@ onMounted(() => refresh())
             description="Manage the identities, services, and plan behind your synchronization tasks."
         />
 
+        <div v-if="needsEmail" class="notice" role="status">
+            Your music service did not share an email address. Add one below to finish setting up your account.
+        </div>
+        <div v-else-if="pendingEmail" class="notice" role="status">
+            Confirm {{ auth.user?.tempEmail }} from the link we sent. You can send another link below.
+        </div>
+        <div v-if="successMessage" class="notice notice-success" role="status">
+            <span>{{ successMessage }}</span>
+            <a v-if="devConfirmationUrl" :href="devConfirmationUrl">Confirm email</a>
+        </div>
         <div v-if="errorMessage" class="notice notice-error" role="alert">{{ errorMessage }}</div>
 
         <section class="settings-section" aria-labelledby="profile-heading">
@@ -64,10 +139,35 @@ onMounted(() => refresh())
                 <span v-else class="avatar-fallback">{{ auth.user?.displayName.slice(0, 1).toUpperCase() }}</span>
                 <div>
                     <strong>{{ auth.user?.displayName }}</strong
-                    ><span>{{ auth.user?.email }}</span>
+                    ><span v-if="auth.user?.email">{{ auth.user.email }}</span>
+                    <span v-else-if="auth.user?.tempEmail">Pending confirmation: {{ auth.user.tempEmail }}</span>
+                    <span v-else>No email address yet</span>
                 </div>
-                <CheckCircle2 :size="20" class="success-icon" aria-label="Verified account" />
+                <CheckCircle2
+                    v-if="auth.user?.email"
+                    :size="20"
+                    class="success-icon"
+                    aria-label="Confirmed email address"
+                />
+                <CircleAlert v-else :size="20" class="warning-icon" aria-label="Email address required" />
             </div>
+            <form v-if="!auth.user?.email" class="email-capture" @submit.prevent="saveEmail">
+                <label>
+                    <span>{{ pendingEmail ? "Email address to confirm" : "Email address" }}</span>
+                    <input
+                        v-model="emailInput"
+                        type="email"
+                        name="email"
+                        autocomplete="email"
+                        required
+                        :disabled="emailBusy"
+                    />
+                </label>
+                <button class="button button-primary" type="submit" :disabled="emailBusy || !emailInput.trim()">
+                    <LoaderCircle v-if="emailBusy" class="spin" :size="17" />
+                    {{ resendSameEmail ? "Resend confirmation" : "Save and send confirmation" }}
+                </button>
+            </form>
         </section>
 
         <section class="settings-section" aria-labelledby="connections-heading">
@@ -125,11 +225,13 @@ onMounted(() => refresh())
                     }}</strong>
                     <p>
                         {{
-                            auth.user?.developmentProOverride
-                                ? "PRO features are enabled by a local development override. No paid subscription is active."
-                                : auth.user?.tier === "pro"
-                                  ? "Unlimited pairs · sync every 12 hours"
-                                  : "One pair · sync every week"
+                            !auth.user?.email
+                                ? "Confirm an email address before upgrading."
+                                : auth.user?.developmentProOverride
+                                  ? "PRO features are enabled by a local development override. No paid subscription is active."
+                                  : auth.user?.tier === "pro"
+                                    ? "Unlimited pairs · sync every 12 hours"
+                                    : "One pair · sync every week"
                         }}
                     </p>
                 </div>
@@ -146,7 +248,7 @@ onMounted(() => refresh())
                     v-else
                     class="button button-primary"
                     type="button"
-                    :disabled="busy"
+                    :disabled="busy || !auth.user?.email"
                     @click="openBilling('checkout')"
                 >
                     <LoaderCircle v-if="busy" class="spin" :size="17" /> Upgrade to PRO

@@ -637,6 +637,12 @@ main {
     border-color: var(--danger);
     background: #fff0ef;
 }
+.notice-success {
+    justify-content: flex-start;
+    color: #155437;
+    border-color: var(--green);
+    background: #eef8e8;
+}
 .settings-section {
     margin-top: 24px;
     border: 1px solid var(--line);
@@ -686,6 +692,52 @@ main {
 }
 .success-icon {
     color: var(--green);
+}
+.warning-icon {
+    color: var(--coral);
+}
+.email-capture {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: end;
+    padding: 0 28px 28px;
+}
+.email-capture label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-width: min(100%, 260px);
+}
+.email-capture label > span {
+    font-family: "DM Mono", monospace;
+    font-size: 0.69rem;
+    text-transform: uppercase;
+}
+.email-capture input[type="email"] {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font: inherit;
+    background: var(--white);
+}
+.confirm-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+    padding: 28px;
+}
+.confirm-copy p {
+    margin: 0;
+    max-width: 42rem;
+}
+.confirm-copy .notice {
+    width: 100%;
+    margin: 0;
 }
 .connection-row {
     min-height: 86px;
@@ -1093,7 +1145,9 @@ select {
     .settings-heading,
     .profile-line,
     .connection-row,
-    .billing-copy {
+    .billing-copy,
+    .email-capture,
+    .confirm-copy {
         padding-inline: 20px;
     }
     .connection-row {

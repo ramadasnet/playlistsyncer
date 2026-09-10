@@ -47,8 +47,21 @@ export async function collections(): Promise<{
 
 export async function ensureIndexes(): Promise<void> {
     const db = await collections()
+    let emailIndex: {name?: string; sparse?: boolean} | undefined
+    try {
+        emailIndex = (await db.users.indexes()).find((index) => index.name === "email_1")
+    } catch (error) {
+        if (!(error && typeof error === "object" && "code" in error && error.code === 26)) {
+            throw error
+        }
+    }
+    if (emailIndex && emailIndex.sparse !== true) {
+        await db.users.dropIndex("email_1")
+    }
     await Promise.all([
-        db.users.createIndex({email: 1}, {unique: true}),
+        db.users.createIndex({email: 1}, {unique: true, sparse: true}),
+        db.users.createIndex({tempEmail: 1}, {unique: true, sparse: true}),
+        db.users.createIndex({emailVerificationTokenHash: 1}, {sparse: true}),
         db.providerAccounts.createIndex({provider: 1, externalAccountId: 1}, {unique: true}),
         db.providerAccounts.createIndex({userId: 1, provider: 1}),
         db.sessions.createIndex({tokenHash: 1}, {unique: true}),

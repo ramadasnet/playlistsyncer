@@ -2,7 +2,15 @@
 import {ArrowRight, LockKeyhole} from "lucide-vue-next"
 import type {Provider} from "~~/shared/types/domain"
 
-definePageMeta({middleware: () => (useAuthStore().user ? navigateTo("/sync") : undefined)})
+definePageMeta({
+    middleware: () => {
+        const user = useAuthStore().user
+        if (!user) {
+            return
+        }
+        return navigateTo(user.email || user.tempEmail ? "/sync" : "/account")
+    }
+})
 
 const {enabledProviders} = await useEnabledProviders()
 
@@ -33,7 +41,10 @@ const providerDetails: Record<Provider, string> = {
             <div>
                 <p class="eyebrow">Registration and login</p>
                 <h2 id="sign-in-title">Continue with a provider</h2>
-                <p>When verified emails match, provider identities join the same account.</p>
+                <p>
+                    When verified emails match, provider identities join the same account. If a provider does not share
+                    an email, you will add one from your account page.
+                </p>
             </div>
             <div class="login-list">
                 <a
