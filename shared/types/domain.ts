@@ -22,13 +22,11 @@ export const providerDisplayNames: Record<Provider, string> = {
     amazon: "Amazon Music"
 }
 
-export function isProviderEnabled(provider: Provider) {
+export function isProviderFlagEnabled(provider: Provider) {
     return !providerFlags[provider].disabled
 }
 
-export const enabledProviders = providers.filter(isProviderEnabled)
-
-export function formatProviderNames(list: readonly Provider[] = enabledProviders) {
+export function formatProviderNames(list: readonly Provider[]) {
     const names = list.map((provider) => providerDisplayNames[provider])
     if (names.length <= 1) {
         return names[0] ?? ""
@@ -52,7 +50,11 @@ export function resolvedTaskDirection(task: {mode?: SyncTaskMode; direction?: Sy
 
 export interface UserDocument {
     _id?: ObjectId
-    email: string
+    email?: string
+    tempEmail?: string
+    emailVerificationTokenHash?: string
+    emailVerificationExpiresAt?: Date
+    emailConfirmationSentAt?: Date
     displayName: string
     avatarUrl?: string
     tier: AccountTier

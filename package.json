@@ -21,6 +21,7 @@
         "creem": "^1.6.1",
         "lucide-vue-next": "^1.0.0",
         "mongodb": "^7.6.0",
+        "nodemailer": "^10.0.1",
         "nuxt": "^4.5.2",
         "oauth4webapi": "^3.8.7",
         "pinia": "^4.0.3",
@@ -30,6 +31,7 @@
     },
     "devDependencies": {
         "@types/node": "^26.4.0",
+        "@types/nodemailer": "^8.0.1",
         "prettier": "^3.9.6",
         "typescript": "6",
         "vue-tsc": "^3.3.11"

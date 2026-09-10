@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import {ArrowRight, Check, RefreshCw, ShieldCheck} from "lucide-vue-next"
-import {enabledProviders, formatProviderNames} from "~~/shared/types/domain"
+import {formatProviderNames} from "~~/shared/types/domain"
 
 const config = useRuntimeConfig()
 const auth = useAuthStore()
+const {enabledProviders} = await useEnabledProviders()
 const features = [
     ["Playlist pairs", "1", "Unlimited"],
     ["Automatic cadence", "Weekly", "Every 12 hours"],
@@ -90,9 +91,11 @@ const features = [
             <div>
                 <p class="eyebrow">Provider support</p>
                 <h2>Built on authorized connections</h2>
-                <p>{{ formatProviderNames() }} use their official playlist APIs.</p>
+                <p v-if="enabledProviders.length">
+                    {{ formatProviderNames(enabledProviders) }} use their official playlist APIs.
+                </p>
             </div>
-            <div class="provider-stack">
+            <div v-if="enabledProviders.length" class="provider-stack">
                 <ProviderBadge v-for="provider in enabledProviders" :key="provider" :provider="provider" />
             </div>
             <ShieldCheck :size="44" aria-hidden="true" />

@@ -9,6 +9,8 @@ describe("server configuration", () => {
         expect(config.tokenEncryptionKey).toBeUndefined()
         expect(config.mongodbDatabase).toBe("playlistsync")
         expect(config.creemServer).toBe("test")
+        expect(config.smtpHost).toBeUndefined()
+        expect(config.smtpPort).toBe(587)
     })
 
     test("accepts Creem production configuration", () => {

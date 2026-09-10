@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import {ArrowRight, Check, RefreshCw} from "lucide-vue-next"
-import {enabledProviders, formatProviderNames} from "~~/shared/types/domain"
+import {formatProviderNames} from "~~/shared/types/domain"
+
+const {enabledProviders} = await useEnabledProviders()
 
 useSeoMeta({
     title: "PlaylistSyncer · Two-way and one-way playlist syncing",
-    description: `Keep playlists aligned across ${formatProviderNames()}, two-way or with a master playlist.`
+    description: () => {
+        const names = formatProviderNames(enabledProviders.value)
+        return names
+            ? `Keep playlists aligned across ${names}, two-way or with a master playlist.`
+            : "Keep one listening life across every music service."
+    }
 })
 
 const auth = useAuthStore()
@@ -27,7 +34,7 @@ const auth = useAuthStore()
                 </NuxtLink>
                 <NuxtLink class="button button-ghost-light" to="/features">Compare plans</NuxtLink>
             </div>
-            <div class="provider-row" aria-label="Supported providers">
+            <div v-if="enabledProviders.length" class="provider-row" aria-label="Supported providers">
                 <ProviderBadge v-for="provider in enabledProviders" :key="provider" :provider="provider" />
             </div>
         </div>

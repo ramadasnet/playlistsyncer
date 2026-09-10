@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import {AlertTriangle, ArrowRight, CirclePause, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
 import type {ConnectedAccount, PlaylistSummary, SyncTaskSummary} from "~/types/api"
-import {isProviderEnabled, type SyncTaskDirection} from "~~/shared/types/domain"
+import type {SyncTaskDirection} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
 
 const auth = useAuthStore()
+const {isProviderEnabled} = await useEnabledProviders()
 const {data: accountData} = await useFetch<{accounts: ConnectedAccount[]}>("/api/accounts")
 const {data: taskData, refresh: refreshTasks} = await useFetch<{tasks: SyncTaskSummary[]}>("/api/tasks")
 const showCreate = ref(false)
