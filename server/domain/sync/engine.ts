@@ -7,12 +7,13 @@ import type {
     SyncRunTrackReference,
     SyncTaskDocument
 } from "~~/shared/types/domain"
+import {resolvedTaskDirection} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {resolveEntitlement} from "../billing/entitlement"
 import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
 import {trackMatchingVersion} from "../providers/matching"
-import {commonTracks, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
+import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
 
 const leaseDurationMs = 15 * 60 * 1000
 
@@ -182,12 +183,19 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         db.syncSnapshots.findOne({taskId: task._id!})
     ])
     const currentSnapshot = snapshot?.matchingVersion === trackMatchingVersion ? snapshot : null
+    const oneWay = resolvedTaskDirection(task) === "one-way"
     logger.info(
         "Sync.execute",
         `Task ${task._id!.toHexString()}`,
         `${sourceAccount.provider} items ${sourceItems.length}`,
         `${destinationAccount.provider} items ${destinationItems.length}`,
-        currentSnapshot ? "Reconciliation run" : snapshot ? "Matching upgrade run" : "Initial run"
+        currentSnapshot
+            ? oneWay
+                ? "Mirror run"
+                : "Reconciliation run"
+            : snapshot
+              ? "Matching upgrade run"
+              : "Initial run"
     )
 
     let sourceResult = {additions: 0, removals: 0, skipped: 0, aliases: [] as {trackId: string; canonicalKey: string}[]}
@@ -199,11 +207,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     }
     let conflicts: string[] = []
     if (!currentSnapshot) {
-        const desired = [...countTracks(sourceItems)].map(([key, occurrences]) => ({
-            key,
-            count: occurrences.length,
-            reference: occurrences[0]!
-        }))
+        const desired = reconcileOneWay(sourceItems).desired
         if (destinationItems.length) {
             const byItemId = new Map(destinationItems.map((track) => [track.itemId, track]))
             await destinationAdapter.removePlaylistItems(
@@ -235,33 +239,41 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     } else {
         const sourceAliases = aliasMap(currentSnapshot.sourceItems)
         const destinationAliases = aliasMap(currentSnapshot.destinationItems)
-        const baseline = commonTracks(
-            currentSnapshot.sourceItems.map(fromCanonical),
-            currentSnapshot.destinationItems.map(fromCanonical)
-        )
-        const reconciliation = reconcileThreeWay(
-            baseline,
-            applyAliases(sourceItems, sourceAliases),
-            applyAliases(destinationItems, destinationAliases)
-        )
-        conflicts = reconciliation.conflicts
-        if (conflicts.length) {
-            logger.warn("Sync.reconcile", `Task ${task._id!.toHexString()}`, `Conflicts ${conflicts.length}`)
+        const aliasedSource = applyAliases(sourceItems, sourceAliases)
+        const aliasedDestination = applyAliases(destinationItems, destinationAliases)
+        if (oneWay) {
+            destinationResult = await applyDesired(
+                destinationAccount,
+                task.destination.playlistId,
+                aliasedDestination,
+                reconcileOneWay(aliasedSource).desired,
+                recordChanges
+            )
+        } else {
+            const baseline = commonTracks(
+                currentSnapshot.sourceItems.map(fromCanonical),
+                currentSnapshot.destinationItems.map(fromCanonical)
+            )
+            const reconciliation = reconcileThreeWay(baseline, aliasedSource, aliasedDestination)
+            conflicts = reconciliation.conflicts
+            if (conflicts.length) {
+                logger.warn("Sync.reconcile", `Task ${task._id!.toHexString()}`, `Conflicts ${conflicts.length}`)
+            }
+            sourceResult = await applyDesired(
+                sourceAccount,
+                task.source.playlistId,
+                aliasedSource,
+                reconciliation.desired,
+                recordChanges
+            )
+            destinationResult = await applyDesired(
+                destinationAccount,
+                task.destination.playlistId,
+                aliasedDestination,
+                reconciliation.desired,
+                recordChanges
+            )
         }
-        sourceResult = await applyDesired(
-            sourceAccount,
-            task.source.playlistId,
-            applyAliases(sourceItems, sourceAliases),
-            reconciliation.desired,
-            recordChanges
-        )
-        destinationResult = await applyDesired(
-            destinationAccount,
-            task.destination.playlistId,
-            applyAliases(destinationItems, destinationAliases),
-            reconciliation.desired,
-            recordChanges
-        )
     }
 
     const [verifiedSource, verifiedDestination] = await Promise.all([
@@ -319,12 +331,13 @@ async function mirrorPlaylist(
         sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylistId),
         destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylistId)
     ])
-    const desired = [...countTracks(sourceItems)].map(([key, occurrences]) => ({
-        key,
-        count: occurrences.length,
-        reference: occurrences[0]!
-    }))
-    return applyDesired(destinationAccount, destinationPlaylistId, destinationItems, desired, recordChanges)
+    return applyDesired(
+        destinationAccount,
+        destinationPlaylistId,
+        destinationItems,
+        reconcileOneWay(sourceItems).desired,
+        recordChanges
+    )
 }
 
 async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrackChanges) {

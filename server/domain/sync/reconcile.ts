@@ -49,6 +49,17 @@ export function commonTracks(source: ProviderTrack[], destination: ProviderTrack
     })
 }
 
+export function reconcileOneWay(source: ProviderTrack[]): ReconciliationResult {
+    return {
+        desired: [...counts(source)].map(([key, value]) => ({
+            key,
+            count: value.count,
+            reference: value.reference
+        })),
+        conflicts: []
+    }
+}
+
 export function reconcileThreeWay(
     baseline: ProviderTrack[],
     source: ProviderTrack[],

@@ -6,9 +6,11 @@ import {getProviderAdapter} from "../../domain/providers"
 import {runSyncTask} from "../../domain/sync/engine"
 import logger from "../../utils/logger"
 import {parseObjectId} from "../../utils/object-id"
+import type {SyncTaskDirection} from "~~/shared/types/domain"
 
 const taskSchema = z.object({
     mode: z.enum(["playlist", "account"]).default("playlist"),
+    direction: z.enum(["two-way", "one-way"]).default("two-way"),
     source: z.object({accountId: z.string(), playlistId: z.string().min(1), name: z.string().min(1).max(200)}),
     destination: z.object({
         accountId: z.string(),
@@ -53,10 +55,12 @@ export default defineEventHandler(async (event) => {
         )
         destinationPlaylistId = playlist.id
     }
+    const direction: SyncTaskDirection = body.mode === "account" ? "one-way" : body.direction
     const now = new Date()
     const result = await db.syncTasks.insertOne({
         userId: user._id!,
         mode: body.mode,
+        direction,
         source: {providerAccountId: sourceAccountId, playlistId: body.source.playlistId, name: body.source.name},
         destination: {
             providerAccountId: destinationAccountId,
@@ -72,7 +76,8 @@ export default defineEventHandler(async (event) => {
         "Tasks.create",
         `Task ${result.insertedId.toHexString()}`,
         `User ${user._id!.toHexString()}`,
-        `${accounts[0]!.provider} to ${accounts[1]!.provider}`
+        `${accounts[0]!.provider} to ${accounts[1]!.provider}`,
+        direction
     )
     event.waitUntil(
         runSyncTask(result.insertedId, "created").catch((error) => {

@@ -1,11 +1,11 @@
 # PlaylistSyncer (ALPHA / WIP!!!)
 
-A Nuxt 4 and Bun service for two-way playlist synchronization across Spotify, Amazon Music, YouTube Music, and TIDAL. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
+A Nuxt 4 and Bun service for two-way and one-way playlist synchronization across Spotify, Amazon Music, YouTube Music, and TIDAL. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
 
 ## Product behavior
 
 - Sign in with Spotify, Login with Amazon, Google/YouTube, or TIDAL and link additional provider identities to the same account.
-- Synchronize one selected playlist bidirectionally between two providers.
+- Synchronize one selected playlist between two providers, either two-way or with the first playlist as master.
 - Mirror every playlist from one provider account to another with durable source/destination mappings.
 - Create, pause, run, inspect, and delete synchronization tasks from the authenticated application.
 - Use Creem-hosted Checkout and Customer Portal flows for PRO subscriptions.
@@ -31,13 +31,17 @@ Indexes enforce unique users, provider identities, sessions, OAuth states, snaps
 
 ### Playlist pairs
 
-The first run treats the selected source playlist as authoritative, replaces the destination contents, and stores both resulting playlists as the common baseline. Later runs compare both current playlists with that baseline:
+The first run treats the selected source playlist as authoritative, replaces the destination contents, and stores both resulting playlists as the common baseline.
+
+Two-way tasks then compare both current playlists with that baseline:
 
 - A change made on only one side is propagated to the other.
 - The same change made on both sides is accepted.
 - Contradictory changes preserve the larger occurrence count, are recorded as conflicts, and leave the task in `needs_attention`.
 - Duplicate track occurrences are counted and preserved where the provider permits them.
 - Tracks that cannot be matched in the other provider's catalog are skipped and make the run partial rather than applying a low-confidence result.
+
+One-way tasks keep the first selected playlist as the master. Later runs copy that membership onto the second playlist only: additions and removals on the master are mirrored, extra tracks on the destination are removed, and the master is never rewritten.
 
 After mutations, both playlists are read again and the verified state becomes the next baseline. Ordering is not currently reconciled; synchronization preserves track membership and duplicate counts.
 

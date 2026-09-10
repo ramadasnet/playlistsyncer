@@ -1,6 +1,47 @@
 import {describe, expect, test} from "bun:test"
-import {commonTracks, reconcileThreeWay, trackKey} from "../server/domain/sync/reconcile"
+import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey} from "../server/domain/sync/reconcile"
 import type {ProviderTrack} from "../server/domain/providers"
+import {resolvedTaskDirection} from "../shared/types/domain"
+
+function track(title: string, itemId = title): ProviderTrack {
+    return {itemId, trackId: title, title, artists: ["Artist"], durationMs: 180_000}
+}
+
+describe("one-way playlist mirroring", () => {
+    test("uses the source playlist as the desired membership", () => {
+        const kept = track("Kept")
+        const added = track("Added")
+        const result = reconcileOneWay([kept, added, track("Kept", "duplicate")])
+
+        expect(result.conflicts).toEqual([])
+        expect(result.desired.find((item) => item.key === trackKey(kept))?.count).toBe(2)
+        expect(result.desired.map((item) => item.key)).toContain(trackKey(added))
+    })
+
+    test("omits tracks that exist only on the destination", () => {
+        const master = track("Master")
+        const result = reconcileOneWay([master])
+
+        expect(result.desired).toHaveLength(1)
+        expect(result.desired[0]?.key).toBe(trackKey(master))
+    })
+})
+
+describe("task direction defaults", () => {
+    test("treats missing playlist tasks as two-way", () => {
+        expect(resolvedTaskDirection({})).toBe("two-way")
+        expect(resolvedTaskDirection({mode: "playlist"})).toBe("two-way")
+    })
+
+    test("treats missing account tasks as one-way", () => {
+        expect(resolvedTaskDirection({mode: "account"})).toBe("one-way")
+    })
+
+    test("preserves an explicit direction", () => {
+        expect(resolvedTaskDirection({mode: "playlist", direction: "one-way"})).toBe("one-way")
+        expect(resolvedTaskDirection({mode: "account", direction: "two-way"})).toBe("two-way")
+    })
+})
 
 function track(title: string, itemId = title): ProviderTrack {
     return {itemId, trackId: title, title, artists: ["Artist"], durationMs: 180_000}

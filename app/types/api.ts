@@ -1,4 +1,11 @@
-import type {AccountTier, Provider, SyncRunStatus, SyncTaskMode, SyncTaskStatus} from "~~/shared/types/domain"
+import type {
+    AccountTier,
+    Provider,
+    SyncRunStatus,
+    SyncTaskDirection,
+    SyncTaskMode,
+    SyncTaskStatus
+} from "~~/shared/types/domain"
 
 export interface SessionUser {
     id: string
@@ -31,6 +38,7 @@ export interface PlaylistSummary {
 export interface SyncTaskSummary {
     id: string
     mode?: SyncTaskMode
+    direction: SyncTaskDirection
     source: {providerAccountId: string; playlistId: string; name: string}
     destination: {providerAccountId: string; playlistId: string; name: string}
     status: SyncTaskStatus

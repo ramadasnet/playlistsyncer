@@ -41,8 +41,14 @@ export function formatProviderNames(list: readonly Provider[] = enabledProviders
 
 export type AccountTier = "free" | "pro"
 export type SyncTaskMode = "playlist" | "account"
+export type SyncTaskDirection = "two-way" | "one-way"
 export type SyncTaskStatus = "active" | "paused" | "needs_attention"
 export type SyncRunStatus = "running" | "succeeded" | "partial" | "failed"
+
+export function resolvedTaskDirection(task: {mode?: SyncTaskMode; direction?: SyncTaskDirection}): SyncTaskDirection {
+    if (task.direction) return task.direction
+    return task.mode === "account" ? "one-way" : "two-way"
+}
 
 export interface UserDocument {
     _id?: ObjectId
@@ -114,6 +120,7 @@ export interface SyncTaskDocument {
     _id?: ObjectId
     userId: ObjectId
     mode?: SyncTaskMode
+    direction?: SyncTaskDirection
     source: PlaylistReference
     destination: PlaylistReference
     playlistMappings?: PlaylistMapping[]

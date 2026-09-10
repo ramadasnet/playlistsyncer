@@ -368,6 +368,30 @@ main {
 .section-intro.compact {
     margin-bottom: 30px;
 }
+.mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 55px;
+    border: 1px solid var(--line);
+}
+.mode-panel {
+    padding: 36px 40px;
+}
+.mode-panel + .mode-panel {
+    border-left: 1px solid var(--line);
+}
+.mode-panel h2 {
+    margin: 0 0 12px;
+    font-size: 1.45rem;
+}
+.mode-panel p {
+    margin: 0;
+    color: var(--ink-soft);
+}
+.mode-panel svg {
+    margin-bottom: 18px;
+    color: var(--green);
+}
 .workflow-steps {
     margin: 0;
     padding: 0;
@@ -796,6 +820,51 @@ select {
     display: grid;
     place-items: center;
 }
+.direction-picker {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 0;
+    padding: 0 30px 24px;
+    border: 0;
+}
+.direction-option {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 100%;
+    padding: 16px 18px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.direction-option.selected {
+    border-color: var(--green-bright);
+    background: rgba(185, 244, 110, 0.14);
+}
+.direction-option.disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+.direction-option input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+}
+.direction-option strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.95rem;
+}
+.direction-option span {
+    color: rgba(255, 255, 255, 0.76);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
 .builder-footer {
     display: flex;
     align-items: center;
@@ -1059,6 +1128,16 @@ select {
         border-left: 0;
         border-top: 1px solid var(--line);
     }
+    .mode-grid {
+        grid-template-columns: 1fr;
+    }
+    .mode-panel {
+        padding: 30px 24px;
+    }
+    .mode-panel + .mode-panel {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+    }
     .comparison-row {
         grid-template-columns: 1.65fr 0.7fr 0.7fr;
         gap: 10px;
@@ -1121,6 +1200,9 @@ select {
     .builder-grid {
         grid-template-columns: 1fr;
         padding: 24px 20px;
+    }
+    .direction-picker {
+        padding-inline: 20px;
     }
     .builder-footer {
         align-items: stretch;

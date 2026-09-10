@@ -3,8 +3,8 @@ import {ArrowRight, Check, RefreshCw} from "lucide-vue-next"
 import {enabledProviders, formatProviderNames} from "~~/shared/types/domain"
 
 useSeoMeta({
-    title: "PlaylistSyncer · Two-way playlist syncing",
-    description: `Keep playlists aligned across ${formatProviderNames()}.`
+    title: "PlaylistSyncer · Two-way and one-way playlist syncing",
+    description: `Keep playlists aligned across ${formatProviderNames()}, two-way or with a master playlist.`
 })
 
 const auth = useAuthStore()
@@ -18,8 +18,8 @@ const auth = useAuthStore()
             <p class="eyebrow light">Cross-platform playlist sync</p>
             <h1>PlaylistSyncer</h1>
             <p class="hero-copy">
-                Keep one listening life across every music service. Add a track here, remove it there, and your paired
-                playlists settle the difference.
+                Keep one listening life across every music service. Sync two playlists so they stay equal, or make the
+                first playlist the master and let the second mirror it.
             </p>
             <div class="hero-actions">
                 <NuxtLink class="button button-primary" :to="auth.user ? '/sync' : '/login'">
@@ -39,8 +39,8 @@ const auth = useAuthStore()
                 <p class="eyebrow">A quieter way to move music</p>
                 <h2>Choose a pair. Keep listening.</h2>
                 <p>
-                    PlaylistSyncer records a shared baseline, then carries deliberate additions and removals in both
-                    directions.
+                    PlaylistSyncer can keep a pair in agreement both ways, or copy one playlist onto another. Choose the
+                    direction when you create the task.
                 </p>
             </div>
             <ol class="workflow-steps">
@@ -55,7 +55,7 @@ const auth = useAuthStore()
                     <span>02</span>
                     <div>
                         <strong>Pair</strong>
-                        <p>Select the two playlists that should agree.</p>
+                        <p>Select two playlists and whether they should agree both ways or follow a master.</p>
                     </div>
                 </li>
                 <li>
@@ -73,13 +73,15 @@ const auth = useAuthStore()
         <div class="shell proof-grid">
             <article>
                 <RefreshCw :size="26" />
-                <h3>Actually two-way</h3>
-                <p>Changes from either service are compared against the last successful baseline.</p>
+                <h3>Two-way or one-way</h3>
+                <p>
+                    Keep both playlists equal, or treat the first playlist as the master and mirror it onto the second.
+                </p>
             </article>
             <article>
                 <Check :size="26" />
                 <h3>No silent guesses</h3>
-                <p>Ambiguous track matches and contradictory edits are surfaced for review.</p>
+                <p>Ambiguous track matches and two-way conflicts are surfaced for review instead of being guessed.</p>
             </article>
             <aside class="pro-callout">
                 <p class="eyebrow light">PRO cadence</p>

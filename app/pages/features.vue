@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ArrowRight, Check, ShieldCheck} from "lucide-vue-next"
+import {ArrowRight, Check, RefreshCw, ShieldCheck} from "lucide-vue-next"
 import {enabledProviders, formatProviderNames} from "~~/shared/types/domain"
 
 const config = useRuntimeConfig()
@@ -7,7 +7,7 @@ const auth = useAuthStore()
 const features = [
     ["Playlist pairs", "1", "Unlimited"],
     ["Automatic cadence", "Weekly", "Every 12 hours"],
-    ["Two-way additions and removals", true, true],
+    ["Two-way or one-way sync", true, true],
     ["Manual sync", true, true],
     ["Run history and conflict visibility", true, true]
 ] as const
@@ -18,7 +18,7 @@ const features = [
         <PageHeading
             eyebrow="Plans and capabilities"
             title="Sync at the pace you listen"
-            description="Start with one dependable playlist pair. Go PRO when your library spans more services and moods."
+            description="Start with one playlist pair, two-way or one-way. Go PRO when your library spans more services and moods."
         />
 
         <section class="plan-grid" aria-label="Account plans">
@@ -26,7 +26,7 @@ const features = [
                 <p class="eyebrow">Free</p>
                 <h2>One essential pair</h2>
                 <p class="price">€0 <span>forever</span></p>
-                <p>Weekly background sync for the playlist you care about most.</p>
+                <p>Weekly background sync for the playlist you care about most, in either direction.</p>
                 <NuxtLink class="button button-secondary" :to="auth.user ? '/sync' : '/login'"
                     >Start free <ArrowRight :size="17"
                 /></NuxtLink>
@@ -39,6 +39,25 @@ const features = [
                 <NuxtLink class="button button-light" :to="auth.user ? '/account' : '/login'"
                     >Choose PRO <ArrowRight :size="17"
                 /></NuxtLink>
+            </article>
+        </section>
+
+        <section class="mode-grid" aria-label="Sync directions">
+            <article class="mode-panel">
+                <RefreshCw :size="26" />
+                <h2>Two-way</h2>
+                <p>
+                    Both playlists stay equal. Additions and removals on either service are compared with the last
+                    successful baseline and copied to the other side.
+                </p>
+            </article>
+            <article class="mode-panel">
+                <ArrowRight :size="26" />
+                <h2>One-way</h2>
+                <p>
+                    The first playlist you select is the master. The second playlist mirrors it: master changes are
+                    copied over, and the master is never rewritten.
+                </p>
             </article>
         </section>
 

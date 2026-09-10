@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {AlertTriangle, ArrowRight, CirclePause, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
 import type {ConnectedAccount, PlaylistSummary, SyncTaskSummary} from "~/types/api"
-import {isProviderEnabled} from "~~/shared/types/domain"
+import {isProviderEnabled, type SyncTaskDirection} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
 
@@ -13,6 +13,7 @@ const sourceAccountId = ref("")
 const destinationAccountId = ref("")
 const sourcePlaylistId = ref("")
 const destinationPlaylistId = ref("")
+const syncDirection = ref<SyncTaskDirection>("two-way")
 const sourcePlaylists = ref<PlaylistSummary[]>([])
 const destinationPlaylists = ref<PlaylistSummary[]>([])
 const taskBuilder = useTemplateRef<HTMLElement>("taskBuilder")
@@ -38,11 +39,18 @@ const tasks = computed(() =>
 )
 const canCreate = computed(() => accounts.value.length >= 2 && (auth.user?.tier === "pro" || tasks.value.length === 0))
 const syncAllPlaylists = computed(() => sourcePlaylistId.value === allPlaylistsId)
+const effectiveDirection = computed<SyncTaskDirection>({
+    get: () => (syncAllPlaylists.value ? "one-way" : syncDirection.value),
+    set: (value) => {
+        if (!syncAllPlaylists.value) syncDirection.value = value
+    }
+})
 const sourcePlaylist = computed(() => sourcePlaylists.value.find((playlist) => playlist.id === sourcePlaylistId.value))
 const destinationPlaylist = computed(() =>
     destinationPlaylists.value.find((playlist) => playlist.id === destinationPlaylistId.value)
 )
 const createDestinationPlaylist = computed(() => destinationPlaylistId.value === createPlaylistId)
+const oneWayLabels = computed(() => effectiveDirection.value === "one-way")
 const canSubmit = computed(
     () =>
         !!sourceAccountId.value &&
@@ -105,6 +113,7 @@ async function createTask() {
             method: "POST",
             body: {
                 mode: syncAllPlaylists.value ? "account" : "playlist",
+                direction: effectiveDirection.value,
                 source: {
                     accountId: sourceAccountId.value,
                     playlistId: syncAllPlaylists.value ? allPlaylistsId : sourcePlaylist.value!.id,
@@ -129,6 +138,7 @@ async function createTask() {
         showCreate.value = false
         sourceAccountId.value = ""
         destinationAccountId.value = ""
+        syncDirection.value = "two-way"
         await refreshTasks()
     } catch (error) {
         errorMessage.value = error instanceof Error ? error.message : "The sync task could not be created"
@@ -177,6 +187,10 @@ function runTitle(task: SyncTaskSummary) {
     const availableAt = manualSyncAvailableAt(task)
     return availableAt ? `Run available ${formatDate(availableAt.toISOString())}` : "Run now"
 }
+
+function isOneWay(task: SyncTaskSummary) {
+    return task.direction === "one-way"
+}
 </script>
 
 <template>
@@ -223,7 +237,7 @@ function runTitle(task: SyncTaskSummary) {
             </div>
             <div class="builder-grid">
                 <label
-                    ><span>Source account</span
+                    ><span>{{ oneWayLabels ? "Master account" : "Source account" }}</span
                     ><select v-model="sourceAccountId">
                         <option value="">Choose account</option>
                         <option v-for="account in accounts" :key="account.id" :value="account.id">
@@ -232,7 +246,7 @@ function runTitle(task: SyncTaskSummary) {
                     </select></label
                 >
                 <label
-                    ><span>Source playlist</span
+                    ><span>{{ oneWayLabels ? "Master playlist" : "Source playlist" }}</span
                     ><select v-model="sourcePlaylistId" :disabled="!sourceAccountId || loadingPlaylists">
                         <option value="">Choose playlist</option>
                         <option :value="allPlaylistsId" :disabled="auth.user?.tier !== 'pro'">
@@ -243,9 +257,12 @@ function runTitle(task: SyncTaskSummary) {
                         </option>
                     </select></label
                 >
-                <div class="builder-arrow"><ArrowRight :size="22" /></div>
+                <div class="builder-arrow">
+                    <RefreshCw v-if="effectiveDirection === 'two-way'" :size="22" />
+                    <ArrowRight v-else :size="22" />
+                </div>
                 <label
-                    ><span>Destination account</span
+                    ><span>{{ oneWayLabels ? "Mirror account" : "Destination account" }}</span
                     ><select v-model="destinationAccountId">
                         <option value="">Choose account</option>
                         <option
@@ -258,12 +275,12 @@ function runTitle(task: SyncTaskSummary) {
                     </select></label
                 >
                 <label
-                    ><span>Destination playlist</span
+                    ><span>{{ oneWayLabels ? "Mirror playlist" : "Destination playlist" }}</span
                     ><select
                         v-model="destinationPlaylistId"
                         :disabled="!destinationAccountId || loadingPlaylists || syncAllPlaylists"
                     >
-                        <option v-if="syncAllPlaylists" value="">Matched by source playlist name</option>
+                        <option v-if="syncAllPlaylists" value="">Matched by master playlist name</option>
                         <option value="">Choose playlist</option>
                         <option v-if="sourcePlaylist" :value="createPlaylistId">
                             Create new playlist: {{ sourcePlaylist.name }}
@@ -274,10 +291,37 @@ function runTitle(task: SyncTaskSummary) {
                     </select></label
                 >
             </div>
+            <fieldset class="direction-picker">
+                <legend class="sr-only">Sync direction</legend>
+                <label
+                    class="direction-option"
+                    :class="{selected: effectiveDirection === 'two-way', disabled: syncAllPlaylists}"
+                >
+                    <input
+                        v-model="effectiveDirection"
+                        type="radio"
+                        name="sync-direction"
+                        value="two-way"
+                        :disabled="syncAllPlaylists"
+                    />
+                    <strong><RefreshCw :size="16" /> Two-way</strong>
+                    <span>Both playlists stay equal. Additions and removals travel in either direction.</span>
+                </label>
+                <label class="direction-option" :class="{selected: effectiveDirection === 'one-way'}">
+                    <input v-model="effectiveDirection" type="radio" name="sync-direction" value="one-way" />
+                    <strong><ArrowRight :size="16" /> One-way</strong>
+                    <span>
+                        The first playlist is the master. The second playlist mirrors it and is never copied back.
+                    </span>
+                </label>
+            </fieldset>
             <div class="builder-footer">
                 <p v-if="syncAllPlaylists">
-                    Destination playlists are matched by name. Missing playlists are created and removed source
-                    playlists are deleted.
+                    Mirror playlists are matched by name. Missing playlists are created and removed master playlists are
+                    deleted from the mirror account.
+                </p>
+                <p v-else-if="effectiveDirection === 'one-way'">
+                    Later runs copy the master's additions and removals onto the mirror playlist only.
                 </p>
                 <p v-else>
                     The first run copies missing source tracks. Later runs reconcile changes in both directions.
@@ -301,7 +345,11 @@ function runTitle(task: SyncTaskSummary) {
                             task.source.name
                         }}</strong>
                     </div>
-                    <span class="sync-direction"><RefreshCw :size="18" /><span class="sr-only">syncs with</span></span>
+                    <span class="sync-direction">
+                        <ArrowRight v-if="isOneWay(task)" :size="18" />
+                        <RefreshCw v-else :size="18" />
+                        <span class="sr-only">{{ isOneWay(task) ? "mirrors to" : "syncs with" }}</span>
+                    </span>
                     <div>
                         <ProviderBadge :provider="providerFor(task.destination.providerAccountId)" /><strong>{{
                             task.destination.name
@@ -312,6 +360,10 @@ function runTitle(task: SyncTaskSummary) {
                     <span class="status-label" :class="`status-${task.status}`"
                         ><span />{{ task.status.replace("_", " ") }}</span
                     >
+                    <p>
+                        <strong>Direction:</strong>
+                        {{ isOneWay(task) ? "One-way · master to mirror" : "Two-way" }}
+                    </p>
                     <p><strong>Next:</strong> {{ task.status === "paused" ? "Paused" : formatDate(task.nextRunAt) }}</p>
                     <p><strong>Last:</strong> {{ formatDate(task.lastSuccessAt) }}</p>
                     <p v-if="task.latestRun">

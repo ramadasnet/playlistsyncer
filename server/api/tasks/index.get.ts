@@ -1,3 +1,4 @@
+import {resolvedTaskDirection} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
 
@@ -18,6 +19,7 @@ export default defineEventHandler(async (event) => {
         tasks: tasks.map((task) => ({
             id: task._id?.toHexString(),
             mode: task.mode || "playlist",
+            direction: resolvedTaskDirection(task),
             source: task.source,
             destination: task.destination,
             status: task.status,
