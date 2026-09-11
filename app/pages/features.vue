@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import {ArrowRight, Check, RefreshCw, ShieldCheck} from "lucide-vue-next"
+import {ArrowRight, Check, Minus, RefreshCw, ShieldCheck} from "lucide-vue-next"
 import {formatProviderNames} from "~~/shared/types/domain"
 
 const config = useRuntimeConfig()
 const auth = useAuthStore()
 const {enabledProviders} = await useEnabledProviders()
-const features = [
+type PlanValue = string | boolean
+const features: [string, PlanValue, PlanValue][] = [
     ["Playlist pairs", "1", "Unlimited"],
     ["Automatic cadence", "Weekly", "Every 12 hours"],
     ["Two-way or one-way sync", true, true],
     ["Manual sync", true, true],
-    ["Run history and conflict visibility", true, true]
-] as const
+    ["Run history and conflict visibility", false, true]
+]
 </script>
 
 <template>
@@ -73,16 +74,26 @@ const features = [
                 </div>
                 <div v-for="feature in features" :key="feature[0]" class="comparison-row" role="row">
                     <span>{{ feature[0] }}</span>
-                    <span
-                        ><Check v-if="feature[1] === true" :size="18" /><template v-else>{{
-                            feature[1]
-                        }}</template></span
-                    >
-                    <span
-                        ><Check v-if="feature[2] === true" :size="18" /><template v-else>{{
-                            feature[2]
-                        }}</template></span
-                    >
+                    <span>
+                        <Check v-if="feature[1] === true" :size="18" aria-hidden="true" />
+                        <Minus
+                            v-else-if="feature[1] === false"
+                            class="feature-absent"
+                            :size="18"
+                            aria-label="Not included"
+                        />
+                        <template v-else>{{ feature[1] }}</template>
+                    </span>
+                    <span>
+                        <Check v-if="feature[2] === true" :size="18" aria-hidden="true" />
+                        <Minus
+                            v-else-if="feature[2] === false"
+                            class="feature-absent"
+                            :size="18"
+                            aria-label="Not included"
+                        />
+                        <template v-else>{{ feature[2] }}</template>
+                    </span>
                 </div>
             </div>
         </section>

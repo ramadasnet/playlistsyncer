@@ -54,7 +54,7 @@ Every execution acquires a 15-minute MongoDB lease, records additions, removals,
 ## Plans and scheduling
 
 - Free: one playlist-pair task, weekly scheduled runs, and a 24-hour cooldown between successful manual runs.
-- PRO: unlimited playlist-pair and whole-account tasks, scheduled every 12 hours, with no manual-run cooldown.
+- PRO: unlimited playlist-pair and whole-account tasks, scheduled every 12 hours, with no manual-run cooldown. Run history and conflict details are visible only on PRO.
 
 Creem webhook events are the source of truth for paid entitlement. Downgrades retain tasks and history but entitlement-paused tasks cannot run. In local development, `DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
 

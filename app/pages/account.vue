@@ -230,7 +230,7 @@ onMounted(() => refresh())
                                 : auth.user?.developmentProOverride
                                   ? "PRO features are enabled by a local development override. No paid subscription is active."
                                   : auth.user?.tier === "pro"
-                                    ? "Unlimited pairs · sync every 12 hours"
+                                    ? "Unlimited pairs · sync every 12 hours · run history"
                                     : "One pair · sync every week"
                         }}
                     </p>
