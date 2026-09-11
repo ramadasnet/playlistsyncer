@@ -11,7 +11,8 @@ const features: [string, PlanValue, PlanValue][] = [
     ["Automatic cadence", "Weekly", "Every 12 hours"],
     ["Two-way or one-way sync", true, true],
     ["Manual sync", true, true],
-    ["Run history and conflict visibility", false, true]
+    ["Run history and conflict visibility", false, true],
+    ["Weekly playlist sync summary email", false, true]
 ]
 </script>
 

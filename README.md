@@ -9,6 +9,7 @@ A Nuxt 4 and Bun service for two-way and one-way playlist synchronization across
 - Mirror every playlist from one provider account to another with durable source/destination mappings.
 - Create, pause, run, inspect, and delete synchronization tasks from the authenticated application.
 - Use Creem-hosted Checkout and Customer Portal flows for PRO subscriptions.
+- PRO accounts can opt in to a weekly email summarizing playlists and tracks that were added or removed. The email is sent only when something changed.
 
 Spotify, YouTube, and TIDAL use their official APIs. YouTube synchronization operates on video playlists that are also visible in YouTube Music. Login with Amazon is implemented, but Amazon playlist access remains capability-gated until the approved partner API contract is configured; the application does not use private endpoints, browser automation, or credential scraping.
 
@@ -54,7 +55,7 @@ Every execution acquires a 15-minute MongoDB lease, records additions, removals,
 ## Plans and scheduling
 
 - Free: one playlist-pair task, weekly scheduled runs, and a 24-hour cooldown between successful manual runs.
-- PRO: unlimited playlist-pair and whole-account tasks, scheduled every 12 hours, with no manual-run cooldown. Run history and conflict details are visible only on PRO.
+- PRO: unlimited playlist-pair and whole-account tasks, scheduled every 12 hours, with no manual-run cooldown. Run history and conflict details are visible only on PRO. An optional weekly email lists playlists and tracks added or removed, and is sent only when there were changes.
 
 Creem webhook events are the source of truth for paid entitlement. Downgrades retain tasks and history but entitlement-paused tasks cannot run. In local development, `DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
 
@@ -195,11 +196,21 @@ curl -X POST "$APP_URL/api/jobs/sync-due" \
 
 Call it at least every 12 hours; hourly is recommended because the endpoint selects only tasks whose own `nextRunAt` is due. It processes at most ten tasks per call, with MongoDB leases preventing concurrent runs. A targeted retry is available at `POST /api/jobs/sync-task/:id` with the same bearer token.
 
+Send weekly PRO playlist summaries with the same bearer token:
+
+```bash
+curl -X POST "$APP_URL/api/jobs/weekly-sync-summary" \
+	-H "Authorization: Bearer $SCHEDULER_SECRET"
+```
+
+Call it at least once a week; hourly is safe because each opted-in PRO account is due only every seven days. The job emails a playlist-by-playlist list of added and removed tracks, and skips the send when nothing changed. It processes at most 25 accounts per call.
+
 ## Runtime endpoints
 
 - `GET /api/health`: process liveness, no dependencies
 - `GET /api/ready`: MongoDB connectivity
 - `POST /api/jobs/sync-due`: authenticated scheduled batch
+- `POST /api/jobs/weekly-sync-summary`: authenticated weekly PRO sync summary emails
 - `POST /api/webhooks/creem`: Creem-signed subscription events
 
 ## Deployment notes

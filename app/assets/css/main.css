@@ -810,6 +810,60 @@ main {
     margin: 5px 0 0;
     color: var(--ink-soft);
 }
+.preference-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 25px;
+    padding: 30px 28px;
+}
+.preference-row p {
+    margin: 5px 0 0;
+    color: var(--ink-soft);
+    max-width: 42rem;
+}
+.switch {
+    width: 48px;
+    height: 28px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease;
+}
+.switch[aria-checked="true"] {
+    background: var(--green);
+    border-color: var(--green);
+}
+.switch:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+.switch span {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--white);
+    box-shadow: 0 1px 4px rgba(21, 24, 20, 0.18);
+    transform: translateX(0);
+    transition: transform 0.15s ease;
+}
+.switch[aria-checked="true"] span {
+    transform: translateX(20px);
+}
+.switch .spin {
+    margin: 0 auto;
+    color: var(--ink-soft);
+}
+.switch[aria-checked="true"] .spin {
+    color: var(--white);
+}
 
 .sync-page .page-heading {
     max-width: none;
@@ -1241,6 +1295,7 @@ select {
     .profile-line,
     .connection-row,
     .billing-copy,
+    .preference-row,
     .email-capture,
     .confirm-copy {
         padding-inline: 20px;
@@ -1257,7 +1312,8 @@ select {
         grid-column: 2;
         grid-row: 1 / 3;
     }
-    .billing-copy {
+    .billing-copy,
+    .preference-row {
         align-items: stretch;
         flex-direction: column;
     }
