@@ -539,6 +539,9 @@ main {
 .comparison-row svg {
     color: var(--green);
 }
+.comparison-row svg.feature-absent {
+    color: var(--ink-soft);
+}
 .comparison-head {
     font-family: "DM Mono", monospace;
     font-size: 0.75rem;
@@ -985,6 +988,19 @@ select {
 .task-error {
     max-width: 330px;
     color: var(--danger) !important;
+}
+.task-history-locked {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.task-history-locked a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--green);
+    font-weight: 600;
 }
 .task-actions {
     display: flex;

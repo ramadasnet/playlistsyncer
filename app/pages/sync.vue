@@ -39,6 +39,7 @@ const tasks = computed(() =>
     })
 )
 const canCreate = computed(() => accounts.value.length >= 2 && (auth.user?.tier === "pro" || tasks.value.length === 0))
+const canViewHistory = computed(() => auth.user?.tier === "pro")
 const syncAllPlaylists = computed(() => sourcePlaylistId.value === allPlaylistsId)
 const effectiveDirection = computed<SyncTaskDirection>({
     get: () => (syncAllPlaylists.value ? "one-way" : syncDirection.value),
@@ -199,7 +200,7 @@ function isOneWay(task: SyncTaskSummary) {
         <PageHeading
             eyebrow="Library operations"
             title="Sync tasks"
-            description="Pair playlists, inspect the latest run, and resolve anything that needs a human ear."
+            description="Pair playlists, keep them aligned on a schedule, and inspect run history on PRO."
         >
             <template #actions
                 ><button class="button button-primary" type="button" :disabled="!canCreate" @click="toggleCreate">
@@ -366,12 +367,18 @@ function isOneWay(task: SyncTaskSummary) {
                         {{ isOneWay(task) ? "One-way · master to mirror" : "Two-way" }}
                     </p>
                     <p><strong>Next:</strong> {{ task.status === "paused" ? "Paused" : formatDate(task.nextRunAt) }}</p>
-                    <p><strong>Last:</strong> {{ formatDate(task.lastSuccessAt) }}</p>
-                    <p v-if="task.latestRun">
-                        <strong>Changes:</strong> +{{ task.latestRun.additions }} / −{{ task.latestRun.removals
-                        }}<template v-if="task.latestRun.conflicts">
-                            · {{ task.latestRun.conflicts }} conflict</template
-                        >
+                    <template v-if="canViewHistory">
+                        <p><strong>Last:</strong> {{ formatDate(task.lastSuccessAt) }}</p>
+                        <p v-if="task.latestRun">
+                            <strong>Changes:</strong> +{{ task.latestRun.additions }} / −{{ task.latestRun.removals
+                            }}<template v-if="task.latestRun.conflicts">
+                                · {{ task.latestRun.conflicts }} conflict</template
+                            >
+                        </p>
+                    </template>
+                    <p v-else class="task-history-locked">
+                        Run history and conflicts are on PRO.
+                        <NuxtLink to="/account">See PRO <ArrowRight :size="14" /></NuxtLink>
                     </p>
                     <p v-if="task.lastError" class="task-error">{{ task.lastError }}</p>
                 </div>
