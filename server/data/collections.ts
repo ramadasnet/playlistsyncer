@@ -62,6 +62,7 @@ export async function ensureIndexes(): Promise<void> {
         db.users.createIndex({email: 1}, {unique: true, sparse: true}),
         db.users.createIndex({tempEmail: 1}, {unique: true, sparse: true}),
         db.users.createIndex({emailVerificationTokenHash: 1}, {sparse: true}),
+        db.users.createIndex({weeklySyncSummaryEnabled: 1, weeklySyncSummarySentAt: 1}),
         db.providerAccounts.createIndex({provider: 1, externalAccountId: 1}, {unique: true}),
         db.providerAccounts.createIndex({userId: 1, provider: 1}),
         db.sessions.createIndex({tokenHash: 1}, {unique: true}),

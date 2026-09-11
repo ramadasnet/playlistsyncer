@@ -76,6 +76,7 @@ export function serializeUser(user: Awaited<ReturnType<typeof requireUser>>) {
         avatarUrl: user.avatarUrl,
         tier: entitlement.tier,
         developmentProOverride: entitlement.developmentOverride,
+        weeklySyncSummaryEnabled: Boolean(user.weeklySyncSummaryEnabled),
         creemSubscriptionStatus: user.creemSubscriptionStatus
     }
 }

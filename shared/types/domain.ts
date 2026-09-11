@@ -58,6 +58,9 @@ export interface UserDocument {
     displayName: string
     avatarUrl?: string
     tier: AccountTier
+    weeklySyncSummaryEnabled?: boolean
+    weeklySyncSummarySentAt?: Date
+    weeklySyncSummaryLeaseExpiresAt?: Date
     creemCustomerId?: string
     creemSubscriptionId?: string
     creemSubscriptionStatus?: string
@@ -164,6 +167,9 @@ export interface SyncRunTrackReference {
     playlistId: string
     providerTrackId: string
     providerItemId?: string
+    title?: string
+    artists?: string[]
+    playlistName?: string
 }
 
 export interface SyncRunDocument {

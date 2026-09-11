@@ -15,6 +15,7 @@ export interface SessionUser {
     avatarUrl?: string
     tier: AccountTier
     developmentProOverride: boolean
+    weeklySyncSummaryEnabled: boolean
     creemSubscriptionStatus?: string
 }
 

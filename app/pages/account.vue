@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ArrowUpRight, CheckCircle2, CircleAlert, CreditCard, Link2, LoaderCircle, Plus} from "lucide-vue-next"
+import {ArrowUpRight, CheckCircle2, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus} from "lucide-vue-next"
 import type {ConnectedAccount, SessionUser} from "~/types/api"
 import type {Provider} from "~~/shared/types/domain"
 
@@ -13,6 +13,7 @@ const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/acc
 })
 const busy = ref(false)
 const emailBusy = ref(false)
+const preferenceBusy = ref(false)
 const errorMessage = ref("")
 const successMessage = ref(route.query.email === "confirmed" ? "Your email address is confirmed." : "")
 const emailInput = ref(auth.user?.tempEmail || "")
@@ -20,6 +21,7 @@ const devConfirmationUrl = ref("")
 
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
 const pendingEmail = computed(() => Boolean(auth.user?.tempEmail && !auth.user?.email))
+const canEditWeeklySummary = computed(() => auth.user?.tier === "pro" && Boolean(auth.user.email))
 const resendSameEmail = computed(
     () => pendingEmail.value && emailInput.value.trim().toLowerCase() === auth.user?.tempEmail
 )
@@ -61,6 +63,28 @@ async function openBilling(path: "checkout" | "portal") {
         errorMessage.value = statusMessage(error, "Billing could not be opened")
     } finally {
         busy.value = false
+    }
+}
+
+async function setWeeklySyncSummary(enabled: boolean) {
+    if (!canEditWeeklySummary.value || preferenceBusy.value || auth.user?.weeklySyncSummaryEnabled === enabled) {
+        return
+    }
+    preferenceBusy.value = true
+    errorMessage.value = ""
+    try {
+        const result = await $fetch<{user: SessionUser}>("/api/me/preferences", {
+            method: "PATCH",
+            body: {weeklySyncSummaryEnabled: enabled}
+        })
+        auth.setUser(result.user)
+        successMessage.value = enabled
+            ? "Weekly sync summaries are on. You will get an email when tracks are added or removed."
+            : "Weekly sync summaries are off."
+    } catch (error) {
+        errorMessage.value = statusMessage(error, "The weekly summary preference could not be saved")
+    } finally {
+        preferenceBusy.value = false
     }
 }
 
@@ -203,6 +227,44 @@ onMounted(() => refresh())
                         >
                     </template>
                 </div>
+            </div>
+        </section>
+
+        <section v-if="auth.user?.tier === 'pro'" class="settings-section" aria-labelledby="notifications-heading">
+            <div class="settings-heading">
+                <div>
+                    <p class="eyebrow">Notifications</p>
+                    <h2 id="notifications-heading">Weekly sync summary</h2>
+                </div>
+                <Mail :size="22" />
+            </div>
+            <div class="preference-row">
+                <div>
+                    <strong>Email a weekly playlist digest</strong>
+                    <p>
+                        {{
+                            auth.user?.email
+                                ? "Once a week, list the playlists and tracks that were added or removed. No email is sent when nothing changed."
+                                : "Confirm an email address to receive a weekly list of playlists and tracks that were added or removed."
+                        }}
+                    </p>
+                </div>
+                <button
+                    class="switch"
+                    type="button"
+                    role="switch"
+                    :aria-checked="Boolean(auth.user?.weeklySyncSummaryEnabled)"
+                    :aria-label="
+                        auth.user?.weeklySyncSummaryEnabled
+                            ? 'Disable weekly sync summary'
+                            : 'Enable weekly sync summary'
+                    "
+                    :disabled="preferenceBusy || !canEditWeeklySummary"
+                    @click="setWeeklySyncSummary(!auth.user?.weeklySyncSummaryEnabled)"
+                >
+                    <LoaderCircle v-if="preferenceBusy" class="spin" :size="16" />
+                    <span v-else />
+                </button>
             </div>
         </section>
 
