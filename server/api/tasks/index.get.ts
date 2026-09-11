@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
                       }
                   }
               )
-              .sort({startedAt: -1})
+              .sort({startedAt: 1})
               .toArray()
         : []
     const latestRun = new Map(runs.map((run) => [run.taskId.toHexString(), run]))
