@@ -50,7 +50,7 @@ function task(overrides: Partial<SyncTaskDocument> = {}): SyncTaskDocument {
 function track(
     playlistId: string,
     providerTrackId: string,
-    extras: {title?: string; artists?: string[]; providerItemId?: string} = {}
+    extras: {title?: string; artists?: string[]; providerItemId?: string; playlistName?: string} = {}
 ) {
     return {
         providerAccountId: accountId,
@@ -58,7 +58,8 @@ function track(
         providerTrackId,
         providerItemId: extras.providerItemId ?? `${providerTrackId}-item`,
         title: extras.title,
-        artists: extras.artists
+        artists: extras.artists,
+        playlistName: extras.playlistName
     }
 }
 
@@ -119,10 +120,13 @@ function memoryStore(input: {
     tasks?: SyncTaskDocument[]
     runs?: SyncRunDocument[]
     snapshots?: SyncSnapshotDocument[]
-}): WeeklySummaryStore & {processedAt?: Date} {
-    const store: WeeklySummaryStore & {processedAt?: Date} = {
-        async findDueUsers() {
-            return input.users || []
+}): WeeklySummaryStore & {processedAt?: Date; disabled: ObjectId[]; released: ObjectId[]} {
+    const queue = [...(input.users || [])]
+    const store: WeeklySummaryStore & {processedAt?: Date; disabled: ObjectId[]; released: ObjectId[]} = {
+        disabled: [],
+        released: [],
+        async claimDueUser() {
+            return queue.shift() ?? null
         },
         async findTasks() {
             return input.tasks || []
@@ -135,6 +139,12 @@ function memoryStore(input: {
         },
         async markProcessed(_userId, processedAt) {
             store.processedAt = processedAt
+        },
+        async disablePreference(userId) {
+            store.disabled.push(userId)
+        },
+        async releaseClaim(userId) {
+            store.released.push(userId)
         }
     }
     return store
@@ -250,6 +260,27 @@ describe("weekly sync summary contents", () => {
         ).toBe("Road trip")
     })
 
+    test("keeps the recorded playlist name after an account mapping is deleted", () => {
+        const summary = summarizeSyncChanges(
+            [
+                run({
+                    removedTracks: [
+                        track("dst-gone", "t1", {title: "Old Song", artists: ["Bea"], playlistName: "Road trip"})
+                    ]
+                })
+            ],
+            [task({mode: "account", playlistMappings: []})]
+        )
+
+        expect(summary.playlists).toEqual([
+            {
+                playlistName: "Road trip",
+                addedTracks: [],
+                removedTracks: [{title: "Old Song", artists: ["Bea"]}]
+            }
+        ])
+    })
+
     test("ignores in-progress runs and empty change lists", () => {
         expect(
             weeklySyncSummaryHasChanges(
@@ -338,23 +369,28 @@ describe("weekly sync summary email", () => {
     })
 
     test("does not send for Free accounts even when they have track changes", async () => {
+        const proUser = user()
         const store = memoryStore({
-            users: [user({tier: "free"})],
+            users: [user({_id: new ObjectId(), tier: "free"}), proUser],
             tasks: [task()],
             runs: [run({addedTracks: [track("dst-1", "t1", {title: "New Song", artists: ["Ada"]})]})]
         })
+        const sent: OutboundEmail[] = []
 
         expect(
             await sendDueWeeklySyncSummaries({
                 now,
                 store,
                 resolveTier: (candidate) => candidate.tier,
-                send: async () => {
-                    throw new Error("should not send")
+                send: async (outbound) => {
+                    sent.push(outbound)
+                    return true
                 }
             })
-        ).toEqual({processed: 1, sent: 0, skipped: 1})
-        expect(store.processedAt).toBeUndefined()
+        ).toEqual({processed: 2, sent: 1, skipped: 1})
+        expect(store.disabled).toHaveLength(1)
+        expect(store.processedAt).toEqual(now)
+        expect(sent).toHaveLength(1)
     })
 
     test("retries later when mail delivery fails", async () => {
@@ -373,5 +409,38 @@ describe("weekly sync summary email", () => {
             })
         ).toEqual({processed: 1, sent: 0, skipped: 1})
         expect(store.processedAt).toBeUndefined()
+        expect(store.released).toHaveLength(1)
+    })
+
+    test("claims each due user once so overlapping jobs cannot send twice", async () => {
+        const store = memoryStore({
+            users: [user()],
+            tasks: [task()],
+            runs: [run({addedTracks: [track("dst-1", "t1", {title: "New Song", artists: ["Ada"]})]})]
+        })
+        const sent: OutboundEmail[] = []
+
+        expect(
+            await sendDueWeeklySyncSummaries({
+                now,
+                store,
+                resolveTier: () => "pro",
+                send: async (outbound) => {
+                    sent.push(outbound)
+                    return true
+                }
+            })
+        ).toEqual({processed: 1, sent: 1, skipped: 0})
+        expect(
+            await sendDueWeeklySyncSummaries({
+                now,
+                store,
+                resolveTier: () => "pro",
+                send: async () => {
+                    throw new Error("should not send")
+                }
+            })
+        ).toEqual({processed: 0, sent: 0, skipped: 0})
+        expect(sent).toHaveLength(1)
     })
 })

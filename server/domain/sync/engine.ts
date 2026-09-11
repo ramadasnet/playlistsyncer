@@ -76,7 +76,8 @@ function applyAliases(tracks: ProviderTrack[], aliases: Map<string, string>): Pr
 function trackReferences(
     account: ProviderAccountDocument,
     playlistId: string,
-    tracks: Pick<ProviderTrack, "trackId" | "itemId" | "title" | "artists">[]
+    tracks: Pick<ProviderTrack, "trackId" | "itemId" | "title" | "artists">[],
+    playlistName: string
 ): SyncRunTrackReference[] {
     return tracks.map((track) => ({
         providerAccountId: account._id!,
@@ -84,7 +85,8 @@ function trackReferences(
         providerTrackId: track.trackId,
         providerItemId: track.itemId,
         title: track.title,
-        artists: track.artists
+        artists: track.artists,
+        playlistName
     }))
 }
 
@@ -93,7 +95,8 @@ async function applyDesired(
     playlistId: string,
     current: ProviderTrack[],
     desired: ReconciledTrack[],
-    recordChanges: RecordTrackChanges
+    recordChanges: RecordTrackChanges,
+    playlistName: string
 ): Promise<{
     additions: number
     removals: number
@@ -144,7 +147,8 @@ async function applyDesired(
                 removedTracks: trackReferences(
                     account,
                     playlistId,
-                    current.filter((track) => removedIds.has(track.itemId))
+                    current.filter((track) => removedIds.has(track.itemId)),
+                    playlistName
                 )
             })
         })
@@ -165,7 +169,8 @@ async function applyDesired(
                             providerTrackId: track.providerTrackId,
                             providerItemId: track.providerItemId,
                             title: match?.title,
-                            artists: match?.artists
+                            artists: match?.artists,
+                            playlistName
                         }
                     })
                 })
@@ -235,7 +240,8 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
                             removedItemIds.flatMap((itemId) => {
                                 const track = byItemId.get(itemId)
                                 return track ? [track] : []
-                            })
+                            }),
+                            task.destination.name
                         )
                     })
                 }
@@ -246,7 +252,8 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
             task.destination.playlistId,
             [],
             desired,
-            recordChanges
+            recordChanges,
+            task.destination.name
         )
         destinationResult.removals = destinationItems.length
     } else {
@@ -260,7 +267,8 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
                 task.destination.playlistId,
                 aliasedDestination,
                 reconcileOneWay(aliasedSource).desired,
-                recordChanges
+                recordChanges,
+                task.destination.name
             )
         } else {
             const baseline = commonTracks(
@@ -277,14 +285,16 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
                 task.source.playlistId,
                 aliasedSource,
                 reconciliation.desired,
-                recordChanges
+                recordChanges,
+                task.source.name
             )
             destinationResult = await applyDesired(
                 destinationAccount,
                 task.destination.playlistId,
                 aliasedDestination,
                 reconciliation.desired,
-                recordChanges
+                recordChanges,
+                task.destination.name
             )
         }
     }
@@ -336,6 +346,7 @@ async function mirrorPlaylist(
     destinationAccount: ProviderAccountDocument,
     sourcePlaylistId: string,
     destinationPlaylistId: string,
+    playlistName: string,
     recordChanges: RecordTrackChanges
 ) {
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
@@ -349,7 +360,8 @@ async function mirrorPlaylist(
         destinationPlaylistId,
         destinationItems,
         reconcileOneWay(sourceItems).desired,
-        recordChanges
+        recordChanges,
+        playlistName
     )
 }
 
@@ -411,6 +423,7 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
             destinationAccount,
             sourcePlaylist.id,
             destinationPlaylist.id,
+            mapping.name,
             recordChanges
         )
         additions += result.additions
@@ -426,7 +439,12 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
             const removedItems = await destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylist.id)
             await destinationAdapter.deletePlaylist(destinationAccount, destinationPlaylist.id)
             await recordChanges({
-                removedTracks: trackReferences(destinationAccount, destinationPlaylist.id, removedItems)
+                removedTracks: trackReferences(
+                    destinationAccount,
+                    destinationPlaylist.id,
+                    removedItems,
+                    mapping.name || destinationPlaylist.name
+                )
             })
             removals += destinationPlaylist.itemCount
         }

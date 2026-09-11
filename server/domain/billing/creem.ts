@@ -40,6 +40,7 @@ export async function applySubscription(
                 creemSubscriptionId: subscription.id,
                 creemSubscriptionStatus: status,
                 tier: isPaid ? "pro" : "free",
+                ...(isPaid ? {} : {weeklySyncSummaryEnabled: false}),
                 updatedAt: new Date()
             }
         },

@@ -11,6 +11,7 @@ import {collections} from "../../data/collections"
 import type {OutboundEmail} from "./send"
 
 export const weeklySyncSummaryIntervalMs = 7 * 24 * 60 * 60 * 1000
+export const weeklySyncSummaryLeaseMs = 15 * 60 * 1000
 export const weeklySyncSummaryBatchSize = 25
 
 export interface WeeklySummaryTrack {
@@ -29,11 +30,13 @@ export interface WeeklySyncSummary {
 }
 
 export interface WeeklySummaryStore {
-    findDueUsers(dueBefore: Date, limit: number): Promise<UserDocument[]>
+    claimDueUser(dueBefore: Date, now: Date): Promise<UserDocument | null>
     findTasks(userId: ObjectId): Promise<SyncTaskDocument[]>
     findRuns(taskIds: ObjectId[], since: Date, until: Date, exclusiveStart: boolean): Promise<SyncRunDocument[]>
     findSnapshots(taskIds: ObjectId[]): Promise<SyncSnapshotDocument[]>
     markProcessed(userId: ObjectId, processedAt: Date): Promise<void>
+    disablePreference(userId: ObjectId, processedAt: Date): Promise<void>
+    releaseClaim(userId: ObjectId): Promise<void>
 }
 
 export function evaluateWeeklySyncSummaryPreference(input: {
@@ -91,17 +94,24 @@ export function escapeHtml(value: string): string {
         .replaceAll("'", "&#39;")
 }
 
-export function playlistNameForChange(task: SyncTaskDocument, playlistId: string): string {
-    const mapping = task.playlistMappings?.find(
+export function playlistNameForChange(
+    task: SyncTaskDocument | undefined,
+    playlistId: string,
+    recordedName?: string
+): string {
+    if (recordedName?.trim()) {
+        return recordedName
+    }
+    const mapping = task?.playlistMappings?.find(
         (item) => item.sourcePlaylistId === playlistId || item.destinationPlaylistId === playlistId
     )
     if (mapping?.name.trim()) {
         return mapping.name
     }
-    if (task.source.playlistId === playlistId && task.source.name.trim()) {
+    if (task?.source.playlistId === playlistId && task.source.name.trim()) {
         return task.source.name
     }
-    if (task.destination.playlistId === playlistId && task.destination.name.trim()) {
+    if (task?.destination.playlistId === playlistId && task.destination.name.trim()) {
         return task.destination.name
     }
     return "Untitled playlist"
@@ -158,9 +168,6 @@ export function summarizeSyncChanges(
             continue
         }
         const task = tasksById.get(run.taskId.toHexString())
-        if (!task) {
-            continue
-        }
         const snapshot = snapshotsByTask.get(run.taskId.toHexString())
         const record = (refs: SyncRunTrackReference[], kind: "added" | "removed") => {
             for (const ref of refs) {
@@ -168,7 +175,7 @@ export function summarizeSyncChanges(
                 let playlist = playlists.get(playlistKey)
                 if (!playlist) {
                     playlist = {
-                        playlistName: playlistNameForChange(task, ref.playlistId),
+                        playlistName: playlistNameForChange(task, ref.playlistId, ref.playlistName),
                         added: new Map(),
                         removed: new Map()
                     }
@@ -261,17 +268,35 @@ export function buildWeeklySyncSummaryEmail(input: {
     }
 }
 
+function dueUserFilter(dueBefore: Date, now: Date) {
+    return {
+        weeklySyncSummaryEnabled: true as const,
+        email: {$type: "string" as const, $ne: ""},
+        $and: [
+            {$or: [{weeklySyncSummarySentAt: {$exists: false}}, {weeklySyncSummarySentAt: {$lte: dueBefore}}]},
+            {
+                $or: [
+                    {weeklySyncSummaryLeaseExpiresAt: {$exists: false}},
+                    {weeklySyncSummaryLeaseExpiresAt: {$lt: now}}
+                ]
+            }
+        ]
+    }
+}
+
 export function createWeeklySummaryStore(db: Awaited<ReturnType<typeof collections>>): WeeklySummaryStore {
     return {
-        findDueUsers(dueBefore, limit) {
-            return db.users
-                .find({
-                    weeklySyncSummaryEnabled: true,
-                    email: {$type: "string", $ne: ""},
-                    $or: [{weeklySyncSummarySentAt: {$exists: false}}, {weeklySyncSummarySentAt: {$lte: dueBefore}}]
-                })
-                .limit(limit)
-                .toArray()
+        claimDueUser(dueBefore, now) {
+            return db.users.findOneAndUpdate(
+                dueUserFilter(dueBefore, now),
+                {
+                    $set: {
+                        weeklySyncSummaryLeaseExpiresAt: new Date(now.getTime() + weeklySyncSummaryLeaseMs),
+                        updatedAt: now
+                    }
+                },
+                {returnDocument: "after", sort: {weeklySyncSummarySentAt: 1}}
+            )
         },
         findTasks(userId) {
             return db.syncTasks.find({userId}).toArray()
@@ -290,8 +315,23 @@ export function createWeeklySummaryStore(db: Awaited<ReturnType<typeof collectio
         async markProcessed(userId, processedAt) {
             await db.users.updateOne(
                 {_id: userId},
-                {$set: {weeklySyncSummarySentAt: processedAt, updatedAt: processedAt}}
+                {
+                    $set: {weeklySyncSummarySentAt: processedAt, updatedAt: processedAt},
+                    $unset: {weeklySyncSummaryLeaseExpiresAt: ""}
+                }
             )
+        },
+        async disablePreference(userId, processedAt) {
+            await db.users.updateOne(
+                {_id: userId},
+                {
+                    $set: {weeklySyncSummaryEnabled: false, updatedAt: processedAt},
+                    $unset: {weeklySyncSummaryLeaseExpiresAt: ""}
+                }
+            )
+        },
+        async releaseClaim(userId) {
+            await db.users.updateOne({_id: userId}, {$unset: {weeklySyncSummaryLeaseExpiresAt: ""}})
         }
     }
 }
@@ -307,12 +347,23 @@ export async function sendDueWeeklySyncSummaries(input: {
     const now = input.now ?? new Date()
     const limit = input.limit ?? weeklySyncSummaryBatchSize
     const dueBefore = new Date(now.getTime() - weeklySyncSummaryIntervalMs)
-    const users = await input.store.findDueUsers(dueBefore, limit)
+    let processed = 0
     let sent = 0
     let skipped = 0
 
-    for (const user of users) {
-        if (!user._id || input.resolveTier(user) !== "pro" || !isWeeklySyncSummaryDue(user, now)) {
+    for (let index = 0; index < limit; index++) {
+        const user = await input.store.claimDueUser(dueBefore, now)
+        if (!user?._id) {
+            break
+        }
+        processed++
+        if (input.resolveTier(user) !== "pro") {
+            await input.store.disablePreference(user._id, now)
+            skipped++
+            continue
+        }
+        if (!isWeeklySyncSummaryDue(user, now)) {
+            await input.store.releaseClaim(user._id)
             skipped++
             continue
         }
@@ -339,15 +390,17 @@ export async function sendDueWeeklySyncSummaries(input: {
                 })
             )
             if (!delivered) {
+                await input.store.releaseClaim(user._id)
                 skipped++
                 continue
             }
             await input.store.markProcessed(user._id, now)
             sent++
         } catch {
+            await input.store.releaseClaim(user._id)
             skipped++
         }
     }
 
-    return {processed: users.length, sent, skipped}
+    return {processed, sent, skipped}
 }
