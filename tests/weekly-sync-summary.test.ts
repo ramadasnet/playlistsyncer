@@ -393,6 +393,30 @@ describe("weekly sync summary email", () => {
         expect(sent).toHaveLength(1)
     })
 
+    test("does not let downgraded accounts fill the batch and starve later PRO summaries", async () => {
+        const sent: OutboundEmail[] = []
+        const store = memoryStore({
+            users: [user({_id: new ObjectId(), tier: "free"}), user({_id: new ObjectId(), tier: "free"}), user()],
+            tasks: [task()],
+            runs: [run({addedTracks: [track("dst-1", "t1", {title: "New Song", artists: ["Ada"]})]})]
+        })
+
+        expect(
+            await sendDueWeeklySyncSummaries({
+                now,
+                limit: 1,
+                store,
+                resolveTier: (candidate) => candidate.tier,
+                send: async (outbound) => {
+                    sent.push(outbound)
+                    return true
+                }
+            })
+        ).toEqual({processed: 3, sent: 1, skipped: 2})
+        expect(store.disabled).toHaveLength(2)
+        expect(sent).toHaveLength(1)
+    })
+
     test("retries later when mail delivery fails", async () => {
         const store = memoryStore({
             users: [user()],

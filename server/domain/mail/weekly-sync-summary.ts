@@ -350,12 +350,20 @@ export async function sendDueWeeklySyncSummaries(input: {
     let processed = 0
     let sent = 0
     let skipped = 0
+    let eligible = 0
+    const seen = new Set<string>()
 
-    for (let index = 0; index < limit; index++) {
+    while (eligible < limit) {
         const user = await input.store.claimDueUser(dueBefore, now)
         if (!user?._id) {
             break
         }
+        const userId = user._id.toHexString()
+        if (seen.has(userId)) {
+            await input.store.releaseClaim(user._id)
+            break
+        }
+        seen.add(userId)
         processed++
         if (input.resolveTier(user) !== "pro") {
             await input.store.disablePreference(user._id, now)
@@ -367,6 +375,7 @@ export async function sendDueWeeklySyncSummaries(input: {
             skipped++
             continue
         }
+        eligible++
         const since = weeklySummaryWindowStart(user.weeklySyncSummarySentAt, now)
         const tasks = await input.store.findTasks(user._id)
         const taskIds = tasks.flatMap((task) => (task._id ? [task._id] : []))
