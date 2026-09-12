@@ -22,6 +22,7 @@ export function serializeSyncTask(task: SyncTaskDocument, latestRun: LatestRunSu
         source: task.source,
         destination: task.destination,
         status: task.status,
+        pauseReason: task.pauseReason,
         nextRunAt: task.nextRunAt,
         lastRunAt: task.lastRunAt,
         lastSuccessAt: task.lastSuccessAt,

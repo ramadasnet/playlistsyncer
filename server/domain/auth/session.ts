@@ -2,7 +2,7 @@ import {createHmac, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
 import {collections} from "../../data/collections"
-import {requireConfig} from "../../utils/config"
+import {getServerConfig, requireConfig} from "../../utils/config"
 import logger from "../../utils/logger"
 import {resolveEntitlement} from "../billing/entitlement"
 
@@ -76,6 +76,8 @@ export function serializeUser(user: Awaited<ReturnType<typeof requireUser>>) {
         avatarUrl: user.avatarUrl,
         tier: entitlement.tier,
         developmentProOverride: entitlement.developmentOverride,
+        trialAccess: entitlement.trialAccess,
+        proSubscriptionRequiredAt: getServerConfig().proSubscriptionRequiredAt?.toISOString(),
         weeklySyncSummaryEnabled: Boolean(user.weeklySyncSummaryEnabled),
         creemSubscriptionStatus: user.creemSubscriptionStatus
     }

@@ -1,10 +1,12 @@
 import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
+import {applyTaskEntitlement} from "../../domain/billing/task-entitlement"
 import {canViewRunHistory, serializeSyncTask} from "../../domain/sync/history-visibility"
 
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
+    await applyTaskEntitlement(user)
     const db = await collections()
     const tasks = await db.syncTasks.find({userId: user._id!}).sort({createdAt: -1}).toArray()
     const tier = resolveEntitlement(user).tier

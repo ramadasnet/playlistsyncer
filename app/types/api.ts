@@ -15,6 +15,8 @@ export interface SessionUser {
     avatarUrl?: string
     tier: AccountTier
     developmentProOverride: boolean
+    trialAccess: boolean
+    proSubscriptionRequiredAt?: string
     weeklySyncSummaryEnabled: boolean
     creemSubscriptionStatus?: string
 }
@@ -44,6 +46,7 @@ export interface SyncTaskSummary {
     source: {providerAccountId: string; playlistId: string; name: string}
     destination: {providerAccountId: string; playlistId: string; name: string}
     status: SyncTaskStatus
+    pauseReason?: "user" | "entitlement"
     nextRunAt: string
     lastRunAt?: string
     lastSuccessAt?: string
