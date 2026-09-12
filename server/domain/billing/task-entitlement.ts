@@ -8,7 +8,9 @@ export const entitlementEditBlockedMessage = "A PRO subscription is required to 
 
 type TaskEntitlementFields = Pick<SyncTaskDocument, "_id" | "mode" | "pauseReason" | "createdAt">
 
-export function retainedFreeTierTask<T extends Pick<SyncTaskDocument, "mode" | "createdAt">>(tasks: T[]): T | undefined {
+export function retainedFreeTierTask<T extends Pick<SyncTaskDocument, "mode" | "createdAt">>(
+    tasks: T[]
+): T | undefined {
     return [...tasks]
         .filter((task) => task.mode !== "account")
         .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())[0]
@@ -31,7 +33,9 @@ export function planTaskEntitlement(
     }
     const retainedId = retainedFreeTierTask(withIds)?._id
     return {
-        pauseIds: withIds.filter((task) => !task._id.equals(retainedId)).map((task) => task._id),
+        pauseIds: withIds
+            .filter((task) => !task._id.equals(retainedId) && task.pauseReason !== "user")
+            .map((task) => task._id),
         resumeIds: withIds
             .filter((task) => task._id.equals(retainedId) && task.pauseReason === "entitlement")
             .map((task) => task._id)
@@ -64,8 +68,15 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
         .limit(1)
         .next()
     const paused = await db.syncTasks.updateMany(
-        {userId: user._id, ...(retainedTask?._id ? {_id: {$ne: retainedTask._id}} : {})},
-        {$set: {status: "paused", pauseReason: "entitlement", updatedAt: new Date()}}
+        {
+            userId: user._id,
+            ...(retainedTask?._id ? {_id: {$ne: retainedTask._id}} : {}),
+            pauseReason: {$ne: "user"}
+        },
+        {
+            $set: {status: "paused", pauseReason: "entitlement", updatedAt: new Date()},
+            $unset: {leaseId: "", leaseExpiresAt: ""}
+        }
     )
     if (paused.modifiedCount) {
         logger.warn(

@@ -526,25 +526,32 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         const nextRunMs =
             user && resolveEntitlement(user).tier === "pro" ? 12 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000
         const finishedAt = new Date()
-        await Promise.all([
-            db.syncRuns.updateOne(
-                {_id: run.insertedId},
-                {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}}
-            ),
-            db.syncTasks.updateOne(
+        const completed = await db.syncTasks.updateOne(
+            {_id: taskId, leaseId, pauseReason: {$ne: "entitlement"}},
+            {
+                $set: {
+                    status: result.conflicts ? "needs_attention" : "active",
+                    lastRunAt: finishedAt,
+                    lastSuccessAt: finishedAt,
+                    nextRunAt: new Date(finishedAt.getTime() + nextRunMs),
+                    updatedAt: finishedAt
+                },
+                $unset: {leaseId: "", leaseExpiresAt: "", lastError: ""}
+            }
+        )
+        await db.syncRuns.updateOne(
+            {_id: run.insertedId},
+            {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}}
+        )
+        if (!completed.matchedCount) {
+            await db.syncTasks.updateOne(
                 {_id: taskId, leaseId},
                 {
-                    $set: {
-                        status: result.conflicts ? "needs_attention" : "active",
-                        lastRunAt: finishedAt,
-                        lastSuccessAt: finishedAt,
-                        nextRunAt: new Date(finishedAt.getTime() + nextRunMs),
-                        updatedAt: finishedAt
-                    },
-                    $unset: {leaseId: "", leaseExpiresAt: "", lastError: ""}
+                    $set: {lastRunAt: finishedAt, lastSuccessAt: finishedAt, updatedAt: finishedAt},
+                    $unset: {leaseId: "", leaseExpiresAt: ""}
                 }
             )
-        ])
+        }
         const log = result.skipped || result.conflicts ? logger.warn : logger.info
         log(
             "Sync.run",

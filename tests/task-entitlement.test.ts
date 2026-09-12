@@ -64,6 +64,19 @@ describe("free-tier task retention", () => {
         })
     })
 
+    test("does not convert user-paused extra tasks into entitlement pauses", () => {
+        const tasks = [
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: undefined},
+            {_id: second, mode: "playlist" as const, createdAt: created.second, pauseReason: "user" as const},
+            {_id: account, mode: "account" as const, createdAt: created.account, pauseReason: "user" as const}
+        ]
+
+        expect(planTaskEntitlement(tasks, false)).toEqual({
+            pauseIds: [],
+            resumeIds: []
+        })
+    })
+
     test("resumes entitlement-paused tasks when PRO is restored", () => {
         const tasks = [
             {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: "entitlement" as const},
@@ -73,6 +86,19 @@ describe("free-tier task retention", () => {
         expect(planTaskEntitlement(tasks, true)).toEqual({
             pauseIds: [],
             resumeIds: [first, second]
+        })
+    })
+
+    test("restoring PRO leaves user-paused tasks paused", () => {
+        const tasks = [
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: "entitlement" as const},
+            {_id: second, mode: "playlist" as const, createdAt: created.second, pauseReason: "user" as const},
+            {_id: account, mode: "account" as const, createdAt: created.account, pauseReason: "user" as const}
+        ]
+
+        expect(planTaskEntitlement(tasks, true)).toEqual({
+            pauseIds: [],
+            resumeIds: [first]
         })
     })
 })
