@@ -4,6 +4,7 @@ import {ObjectId} from "mongodb"
 import {collections} from "../../data/collections"
 import {getServerConfig, requireConfig} from "../../utils/config"
 import logger from "../../utils/logger"
+import {applyTaskEntitlement} from "./task-entitlement"
 
 let creemClient: Creem | undefined
 
@@ -57,49 +58,7 @@ export async function applySubscription(
         `Status ${status}`,
         `Tier ${isPaid ? "pro" : "free"}`
     )
-    if (isPaid) {
-        const resumed = await db.syncTasks.updateMany(
-            {userId: user._id!, pauseReason: "entitlement"},
-            {$set: {status: "active", nextRunAt: new Date(), updatedAt: new Date()}, $unset: {pauseReason: ""}}
-        )
-        if (resumed.modifiedCount) {
-            logger.info(
-                "Creem.applySubscription",
-                `User ${user._id!.toHexString()}`,
-                `Resumed tasks ${resumed.modifiedCount}`
-            )
-        }
-        return
-    }
-    const retainedTask = await db.syncTasks
-        .find({userId: user._id!, mode: {$ne: "account"}})
-        .sort({createdAt: 1})
-        .limit(1)
-        .next()
-    const paused = await db.syncTasks.updateMany(
-        {userId: user._id!, ...(retainedTask?._id ? {_id: {$ne: retainedTask._id}} : {})},
-        {$set: {status: "paused", pauseReason: "entitlement", updatedAt: new Date()}}
-    )
-    if (paused.modifiedCount) {
-        logger.warn(
-            "Creem.applySubscription",
-            `User ${user._id!.toHexString()}`,
-            `Paused tasks ${paused.modifiedCount}`
-        )
-    }
-    if (retainedTask && retainedTask.pauseReason === "entitlement") {
-        await db.syncTasks.updateOne(
-            {_id: retainedTask._id},
-            {
-                $set: {
-                    status: "active",
-                    nextRunAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                    updatedAt: new Date()
-                },
-                $unset: {pauseReason: ""}
-            }
-        )
-    }
+    await applyTaskEntitlement(user)
 }
 
 export async function processCreemEvent(event: WebhookEventEntity): Promise<void> {

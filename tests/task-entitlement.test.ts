@@ -1,0 +1,78 @@
+import {describe, expect, test} from "bun:test"
+import {ObjectId} from "mongodb"
+import {isEntitlementLocked, planTaskEntitlement, retainedFreeTierTask} from "../server/domain/billing/task-entitlement"
+import {isComplimentaryTrialActive, parseSubscriptionRequiredAt} from "../shared/trial"
+
+const first = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a1")
+const second = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a2")
+const account = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a3")
+const created = {
+    first: new Date("2026-01-01T00:00:00.000Z"),
+    second: new Date("2026-02-01T00:00:00.000Z"),
+    account: new Date("2025-12-01T00:00:00.000Z")
+}
+
+describe("complimentary trial window", () => {
+    test("parses date-only and ISO cutoff values", () => {
+        expect(parseSubscriptionRequiredAt("2027-01-01T00:00:00.000Z")?.toISOString()).toBe("2027-01-01T00:00:00.000Z")
+        expect(parseSubscriptionRequiredAt("")).toBeUndefined()
+        expect(parseSubscriptionRequiredAt("not-a-date")).toBeUndefined()
+    })
+
+    test("is active only before the configured instant", () => {
+        const cutoff = "2027-01-01T00:00:00.000Z"
+        expect(isComplimentaryTrialActive(cutoff, new Date("2026-12-31T23:59:59.000Z"))).toBe(true)
+        expect(isComplimentaryTrialActive(cutoff, new Date("2027-01-01T00:00:00.000Z"))).toBe(false)
+        expect(isComplimentaryTrialActive(undefined, new Date("2026-09-12T00:00:00.000Z"))).toBe(false)
+    })
+})
+
+describe("free-tier task retention", () => {
+    test("keeps the earliest playlist-pair task", () => {
+        const tasks = [
+            {_id: second, mode: "playlist" as const, createdAt: created.second, pauseReason: undefined},
+            {_id: account, mode: "account" as const, createdAt: created.account, pauseReason: undefined},
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: undefined}
+        ]
+
+        expect(retainedFreeTierTask(tasks)?._id).toEqual(first)
+    })
+
+    test("pauses extra and account tasks when PRO is lost", () => {
+        const tasks = [
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: "entitlement" as const},
+            {_id: second, mode: "playlist" as const, createdAt: created.second, pauseReason: undefined},
+            {_id: account, mode: "account" as const, createdAt: created.account, pauseReason: undefined}
+        ]
+
+        expect(planTaskEntitlement(tasks, false)).toEqual({
+            pauseIds: [second, account],
+            resumeIds: [first]
+        })
+        expect(isEntitlementLocked(tasks[0]!)).toBe(true)
+    })
+
+    test("does not force-resume a user-paused first playlist pair", () => {
+        const tasks = [
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: "user" as const},
+            {_id: second, mode: "playlist" as const, createdAt: created.second, pauseReason: undefined}
+        ]
+
+        expect(planTaskEntitlement(tasks, false)).toEqual({
+            pauseIds: [second],
+            resumeIds: []
+        })
+    })
+
+    test("resumes entitlement-paused tasks when PRO is restored", () => {
+        const tasks = [
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: "entitlement" as const},
+            {_id: second, mode: "playlist" as const, createdAt: created.second, pauseReason: "entitlement" as const}
+        ]
+
+        expect(planTaskEntitlement(tasks, true)).toEqual({
+            pauseIds: [],
+            resumeIds: [first, second]
+        })
+    })
+})

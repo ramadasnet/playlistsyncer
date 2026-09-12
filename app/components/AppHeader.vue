@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {LogOut, Menu, SlidersHorizontal, X} from "lucide-vue-next"
+import {planBadgeClass, planBadgeLabel} from "~/utils/plan"
 
 const auth = useAuthStore()
 const open = ref(false)
@@ -35,11 +36,9 @@ watch(
                 <template v-if="auth.user">
                     <NuxtLink to="/sync">Sync tasks</NuxtLink>
                     <NuxtLink to="/account">Account</NuxtLink>
-                    <span
-                        class="plan-badge"
-                        :class="auth.user.developmentProOverride ? 'plan-development' : `plan-${auth.user.tier}`"
-                        >{{ auth.user.developmentProOverride ? "PRO / DEV" : auth.user.tier }}</span
-                    >
+                    <span class="plan-badge" :class="planBadgeClass(auth.user)">{{
+                        planBadgeLabel(auth.user, true)
+                    }}</span>
                     <button class="icon-button" type="button" title="Log out" aria-label="Log out" @click="auth.logout">
                         <LogOut :size="18" />
                     </button>
