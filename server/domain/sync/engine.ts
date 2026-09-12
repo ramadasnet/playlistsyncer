@@ -11,6 +11,7 @@ import {resolvedTaskDirection} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {resolveEntitlement} from "../billing/entitlement"
+import {applyTaskEntitlement} from "../billing/task-entitlement"
 import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
 import {trackMatchingVersion} from "../providers/matching"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
@@ -469,6 +470,13 @@ async function execute(task: SyncTaskDocument, recordChanges: RecordTrackChanges
 
 export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled") {
     const db = await collections()
+    const current = await db.syncTasks.findOne({_id: taskId})
+    if (current) {
+        const owner = await db.users.findOne({_id: current.userId})
+        if (owner) {
+            await applyTaskEntitlement(owner)
+        }
+    }
     const leaseId = randomUUID()
     const now = new Date()
     logger.info("Sync.run", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "Acquiring lease")
