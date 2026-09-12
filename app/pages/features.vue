@@ -6,7 +6,12 @@ import {complimentaryTrialEndsAt, formatTrialDate} from "~/utils/plan"
 const config = useRuntimeConfig()
 const auth = useAuthStore()
 const {enabledProviders} = await useEnabledProviders()
-const trialEndsAt = computed(() => complimentaryTrialEndsAt(String(config.public.proSubscriptionRequiredAt || "")))
+const {data: trial} = await useFetch<{proSubscriptionRequiredAt?: string}>("/api/trial")
+const trialEndsAt = computed(() =>
+    complimentaryTrialEndsAt(
+        trial.value?.proSubscriptionRequiredAt || String(config.public.proSubscriptionRequiredAt || "")
+    )
+)
 type PlanValue = string | boolean
 const features: [string, PlanValue, PlanValue][] = [
     ["Playlist pairs", "1", "Unlimited"],

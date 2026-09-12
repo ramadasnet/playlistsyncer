@@ -36,9 +36,10 @@ describe("run history visibility", () => {
 
     test("includes latest-run details for PRO accounts", () => {
         expect(serializeSyncTask(task, latestRun, "pro").latestRun).toEqual(latestRun)
-        expect(serializeSyncTask({...task, pauseReason: "entitlement"}, latestRun, "free").pauseReason).toBe(
-            "entitlement"
-        )
+        expect(serializeSyncTask({...task, pauseReason: "entitlement"}, latestRun, "free", true)).toMatchObject({
+            pauseReason: "entitlement",
+            entitlementLocked: true
+        })
     })
 
     test("hides latest-run details from Free accounts", () => {

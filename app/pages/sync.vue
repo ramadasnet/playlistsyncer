@@ -195,7 +195,7 @@ function isOneWay(task: SyncTaskSummary) {
 }
 
 function isEntitlementLocked(task: SyncTaskSummary) {
-    return task.pauseReason === "entitlement"
+    return Boolean(task.entitlementLocked) || task.pauseReason === "entitlement"
 }
 </script>
 

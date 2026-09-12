@@ -20,6 +20,18 @@ export function isEntitlementLocked(task: Pick<SyncTaskDocument, "pauseReason">)
     return task.pauseReason === "entitlement"
 }
 
+export function isPlanLockedTask(
+    task: Pick<SyncTaskDocument, "_id" | "mode" | "createdAt">,
+    tasks: Pick<SyncTaskDocument, "_id" | "mode" | "createdAt">[],
+    isPro: boolean
+): boolean {
+    if (isPro || !task._id) {
+        return false
+    }
+    const retained = retainedFreeTierTask(tasks)
+    return !retained?._id?.equals(task._id)
+}
+
 export function planTaskEntitlement(
     tasks: TaskEntitlementFields[],
     isPro: boolean
@@ -34,7 +46,10 @@ export function planTaskEntitlement(
     const retainedId = retainedFreeTierTask(withIds)?._id
     return {
         pauseIds: withIds
-            .filter((task) => !task._id.equals(retainedId) && task.pauseReason !== "user")
+            .filter(
+                (task) =>
+                    !task._id.equals(retainedId) && task.pauseReason !== "user" && task.pauseReason !== "entitlement"
+            )
             .map((task) => task._id),
         resumeIds: withIds
             .filter((task) => task._id.equals(retainedId) && task.pauseReason === "entitlement")
@@ -71,7 +86,7 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
         {
             userId: user._id,
             ...(retainedTask?._id ? {_id: {$ne: retainedTask._id}} : {}),
-            pauseReason: {$ne: "user"}
+            pauseReason: {$nin: ["user", "entitlement"]}
         },
         {
             $set: {status: "paused", pauseReason: "entitlement", updatedAt: new Date()},

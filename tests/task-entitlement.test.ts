@@ -1,7 +1,12 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
-import {isEntitlementLocked, planTaskEntitlement, retainedFreeTierTask} from "../server/domain/billing/task-entitlement"
-import {isComplimentaryTrialActive, parseSubscriptionRequiredAt} from "../shared/trial"
+import {
+    isEntitlementLocked,
+    isPlanLockedTask,
+    planTaskEntitlement,
+    retainedFreeTierTask
+} from "../server/domain/billing/task-entitlement"
+import {isComplimentaryTrialActive, parseSubscriptionRequiredAt, resolvePublicTrialCutoff} from "../shared/trial"
 
 const first = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a1")
 const second = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a2")
@@ -24,6 +29,20 @@ describe("complimentary trial window", () => {
         expect(isComplimentaryTrialActive(cutoff, new Date("2026-12-31T23:59:59.000Z"))).toBe(true)
         expect(isComplimentaryTrialActive(cutoff, new Date("2027-01-01T00:00:00.000Z"))).toBe(false)
         expect(isComplimentaryTrialActive(undefined, new Date("2026-09-12T00:00:00.000Z"))).toBe(false)
+    })
+
+    test("prefers the runtime PRO_SUBSCRIPTION_REQUIRED_AT env var over a baked public value", () => {
+        expect(
+            resolvePublicTrialCutoff(
+                {PRO_SUBSCRIPTION_REQUIRED_AT: "2027-01-01T00:00:00.000Z"},
+                "2026-01-01T00:00:00.000Z"
+            )
+        ).toBe("2027-01-01T00:00:00.000Z")
+        expect(
+            resolvePublicTrialCutoff({NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT: "2028-06-01T00:00:00.000Z"}, "")
+        ).toBe("2028-06-01T00:00:00.000Z")
+        expect(resolvePublicTrialCutoff({}, "2026-01-01T00:00:00.000Z")).toBe("2026-01-01T00:00:00.000Z")
+        expect(resolvePublicTrialCutoff({PRO_SUBSCRIPTION_REQUIRED_AT: "  "}, "")).toBe("")
     })
 })
 
@@ -100,5 +119,31 @@ describe("free-tier task retention", () => {
             pauseIds: [],
             resumeIds: [first]
         })
+    })
+
+    test("does not re-pause tasks that are already entitlement-locked", () => {
+        const tasks = [
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: undefined},
+            {_id: second, mode: "playlist" as const, createdAt: created.second, pauseReason: "entitlement" as const},
+            {_id: account, mode: "account" as const, createdAt: created.account, pauseReason: "entitlement" as const}
+        ]
+
+        expect(planTaskEntitlement(tasks, false)).toEqual({
+            pauseIds: [],
+            resumeIds: []
+        })
+    })
+
+    test("locks extra user-paused tasks on Free without converting their pause reason", () => {
+        const tasks = [
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: "user" as const},
+            {_id: second, mode: "playlist" as const, createdAt: created.second, pauseReason: "user" as const},
+            {_id: account, mode: "account" as const, createdAt: created.account, pauseReason: "user" as const}
+        ]
+
+        expect(isPlanLockedTask(tasks[0]!, tasks, false)).toBe(false)
+        expect(isPlanLockedTask(tasks[1]!, tasks, false)).toBe(true)
+        expect(isPlanLockedTask(tasks[2]!, tasks, false)).toBe(true)
+        expect(isPlanLockedTask(tasks[1]!, tasks, true)).toBe(false)
     })
 })

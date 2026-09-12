@@ -545,10 +545,10 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         )
         if (!completed.matchedCount) {
             await db.syncTasks.updateOne(
-                {_id: taskId, leaseId},
+                {_id: taskId},
                 {
                     $set: {lastRunAt: finishedAt, lastSuccessAt: finishedAt, updatedAt: finishedAt},
-                    $unset: {leaseId: "", leaseExpiresAt: ""}
+                    $unset: {leaseId: "", leaseExpiresAt: "", lastError: ""}
                 }
             )
         }
@@ -567,16 +567,20 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     } catch (error) {
         const finishedAt = new Date()
         const message = error instanceof Error ? error.message.slice(0, 500) : "Unknown synchronization error"
-        await Promise.all([
-            db.syncRuns.updateOne({_id: run.insertedId}, {$set: {status: "failed", error: message, finishedAt}}),
-            db.syncTasks.updateOne(
-                {_id: taskId, leaseId},
-                {
-                    $set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt},
-                    $unset: {leaseId: "", leaseExpiresAt: ""}
-                }
+        const failed = await db.syncTasks.updateOne(
+            {_id: taskId, leaseId},
+            {
+                $set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt},
+                $unset: {leaseId: "", leaseExpiresAt: ""}
+            }
+        )
+        await db.syncRuns.updateOne({_id: run.insertedId}, {$set: {status: "failed", error: message, finishedAt}})
+        if (!failed.matchedCount) {
+            await db.syncTasks.updateOne(
+                {_id: taskId},
+                {$set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt}}
             )
-        ])
+        }
         logger.error(
             "Sync.run",
             `Task ${taskId.toHexString()}`,
