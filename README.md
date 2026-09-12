@@ -56,8 +56,9 @@ Every execution acquires a 15-minute MongoDB lease, records additions, removals,
 
 - Free: one playlist-pair task, weekly scheduled runs, and a 24-hour cooldown between successful manual runs.
 - PRO: unlimited playlist-pair and whole-account tasks, scheduled every 12 hours, with no manual-run cooldown. Run history and conflict details are visible only on PRO. An optional weekly email lists playlists and tracks added or removed, and is sent only when there were changes.
+- Complimentary trial: set `PRO_SUBSCRIPTION_REQUIRED_AT` to an ISO 8601 instant. Until that moment, every account has effective PRO access without a subscription and can still start checkout to keep PRO afterward.
 
-Creem webhook events are the source of truth for paid entitlement. Downgrades retain tasks and history but entitlement-paused tasks cannot run. In local development, `DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
+Creem webhook events are the source of truth for paid entitlement. Downgrades and the end of the complimentary trial retain tasks and history. Extra playlist-pair tasks and every whole-account task are paused with an entitlement lock: they cannot run or be edited, and the UI explains that a PRO subscription is needed. The earliest playlist-pair task stays enabled on Free. In local development, `DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
 
 ## Authentication and security
 
@@ -118,6 +119,8 @@ Optional SMTP values for email confirmation after social registration without a 
 - When SMTP is not configured, confirmation emails are skipped. In non-production the account page can expose a development confirmation link.
 
 For local development, set `DEVELOPMENT_PRO_USER_EMAILS` to a comma-separated list of account email addresses that should receive effective PRO access without a subscription. The override is ignored whenever `NODE_ENV=production`, and affected accounts are labeled as development overrides in the UI.
+
+Set `PRO_SUBSCRIPTION_REQUIRED_AT` to the ISO 8601 instant when PRO features start requiring a paid subscription, for example `2027-01-01T00:00:00.000Z`. Until that instant, every signed-in account receives complimentary PRO access so the service can be tested with the full feature set. Once the instant has passed, accounts without a paid subscription (or development override) drop to Free: extra sync tasks stay saved but locked, and only the first playlist pair remains enabled. Leave the variable empty to require a subscription immediately.
 
 Changing `TOKEN_ENCRYPTION_KEY` without a key-rotation migration makes stored OAuth tokens unreadable. Provider client secrets, database credentials, and webhook signing secrets are externally issued credentials and must still be configured exactly as provided.
 
