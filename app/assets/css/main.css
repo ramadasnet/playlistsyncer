@@ -1087,6 +1087,49 @@ select {
     margin-top: 12px;
 }
 
+.support-page {
+    display: flex;
+    flex-direction: column;
+}
+.support-page .page-heading {
+    margin-bottom: 18px;
+}
+.support-email {
+    margin: 0 0 28px;
+    font-weight: 700;
+}
+.support-email a {
+    color: var(--green);
+    border-bottom: 1px solid currentColor;
+}
+.support-frame {
+    width: 100%;
+    min-height: 640px;
+    height: calc(100vh - 280px);
+    border: 1px solid var(--line);
+    background: var(--white);
+}
+.legal-panel {
+    max-width: 640px;
+    padding: 40px;
+    border: 1px solid var(--line);
+    background: var(--white);
+}
+.legal-panel h2 {
+    margin: 0 0 22px;
+    font-size: 1.15rem;
+}
+.legal-panel p {
+    margin: 0 0 22px;
+}
+.legal-panel p:last-child {
+    margin-bottom: 0;
+}
+.legal-panel a {
+    color: var(--green);
+    border-bottom: 1px solid currentColor;
+}
+
 .site-footer {
     border-top: 1px solid var(--line);
     background: var(--ink);
@@ -1235,6 +1278,13 @@ select {
     }
     .page-shell {
         padding-block: 50px 75px;
+    }
+    .support-frame {
+        min-height: 520px;
+        height: calc(100vh - 240px);
+    }
+    .legal-panel {
+        padding: 28px 22px;
     }
     .page-heading {
         margin-bottom: 38px;

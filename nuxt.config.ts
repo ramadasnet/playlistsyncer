@@ -30,6 +30,8 @@ export default defineNuxtConfig({
             appName: process.env.NUXT_PUBLIC_APP_NAME || "PlaylistSyncer",
             proPrice: process.env.NUXT_PUBLIC_PRO_PRICE || "Configured at checkout",
             supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || "info@playlistsyncer.com",
+            chatbaseHelpUrl:
+                process.env.NUXT_PUBLIC_CHATBASE_HELP_URL || "https://www.chatbase.co/taNwdeaQwZIYPfxthXqRu/help",
             siteUrl: appUrl
         }
     },

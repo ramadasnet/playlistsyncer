@@ -9,7 +9,8 @@
                 <p><strong>PlaylistSyncer</strong> · Your playlists, in agreement.</p>
                 <nav aria-label="Footer navigation">
                     <NuxtLink to="/features">Features</NuxtLink>
-                    <a :href="`mailto:${config.public.supportEmail}`">Support</a>
+                    <NuxtLink to="/support">Support</NuxtLink>
+                    <NuxtLink v-if="showImpressum" to="/impressum">Impressum</NuxtLink>
                     <span>© {{ new Date().getFullYear() }}</span>
                 </nav>
             </div>
@@ -18,5 +19,5 @@
 </template>
 
 <script setup lang="ts">
-const config = useRuntimeConfig()
+const {showImpressum} = await useShowImpressum()
 </script>

@@ -6,7 +6,7 @@ export default defineNuxtRouteMiddleware((to) => {
     if (auth.user.email || auth.user.tempEmail) {
         return
     }
-    if (to.path === "/account" || to.path === "/confirm-email") {
+    if (to.path === "/account" || to.path === "/confirm-email" || to.path === "/support" || to.path === "/impressum") {
         return
     }
     return navigateTo("/account")
