@@ -248,6 +248,11 @@ main {
     border-color: #e0a11a;
     background: #ffe59a;
 }
+.plan-trial {
+    color: #12343d;
+    border-color: #4aa3b5;
+    background: #d7f3f8;
+}
 .provider-badge {
     width: max-content;
     display: inline-flex;
@@ -1049,11 +1054,21 @@ select {
     align-items: center;
     gap: 6px;
 }
-.task-history-locked a {
+.task-history-locked a,
+.task-entitlement-note a {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     color: var(--green);
+    font-weight: 600;
+}
+.task-entitlement-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    max-width: 330px;
+    color: var(--ink) !important;
     font-weight: 600;
 }
 .task-actions {
