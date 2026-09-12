@@ -2,11 +2,13 @@
 import {ArrowUpRight, CheckCircle2, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus} from "lucide-vue-next"
 import type {ConnectedAccount, SessionUser} from "~/types/api"
 import type {Provider} from "~~/shared/types/domain"
+import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
 
 definePageMeta({middleware: "auth"})
 
 const auth = useAuthStore()
 const route = useRoute()
+const runtimeConfig = useRuntimeConfig()
 const {enabledProviders} = await useEnabledProviders()
 const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/accounts", {
     query: {includePlaylistCount: "true"}
@@ -22,6 +24,38 @@ const devConfirmationUrl = ref("")
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
 const pendingEmail = computed(() => Boolean(auth.user?.tempEmail && !auth.user?.email))
 const canEditWeeklySummary = computed(() => auth.user?.tier === "pro" && Boolean(auth.user.email))
+const isPaidPro = computed(() =>
+    Boolean(auth.user?.tier === "pro" && !auth.user.developmentProOverride && !auth.user.trialAccess)
+)
+const trialEndsAt = computed(() =>
+    complimentaryTrialEndsAt(
+        auth.user?.proSubscriptionRequiredAt || String(runtimeConfig.public.proSubscriptionRequiredAt || "")
+    )
+)
+const billingCopy = computed(() => {
+    if (!auth.user?.email) {
+        return "Confirm an email address before upgrading."
+    }
+    if (auth.user.developmentProOverride) {
+        return "PRO features are enabled by a local development override. No paid subscription is active."
+    }
+    if (auth.user.trialAccess && trialEndsAt.value) {
+        return `PRO features are complimentary until ${formatTrialDate(trialEndsAt.value)} while PlaylistSyncer is being tested. Subscribe to keep them afterward.`
+    }
+    if (auth.user.tier === "pro") {
+        return "Unlimited pairs · sync every 12 hours · run history"
+    }
+    return "One pair · sync every week"
+})
+const billingTitle = computed(() => {
+    if (auth.user?.developmentProOverride) {
+        return "Development PRO access"
+    }
+    if (auth.user?.trialAccess) {
+        return "Complimentary PRO trial"
+    }
+    return auth.user?.tier === "pro" ? "PRO plan" : "Free plan"
+})
 const resendSameEmail = computed(
     () => pendingEmail.value && emailInput.value.trim().toLowerCase() === auth.user?.tempEmail
 )
@@ -152,11 +186,9 @@ onMounted(() => refresh())
                     <p class="eyebrow">Profile</p>
                     <h2 id="profile-heading">Your PlaylistSyncer account</h2>
                 </div>
-                <span
-                    class="plan-badge"
-                    :class="auth.user?.developmentProOverride ? 'plan-development' : `plan-${auth.user?.tier}`"
-                    >{{ auth.user?.developmentProOverride ? "PRO / DEVELOPMENT" : auth.user?.tier }}</span
-                >
+                <span class="plan-badge" :class="auth.user ? planBadgeClass(auth.user) : 'plan-free'">{{
+                    auth.user ? planBadgeLabel(auth.user) : ""
+                }}</span>
             </div>
             <div class="profile-line">
                 <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="" />
@@ -278,27 +310,11 @@ onMounted(() => refresh())
             </div>
             <div class="billing-copy">
                 <div>
-                    <strong>{{
-                        auth.user?.developmentProOverride
-                            ? "Development PRO access"
-                            : auth.user?.tier === "pro"
-                              ? "PRO plan"
-                              : "Free plan"
-                    }}</strong>
-                    <p>
-                        {{
-                            !auth.user?.email
-                                ? "Confirm an email address before upgrading."
-                                : auth.user?.developmentProOverride
-                                  ? "PRO features are enabled by a local development override. No paid subscription is active."
-                                  : auth.user?.tier === "pro"
-                                    ? "Unlimited pairs · sync every 12 hours · run history"
-                                    : "One pair · sync every week"
-                        }}
-                    </p>
+                    <strong>{{ billingTitle }}</strong>
+                    <p>{{ billingCopy }}</p>
                 </div>
                 <button
-                    v-if="auth.user?.tier === 'pro' && !auth.user.developmentProOverride"
+                    v-if="isPaidPro"
                     class="button button-secondary"
                     type="button"
                     :disabled="busy"
@@ -313,7 +329,8 @@ onMounted(() => refresh())
                     :disabled="busy || !auth.user?.email"
                     @click="openBilling('checkout')"
                 >
-                    <LoaderCircle v-if="busy" class="spin" :size="17" /> Upgrade to PRO
+                    <LoaderCircle v-if="busy" class="spin" :size="17" />
+                    {{ auth.user?.trialAccess ? "Keep PRO" : "Upgrade to PRO" }}
                 </button>
             </div>
         </section>

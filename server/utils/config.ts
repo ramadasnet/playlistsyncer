@@ -15,6 +15,16 @@ const optionalPort = z.preprocess(
     (value) => (value === "" || value === undefined || value === null ? 587 : value),
     z.coerce.number().int().min(1).max(65535)
 )
+const optionalInstant = z.preprocess((value) => {
+    if (value === "" || value === undefined || value === null) {
+        return undefined
+    }
+    const parsed = value instanceof Date ? value : new Date(String(value))
+    if (Number.isNaN(parsed.getTime())) {
+        return value
+    }
+    return parsed
+}, z.date().optional())
 const appUrl = z
     .string()
     .url()
@@ -45,6 +55,7 @@ const serverConfigSchema = z.object({
     creemProProductId: optionalCredential,
     creemServer: z.enum(["test", "prod"]).default("test"),
     developmentProUserEmails: emailList,
+    proSubscriptionRequiredAt: optionalInstant,
     smtpHost: optionalCredential,
     smtpPort: optionalPort,
     smtpUser: optionalCredential,
@@ -87,6 +98,8 @@ export function getServerConfig(): ServerConfig {
             creemProProductId: process.env.CREEM_PRO_PRODUCT_ID,
             creemServer: process.env.CREEM_SERVER,
             developmentProUserEmails: process.env.DEVELOPMENT_PRO_USER_EMAILS,
+            proSubscriptionRequiredAt:
+                process.env.PRO_SUBSCRIPTION_REQUIRED_AT || process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT,
             smtpHost: process.env.SMTP_HOST,
             smtpPort: process.env.SMTP_PORT,
             smtpUser: process.env.SMTP_USER,

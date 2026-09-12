@@ -1,12 +1,12 @@
 import {requireUser} from "../../domain/auth/session"
 import {getCreem} from "../../domain/billing/creem"
-import {resolveEntitlement} from "../../domain/billing/entitlement"
+import {canStartCheckout, resolveEntitlement} from "../../domain/billing/entitlement"
 import {getServerConfig, requireConfig} from "../../utils/config"
 import logger from "../../utils/logger"
 
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
-    if (resolveEntitlement(user).tier === "pro") {
+    if (!canStartCheckout(resolveEntitlement(user))) {
         throw createError({statusCode: 409, statusMessage: "The account already has PRO access"})
     }
     if (!user.email) {

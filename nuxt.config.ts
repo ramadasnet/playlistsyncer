@@ -32,7 +32,9 @@ export default defineNuxtConfig({
             supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || "info@playlistsyncer.com",
             chatbaseHelpUrl:
                 process.env.NUXT_PUBLIC_CHATBASE_HELP_URL || "https://www.chatbase.co/taNwdeaQwZIYPfxthXqRu/help",
-            siteUrl: appUrl
+            siteUrl: appUrl,
+            proSubscriptionRequiredAt:
+                process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT || process.env.PRO_SUBSCRIPTION_REQUIRED_AT || ""
         }
     },
     typescript: {

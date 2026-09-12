@@ -11,6 +11,7 @@ import {resolvedTaskDirection} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {resolveEntitlement} from "../billing/entitlement"
+import {applyTaskEntitlement} from "../billing/task-entitlement"
 import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
 import {trackMatchingVersion} from "../providers/matching"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
@@ -469,6 +470,13 @@ async function execute(task: SyncTaskDocument, recordChanges: RecordTrackChanges
 
 export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled") {
     const db = await collections()
+    const current = await db.syncTasks.findOne({_id: taskId})
+    if (current) {
+        const owner = await db.users.findOne({_id: current.userId})
+        if (owner) {
+            await applyTaskEntitlement(owner)
+        }
+    }
     const leaseId = randomUUID()
     const now = new Date()
     logger.info("Sync.run", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "Acquiring lease")
@@ -518,25 +526,32 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         const nextRunMs =
             user && resolveEntitlement(user).tier === "pro" ? 12 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000
         const finishedAt = new Date()
-        await Promise.all([
-            db.syncRuns.updateOne(
-                {_id: run.insertedId},
-                {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}}
-            ),
-            db.syncTasks.updateOne(
-                {_id: taskId, leaseId},
+        const completed = await db.syncTasks.updateOne(
+            {_id: taskId, leaseId, pauseReason: {$ne: "entitlement"}},
+            {
+                $set: {
+                    status: result.conflicts ? "needs_attention" : "active",
+                    lastRunAt: finishedAt,
+                    lastSuccessAt: finishedAt,
+                    nextRunAt: new Date(finishedAt.getTime() + nextRunMs),
+                    updatedAt: finishedAt
+                },
+                $unset: {leaseId: "", leaseExpiresAt: "", lastError: ""}
+            }
+        )
+        await db.syncRuns.updateOne(
+            {_id: run.insertedId},
+            {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}}
+        )
+        if (!completed.matchedCount) {
+            await db.syncTasks.updateOne(
+                {_id: taskId},
                 {
-                    $set: {
-                        status: result.conflicts ? "needs_attention" : "active",
-                        lastRunAt: finishedAt,
-                        lastSuccessAt: finishedAt,
-                        nextRunAt: new Date(finishedAt.getTime() + nextRunMs),
-                        updatedAt: finishedAt
-                    },
+                    $set: {lastRunAt: finishedAt, lastSuccessAt: finishedAt, updatedAt: finishedAt},
                     $unset: {leaseId: "", leaseExpiresAt: "", lastError: ""}
                 }
             )
-        ])
+        }
         const log = result.skipped || result.conflicts ? logger.warn : logger.info
         log(
             "Sync.run",
@@ -552,16 +567,20 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     } catch (error) {
         const finishedAt = new Date()
         const message = error instanceof Error ? error.message.slice(0, 500) : "Unknown synchronization error"
-        await Promise.all([
-            db.syncRuns.updateOne({_id: run.insertedId}, {$set: {status: "failed", error: message, finishedAt}}),
-            db.syncTasks.updateOne(
-                {_id: taskId, leaseId},
-                {
-                    $set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt},
-                    $unset: {leaseId: "", leaseExpiresAt: ""}
-                }
+        const failed = await db.syncTasks.updateOne(
+            {_id: taskId, leaseId},
+            {
+                $set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt},
+                $unset: {leaseId: "", leaseExpiresAt: ""}
+            }
+        )
+        await db.syncRuns.updateOne({_id: run.insertedId}, {$set: {status: "failed", error: message, finishedAt}})
+        if (!failed.matchedCount) {
+            await db.syncTasks.updateOne(
+                {_id: taskId},
+                {$set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt}}
             )
-        ])
+        }
         logger.error(
             "Sync.run",
             `Task ${taskId.toHexString()}`,

@@ -193,6 +193,10 @@ function runTitle(task: SyncTaskSummary) {
 function isOneWay(task: SyncTaskSummary) {
     return task.direction === "one-way"
 }
+
+function isEntitlementLocked(task: SyncTaskSummary) {
+    return Boolean(task.entitlementLocked) || task.pauseReason === "entitlement"
+}
 </script>
 
 <template>
@@ -380,10 +384,15 @@ function isOneWay(task: SyncTaskSummary) {
                         Run history and conflicts are on PRO.
                         <NuxtLink to="/account">See PRO <ArrowRight :size="14" /></NuxtLink>
                     </p>
+                    <p v-if="isEntitlementLocked(task)" class="task-entitlement-note">
+                        A PRO subscription is needed to enable this sync task.
+                        <NuxtLink to="/account">See PRO <ArrowRight :size="14" /></NuxtLink>
+                    </p>
                     <p v-if="task.lastError" class="task-error">{{ task.lastError }}</p>
                 </div>
                 <div class="task-actions">
                     <button
+                        v-if="!isEntitlementLocked(task)"
                         class="icon-button"
                         type="button"
                         :title="runTitle(task)"
@@ -393,6 +402,7 @@ function isOneWay(task: SyncTaskSummary) {
                         <LoaderCircle v-if="busyTask === task.id" class="spin" :size="18" /><Play v-else :size="18" />
                     </button>
                     <button
+                        v-if="!isEntitlementLocked(task)"
                         class="icon-button"
                         type="button"
                         :title="task.status === 'paused' ? 'Resume' : 'Pause'"
