@@ -17,7 +17,7 @@ export default defineNuxtConfig({
             headers: {
                 "Cache-Control": "no-store, max-age=0",
                 "CDN-Cache-Control": "no-store",
-                "Cloudflare-CDN-Control": "no-store"
+                "Cloudflare-CDN-Cache-Control": "no-store"
             }
         }
     },

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import {ArrowRight, Check, Minus, RefreshCw, ShieldCheck} from "lucide-vue-next"
 import {formatProviderNames} from "~~/shared/types/domain"
+import {complimentaryTrialEndsAt, formatTrialDate} from "~/utils/plan"
 
 const config = useRuntimeConfig()
 const auth = useAuthStore()
 const {enabledProviders} = await useEnabledProviders()
+const trialEndsAt = computed(() => complimentaryTrialEndsAt(String(config.public.proSubscriptionRequiredAt || "")))
 type PlanValue = string | boolean
 const features: [string, PlanValue, PlanValue][] = [
     ["Playlist pairs", "1", "Unlimited"],
@@ -23,6 +25,14 @@ const features: [string, PlanValue, PlanValue][] = [
             title="Sync at the pace you listen"
             description="Start with one playlist pair, two-way or one-way. Go PRO when your library spans more services and moods."
         />
+
+        <div v-if="trialEndsAt" class="notice" role="status">
+            <span>
+                Until {{ formatTrialDate(trialEndsAt) }}, every account includes complimentary PRO features while
+                PlaylistSyncer is being tested. After that date, accounts without a subscription keep one playlist pair
+                and extra sync tasks stay saved but disabled.
+            </span>
+        </div>
 
         <section class="plan-grid" aria-label="Account plans">
             <article class="plan-panel">
