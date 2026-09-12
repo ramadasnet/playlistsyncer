@@ -16,3 +16,11 @@ export function isComplimentaryTrialActive(
     const date = parseSubscriptionRequiredAt(requiredAt)
     return Boolean(date && now < date)
 }
+
+export function resolvePublicTrialCutoff(environment: Record<string, string | undefined>, baked = ""): string {
+    return (
+        environment.PRO_SUBSCRIPTION_REQUIRED_AT?.trim() ||
+        environment.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT?.trim() ||
+        baked.trim()
+    )
+}
