@@ -5,7 +5,10 @@ import {formatProviderNames} from "~~/shared/types/domain"
 const {enabledProviders} = await useEnabledProviders()
 
 useSeoMeta({
-    title: "PlaylistSyncer · Two-way and one-way playlist syncing",
+    title: () => {
+        const names = formatProviderNames(enabledProviders.value)
+        return names ? `PlaylistSyncer - Sync ${names} playlists` : "PlaylistSyncer - Sync playlists"
+    },
     description: () => {
         const names = formatProviderNames(enabledProviders.value)
         return names ? `Keep playlists aligned across ${names}, two-way or with a master playlist.` : "Keep one listening life across every music service."
