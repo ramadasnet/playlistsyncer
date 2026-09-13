@@ -9,6 +9,8 @@ import {resolveEntitlement} from "../billing/entitlement"
 import {applyTaskEntitlement} from "../billing/task-entitlement"
 import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
 import {trackMatchingVersion} from "../providers/matching"
+import {proSyncIntervalMs} from "~~/shared/sync-cadence"
+import {getServerConfig} from "../../utils/config"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
 
 const leaseDurationMs = 15 * 60 * 1000
@@ -418,7 +420,8 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     try {
         const result = await execute(task, recordChanges)
         const user = await db.users.findOne({_id: task.userId})
-        const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? 12 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000
+        const proIntervalMs = proSyncIntervalMs(getServerConfig().proSyncIntervalHours)
+        const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? proIntervalMs : 7 * 24 * 60 * 60 * 1000
         const finishedAt = new Date()
         const completed = await db.syncTasks.updateOne(
             {_id: taskId, leaseId, pauseReason: {$ne: "entitlement"}},

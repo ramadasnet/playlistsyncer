@@ -3,6 +3,7 @@ import {ArrowRight, Check, RefreshCw} from "lucide-vue-next"
 import {formatProviderNames} from "~~/shared/types/domain"
 
 const {enabledProviders} = await useEnabledProviders()
+const {everyLabel} = useProSyncCadence()
 
 useSeoMeta({
     title: () => {
@@ -11,7 +12,7 @@ useSeoMeta({
     },
     description: () => {
         const names = formatProviderNames(enabledProviders.value)
-        return names ? `Keep playlists aligned across ${names}, two-way or with a master playlist.` : "Keep one listening life across every music service."
+        return names ? `Keep playlists aligned across ${names}, two-way or with a master playlist.` : "Keep playlists in sync across every music service."
     }
 })
 
@@ -25,9 +26,9 @@ const auth = useAuthStore()
         <div class="shell hero-content">
             <p class="eyebrow light">Cross-platform playlist sync</p>
             <h1>PlaylistSyncer</h1>
-            <p class="hero-copy">Keep one listening life across every music service. Sync two playlists so they stay equal, or make the first playlist the master and let the second mirror it.</p>
+            <p class="hero-copy">Keep your favorite tracks in sync, no matter which music provider you use! PlaylistSyncer allows you to automagically sync playlists across multiple platforms.</p>
             <div class="hero-actions">
-                <NuxtLink class="button button-primary" :to="auth.user ? '/sync' : '/login'"> {{ auth.user ? "Open sync tasks" : "Connect a provider" }} <ArrowRight :size="18" /> </NuxtLink>
+                <NuxtLink class="button button-primary" :to="auth.user ? '/sync' : '/login'"> {{ auth.user ? "Open sync tasks" : "Register or login" }} <ArrowRight :size="18" /> </NuxtLink>
                 <NuxtLink class="button button-ghost-light" to="/features">Compare plans</NuxtLink>
             </div>
             <div v-if="enabledProviders.length" class="provider-row" aria-label="Supported providers">
@@ -39,30 +40,30 @@ const auth = useAuthStore()
     <section class="workflow-band">
         <div class="shell workflow-grid">
             <div class="section-intro">
-                <p class="eyebrow">A quieter way to move music</p>
-                <h2>Choose a pair. Keep listening.</h2>
-                <p>PlaylistSyncer can keep a pair in agreement both ways, or copy one playlist onto another. Choose the direction when you create the task.</p>
+                <p class="eyebrow">As simple as it sounds</p>
+                <h2>How it works</h2>
+                <p>You can create one or multiple playlist sync tasks. .</p>
             </div>
             <ol class="workflow-steps">
                 <li>
                     <span>01</span>
                     <div>
                         <strong>Connect</strong>
-                        <p>Use the accounts you already trust.</p>
+                        <p>Use the accounts you already trust to register or login to the service.</p>
                     </div>
                 </li>
                 <li>
                     <span>02</span>
                     <div>
                         <strong>Pair</strong>
-                        <p>Select two playlists and whether they should agree both ways or follow a master.</p>
+                        <p>Select he playlists from the source and target providers, and whether they should sync one or two ways.</p>
                     </div>
                 </li>
                 <li>
                     <span>03</span>
                     <div>
-                        <strong>Sync</strong>
-                        <p>Run now or let the schedule take over.</p>
+                        <strong>Enjoy</strong>
+                        <p>The playlists will sync and tracks will be added or removed as needed.</p>
                     </div>
                 </li>
             </ol>
@@ -73,18 +74,18 @@ const auth = useAuthStore()
         <div class="shell proof-grid">
             <article>
                 <RefreshCw :size="26" />
-                <h3>Two-way or one-way</h3>
-                <p>Keep both playlists equal, or treat the first playlist as the master and mirror it onto the second.</p>
+                <h3>One-way or two-way</h3>
+                <p>Choose whether each playlist pair should sync in one direction or both directions.</p>
             </article>
             <article>
                 <Check :size="26" />
                 <h3>No silent guesses</h3>
-                <p>Ambiguous track matches and two-way conflicts are surfaced for review instead of being guessed.</p>
+                <p>Ambiguous track matches and two-way conflicts are flagged for review, so you can decide what to do with them.</p>
             </article>
             <aside class="pro-callout">
-                <p class="eyebrow light">PRO cadence</p>
-                <strong>Twice a day</strong>
-                <p>Unlimited playlist pairs, kept close without constant manual runs.</p>
+                <p class="eyebrow light">And more!</p>
+                <strong>PRO features</strong>
+                <p>With a PRO account you can have unlimited playlist pairs getting synced {{ everyLabel }}, a full sync history, and a weekly summary with AI suggestions for new artists and tracks.</p>
                 <NuxtLink to="/features">See plan details <ArrowRight :size="16" /></NuxtLink>
             </aside>
         </div>

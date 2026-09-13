@@ -66,10 +66,10 @@ export function prepareEmailConfirmation(input: {email: string; appUrl: string; 
     }
 }
 
-// Enforce account state and resend cooldown before sending a token.
+// Reject the current confirmed address and rate-limit resends of the same pending address.
 export function evaluatePendingEmailRequest(user: Pick<UserDocument, "email" | "tempEmail" | "emailConfirmationSentAt">, email: string, now: Date): {ok: true} | {ok: false; statusCode: number; statusMessage: string} {
-    if (user.email) {
-        return {ok: false, statusCode: 409, statusMessage: "This account already has a confirmed email address"}
+    if (user.email === email) {
+        return {ok: false, statusCode: 409, statusMessage: "This is already your confirmed email address"}
     }
     if (user.tempEmail === email && user.emailConfirmationSentAt && now.getTime() - user.emailConfirmationSentAt.getTime() < emailConfirmationResendCooldownMs) {
         return {ok: false, statusCode: 429, statusMessage: "Wait a moment before requesting another confirmation email"}
@@ -93,6 +93,13 @@ export function evaluateEmailConfirmationToken(user: Pick<UserDocument, "tempEma
     return {ok: true, email: user.tempEmail}
 }
 
+const pendingEmailUnset = {
+    tempEmail: "" as const,
+    emailVerificationTokenHash: "" as const,
+    emailVerificationExpiresAt: "" as const,
+    emailConfirmationSentAt: "" as const
+}
+
 // Produce the MongoDB update that stores a pending confirmation.
 export function pendingEmailUpdate(prepared: PreparedEmailConfirmation, now: Date) {
     return {
@@ -110,13 +117,24 @@ export function pendingEmailUpdate(prepared: PreparedEmailConfirmation, now: Dat
 export function confirmedEmailUpdate(email: string, now: Date) {
     return {
         $set: {email, updatedAt: now},
-        $unset: {
-            tempEmail: "" as const,
-            emailVerificationTokenHash: "" as const,
-            emailVerificationExpiresAt: "" as const,
-            emailConfirmationSentAt: "" as const
-        }
+        $unset: pendingEmailUnset
     }
+}
+
+// Produce the MongoDB update that discards a pending confirmation without changing email.
+export function canceledPendingEmailUpdate(now: Date) {
+    return {
+        $set: {updatedAt: now},
+        $unset: pendingEmailUnset
+    }
+}
+
+// Require a pending address before canceling confirmation.
+export function evaluateCancelPendingEmail(user: Pick<UserDocument, "tempEmail">): {ok: true} | {ok: false; statusCode: number; statusMessage: string} {
+    if (!user.tempEmail) {
+        return {ok: false, statusCode: 409, statusMessage: "There is no pending email confirmation to cancel"}
+    }
+    return {ok: true}
 }
 
 function isDuplicateKey(error: unknown): boolean {
@@ -218,4 +236,23 @@ export async function confirmEmail(token: string, options: {now?: Date; secret?:
 
     logger.info("Email.confirm", `User ${user._id!.toHexString()}`, "Email confirmed")
     return {...user, email: evaluation.email, tempEmail: undefined}
+}
+
+// Drop a pending confirmation and leave any confirmed email in place.
+export async function cancelPendingEmail(user: UserDocument, options: {now?: Date} = {}): Promise<UserDocument> {
+    const evaluation = evaluateCancelPendingEmail(user)
+    if (!evaluation.ok) {
+        throw createError({statusCode: evaluation.statusCode, statusMessage: evaluation.statusMessage})
+    }
+
+    const now = options.now ?? new Date()
+    const db = await collections()
+    const updated = await db.users.findOneAndUpdate({_id: user._id, tempEmail: {$exists: true, $ne: ""}}, canceledPendingEmailUpdate(now), {returnDocument: "after"})
+    if (!updated) {
+        logger.warn("Email.cancel", `User ${user._id!.toHexString()}`, "Pending email confirmation was already absent")
+        throw createError({statusCode: 409, statusMessage: "There is no pending email confirmation to cancel"})
+    }
+
+    logger.info("Email.cancel", `User ${user._id!.toHexString()}`, "Pending email confirmation canceled")
+    return updated
 }

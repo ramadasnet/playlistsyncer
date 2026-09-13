@@ -1,5 +1,6 @@
 // Parse and cache configuration from environment variables.
 import {z} from "zod"
+import {defaultProSyncIntervalHours} from "../../shared/sync-cadence"
 
 const optionalCredential = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional())
 const emailList = z.preprocess(
@@ -57,6 +58,7 @@ const serverConfigSchema = z.object({
     creemServer: z.enum(["test", "prod"]).default("test"),
     developmentProUserEmails: emailList,
     proSubscriptionRequiredAt: optionalInstant,
+    proSyncIntervalHours: z.coerce.number().int().min(1).default(defaultProSyncIntervalHours),
     smtpHost: optionalCredential,
     smtpPort: optionalPort,
     smtpUser: optionalCredential,
@@ -104,6 +106,7 @@ export function getServerConfig(): ServerConfig {
             developmentProUserEmails: process.env.DEVELOPMENT_PRO_USER_EMAILS,
             proSubscriptionRequiredAt:
                 process.env.PRO_SUBSCRIPTION_REQUIRED_AT || process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT,
+            proSyncIntervalHours: process.env.PRO_SYNC_INTERVAL_HOURS,
             smtpHost: process.env.SMTP_HOST,
             smtpPort: process.env.SMTP_PORT,
             smtpUser: process.env.SMTP_USER,

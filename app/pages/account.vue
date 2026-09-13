@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ArrowUpRight, CheckCircle2, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus} from "lucide-vue-next"
+import {ArrowUpRight, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus} from "lucide-vue-next"
 import type {ConnectedAccount, SessionUser} from "~/types/api"
 import type {Provider} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
@@ -9,20 +9,27 @@ definePageMeta({middleware: "auth"})
 const auth = useAuthStore()
 const route = useRoute()
 const runtimeConfig = useRuntimeConfig()
+const {everyLabel} = useProSyncCadence()
 const {enabledProviders} = await useEnabledProviders()
 const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/accounts", {
     query: {includePlaylistCount: "true"}
 })
 const busy = ref(false)
 const emailBusy = ref(false)
+const emailCancelBusy = ref(false)
 const preferenceBusy = ref(false)
+const showEmailDialog = ref(false)
 const errorMessage = ref("")
+const emailError = ref("")
 const successMessage = ref(route.query.email === "confirmed" ? "Your email address is confirmed." : "")
 const emailInput = ref(auth.user?.tempEmail || "")
 const devConfirmationUrl = ref("")
+const emailDialogTitle = computed(() => (auth.user?.email ? "Change email address" : "Add email address"))
+const emailDialogAction = computed(() => (auth.user?.email ? "Change email" : "Add email"))
 
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
-const pendingEmail = computed(() => Boolean(auth.user?.tempEmail && !auth.user?.email))
+const pendingEmail = computed(() => Boolean(auth.user?.tempEmail))
+const isCurrentConfirmedEmail = computed(() => Boolean(auth.user?.email && emailInput.value.trim().toLowerCase() === auth.user.email))
 const canEditWeeklySummary = computed(() => auth.user?.tier === "pro" && Boolean(auth.user.email))
 const isPaidPro = computed(() => Boolean(auth.user?.tier === "pro" && !auth.user.developmentProOverride && !auth.user.trialAccess))
 const trialEndsAt = computed(() => complimentaryTrialEndsAt(auth.user?.proSubscriptionRequiredAt || String(runtimeConfig.public.proSubscriptionRequiredAt || "")))
@@ -37,7 +44,7 @@ const billingCopy = computed(() => {
         return `PRO features are complimentary until ${formatTrialDate(trialEndsAt.value)} while PlaylistSyncer is being tested. Subscribe to keep them afterward.`
     }
     if (auth.user.tier === "pro") {
-        return "Unlimited pairs · sync every 12 hours · run history"
+        return `Unlimited pairs · sync ${everyLabel.value} · run history`
     }
     return "One pair · sync every week"
 })
@@ -112,8 +119,16 @@ async function setWeeklySyncSummary(enabled: boolean) {
     }
 }
 
+// Prefill the dialog with a pending address so a confirmation can be resent.
+function openEmailDialog() {
+    emailInput.value = auth.user?.tempEmail || ""
+    emailError.value = ""
+    showEmailDialog.value = true
+}
+
 async function saveEmail() {
     emailBusy.value = true
+    emailError.value = ""
     errorMessage.value = ""
     successMessage.value = ""
     devConfirmationUrl.value = ""
@@ -126,14 +141,42 @@ async function saveEmail() {
             method: "POST",
             body: {email: emailInput.value}
         })
+        const hadConfirmedEmail = Boolean(auth.user?.email)
         auth.setUser(result.user)
         emailInput.value = result.user.tempEmail || emailInput.value
         devConfirmationUrl.value = result.devConfirmationUrl || ""
-        successMessage.value = result.sent ? "Confirmation email sent. Check your inbox to finish adding this address." : "Email saved. Confirm it from the link we sent, or use the development link if mail is not configured."
+        showEmailDialog.value = false
+        successMessage.value = result.sent
+            ? hadConfirmedEmail
+                ? "Confirmation email sent. Check your inbox to finish changing your email address."
+                : "Confirmation email sent. Check your inbox to finish setting your email address."
+            : "Email saved. Confirm it from the link we sent, or use the development link if mail is not configured."
     } catch (error) {
-        errorMessage.value = statusMessage(error, "The email address could not be saved")
+        emailError.value = statusMessage(error, "The email address could not be saved")
     } finally {
         emailBusy.value = false
+    }
+}
+
+// Drop the pending address and invalidate its confirmation token.
+async function cancelPendingEmailChange() {
+    if (!auth.user?.tempEmail || emailCancelBusy.value) {
+        return
+    }
+    emailCancelBusy.value = true
+    errorMessage.value = ""
+    successMessage.value = ""
+    devConfirmationUrl.value = ""
+    try {
+        const result = await $fetch<{user: SessionUser}>("/api/me/email/pending", {method: "DELETE"})
+        auth.setUser(result.user)
+        emailInput.value = ""
+        showEmailDialog.value = false
+        successMessage.value = result.user.email ? "The email change was canceled. Your current address is unchanged." : "The pending email confirmation was canceled."
+    } catch (error) {
+        errorMessage.value = statusMessage(error, "The pending email confirmation could not be canceled")
+    } finally {
+        emailCancelBusy.value = false
     }
 }
 
@@ -150,21 +193,22 @@ onMounted(() => refresh())
 
 <template>
     <div class="shell page-shell">
-        <PageHeading eyebrow="Preferences" title="Account" description="Manage the identities, services, and plan behind your synchronization tasks." />
+        <PageHeading eyebrow="Connections and preferences" title="Account" description="Manage your music provider connections and account preferences." />
 
-        <div v-if="needsEmail" class="notice" role="status">Your music service did not share an email address. Add one below to finish setting up your account.</div>
-        <div v-else-if="pendingEmail" class="notice" role="status">Confirm {{ auth.user?.tempEmail }} from the link we sent. You can send another link below.</div>
+        <div v-if="needsEmail" class="notice" role="status">Your music service did not share an email address. Add one to finish setting up your account.</div>
+        <div v-else-if="pendingEmail" class="notice" role="status">
+            Confirm {{ auth.user?.tempEmail }} from the link we sent.{{ auth.user?.email ? " Your current address stays active until then." : " You can send another confirmation from Add email." }}
+        </div>
         <div v-if="successMessage" class="notice notice-success" role="status">
             <span>{{ successMessage }}</span>
-            <a v-if="devConfirmationUrl" :href="devConfirmationUrl">Confirm email</a>
+            <a v-if="devConfirmationUrl" :href="devConfirmationUrl">Confirm email (dev)</a>
         </div>
         <div v-if="errorMessage" class="notice notice-error" role="alert">{{ errorMessage }}</div>
 
         <section class="settings-section" aria-labelledby="profile-heading">
             <div class="settings-heading">
                 <div>
-                    <p class="eyebrow">Profile</p>
-                    <h2 id="profile-heading">Your PlaylistSyncer account</h2>
+                    <h2 id="profile-heading">My Details</h2>
                 </div>
                 <span class="plan-badge" :class="auth.user ? planBadgeClass(auth.user) : 'plan-free'">{{ auth.user ? planBadgeLabel(auth.user) : "" }}</span>
             </div>
@@ -172,30 +216,41 @@ onMounted(() => refresh())
                 <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="" />
                 <span v-else class="avatar-fallback">{{ auth.user?.displayName.slice(0, 1).toUpperCase() }}</span>
                 <div>
-                    <strong>{{ auth.user?.displayName }}</strong
-                    ><span v-if="auth.user?.email">{{ auth.user.email }}</span>
-                    <span v-else-if="auth.user?.tempEmail">Pending confirmation: {{ auth.user.tempEmail }}</span>
-                    <span v-else>No email address yet</span>
+                    <strong>{{ auth.user?.displayName }}</strong>
+                    <span v-if="auth.user?.email">{{ auth.user.email }}</span>
+                    <span v-else-if="!auth.user?.tempEmail">No email address yet</span>
+                    <span v-if="auth.user?.tempEmail" class="pending-email">
+                        Pending confirmation: {{ auth.user.tempEmail }}
+                        <button type="button" class="pending-email-cancel" :disabled="emailCancelBusy" :aria-label="`Cancel pending confirmation of ${auth.user.tempEmail}`" @click="cancelPendingEmailChange">
+                            {{ emailCancelBusy ? "Canceling…" : "Cancel" }}
+                        </button>
+                    </span>
                 </div>
-                <CheckCircle2 v-if="auth.user?.email" :size="20" class="success-icon" aria-label="Confirmed email address" />
-                <CircleAlert v-else :size="20" class="warning-icon" aria-label="Email address required" />
+                <div class="profile-actions">
+                    <CircleAlert v-if="!auth.user?.email" class="warning-icon" aria-label="Email address pending confirmation" />
+                    <button class="button button-small button-secondary" type="button" aria-haspopup="dialog" :aria-expanded="showEmailDialog" @click="openEmailDialog">{{ emailDialogAction }}</button>
+                </div>
             </div>
-            <form v-if="!auth.user?.email" class="email-capture" @submit.prevent="saveEmail">
+        </section>
+
+        <OverlayDialog v-model="showEmailDialog" :title="emailDialogTitle" :busy="emailBusy">
+            <p>{{ auth.user?.email ? "Enter your new email address below." : "Enter an email address that we can use to contact you." }}</p>
+            <p v-if="emailError" class="dialog-error" role="alert">{{ emailError }}</p>
+            <form class="email-capture" @submit.prevent="saveEmail">
                 <label>
-                    <span>{{ pendingEmail ? "Email address to confirm" : "Email address" }}</span>
-                    <input v-model="emailInput" type="email" name="email" autocomplete="email" required :disabled="emailBusy" />
+                    <span>{{ pendingEmail ? "Email address to confirm" : auth.user?.email ? "New email address" : "Email address" }}</span>
+                    <input v-model="emailInput" type="email" name="email" autocomplete="email" required autofocus :disabled="emailBusy" />
                 </label>
-                <button class="button button-primary" type="submit" :disabled="emailBusy || !emailInput.trim()">
+                <button class="button button-primary" type="submit" :disabled="emailBusy || !emailInput.trim() || isCurrentConfirmedEmail">
                     <LoaderCircle v-if="emailBusy" class="spin" :size="17" />
-                    {{ resendSameEmail ? "Resend confirmation" : "Save and send confirmation" }}
+                    {{ resendSameEmail ? "Resend confirmation" : "Confirm email" }}
                 </button>
             </form>
-        </section>
+        </OverlayDialog>
 
         <section class="settings-section" aria-labelledby="connections-heading">
             <div class="settings-heading">
                 <div>
-                    <p class="eyebrow">Music services</p>
                     <h2 id="connections-heading">Connected accounts</h2>
                 </div>
                 <Link2 :size="22" />
@@ -219,23 +274,18 @@ onMounted(() => refresh())
             </div>
         </section>
 
-        <section v-if="auth.user?.tier === 'pro'" class="settings-section" aria-labelledby="notifications-heading">
+        <section class="settings-section" aria-labelledby="notifications-heading">
             <div class="settings-heading">
                 <div>
-                    <p class="eyebrow">Notifications</p>
-                    <h2 id="notifications-heading">Weekly sync summary</h2>
+                    <h2 id="notifications-heading">Notifications</h2>
                 </div>
                 <Mail :size="22" />
             </div>
             <div class="preference-row">
                 <div>
-                    <strong>Email a weekly playlist digest</strong>
                     <p>
-                        {{
-                            auth.user?.email
-                                ? "Once a week, list the playlists and tracks that were added or removed. No email is sent when nothing changed."
-                                : "Confirm an email address to receive a weekly list of playlists and tracks that were added or removed."
-                        }}
+                        {{ auth.user?.email ? "Get a weekly summary of playlist updates via email." : "Set your email address first before enabling the weekly summary." }}
+                        <span v-if="auth.user?.tier != 'pro'">(PRO only)</span>
                     </p>
                 </div>
                 <button
@@ -256,8 +306,7 @@ onMounted(() => refresh())
         <section class="settings-section billing-section" aria-labelledby="billing-heading">
             <div class="settings-heading">
                 <div>
-                    <p class="eyebrow">Subscription</p>
-                    <h2 id="billing-heading">Plan and billing</h2>
+                    <h2 id="billing-heading">Subscription</h2>
                 </div>
                 <CreditCard :size="22" />
             </div>

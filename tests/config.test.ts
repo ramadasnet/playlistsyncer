@@ -11,6 +11,12 @@ describe("server configuration", () => {
         expect(config.creemServer).toBe("test")
         expect(config.smtpHost).toBeUndefined()
         expect(config.smtpPort).toBe(587)
+        expect(config.proSyncIntervalHours).toBe(12)
+    })
+
+    test("parses the PRO automatic sync interval in hours", () => {
+        expect(parseServerConfig({proSyncIntervalHours: "6"}).proSyncIntervalHours).toBe(6)
+        expect(() => parseServerConfig({proSyncIntervalHours: 0})).toThrow()
     })
 
     test("accepts Creem production configuration", () => {

@@ -6,7 +6,7 @@
         </main>
         <footer class="site-footer">
             <div class="shell footer-inner">
-                <p><strong>PlaylistSyncer</strong> · Your playlists, in agreement.</p>
+                <p><strong>PlaylistSyncer</strong> · Your playlists, no matter where you go</p>
                 <nav aria-label="Footer navigation">
                     <NuxtLink to="/features">Features</NuxtLink>
                     <NuxtLink to="/support">Support</NuxtLink>

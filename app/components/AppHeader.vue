@@ -28,14 +28,14 @@ watch(
             <nav class="primary-nav" :class="{open}" aria-label="Primary navigation">
                 <NuxtLink to="/features">Features</NuxtLink>
                 <template v-if="auth.user">
-                    <NuxtLink to="/sync">Sync tasks</NuxtLink>
+                    <NuxtLink to="/sync">My Sync Tasks</NuxtLink>
                     <NuxtLink to="/account">Account</NuxtLink>
                     <span class="plan-badge" :class="planBadgeClass(auth.user)">{{ planBadgeLabel(auth.user, true) }}</span>
                     <button class="icon-button" type="button" title="Log out" aria-label="Log out" @click="auth.logout">
                         <LogOut :size="18" />
                     </button>
                 </template>
-                <NuxtLink v-else class="button button-small" to="/login"><SlidersHorizontal :size="17" /> Start syncing</NuxtLink>
+                <NuxtLink v-else class="button button-small" to="/login"><SlidersHorizontal :size="17" /> Dashboard</NuxtLink>
             </nav>
         </div>
     </header>

@@ -1,9 +1,11 @@
 import {describe, expect, test} from "bun:test"
 import {
     buildConfirmationEmail,
+    canceledPendingEmailUpdate,
     confirmedEmailUpdate,
     emailConfirmationResendCooldownMs,
     emailConfirmationTtlMs,
+    evaluateCancelPendingEmail,
     evaluateEmailConfirmationToken,
     evaluatePendingEmailRequest,
     normalizeAccountEmail,
@@ -48,16 +50,18 @@ describe("account email confirmation", () => {
         expect(() => normalizeAccountEmail("not-an-email")).toThrow()
     })
 
-    test("blocks changes after the profile email is confirmed", () => {
-        expect(evaluatePendingEmailRequest({email: "alex@example.com"}, "other@example.com", now)).toEqual({
+    test("allows a different address while keeping the confirmed email until the link is used", () => {
+        expect(evaluatePendingEmailRequest({email: "alex@example.com"}, "other@example.com", now)).toEqual({ok: true})
+        expect(evaluatePendingEmailRequest({email: "alex@example.com"}, "alex@example.com", now)).toEqual({
             ok: false,
             statusCode: 409,
-            statusMessage: "This account already has a confirmed email address"
+            statusMessage: "This is already your confirmed email address"
         })
     })
 
     test("rate limits resending the same pending address", () => {
         expect(evaluatePendingEmailRequest({tempEmail: "alex@example.com", emailConfirmationSentAt: now}, "alex@example.com", new Date(now.getTime() + emailConfirmationResendCooldownMs - 1)).ok).toBe(false)
+        expect(evaluatePendingEmailRequest({email: "alex@example.com", tempEmail: "other@example.com", emailConfirmationSentAt: now}, "other@example.com", new Date(now.getTime() + emailConfirmationResendCooldownMs - 1)).ok).toBe(false)
         expect(evaluatePendingEmailRequest({tempEmail: "alex@example.com", emailConfirmationSentAt: now}, "other@example.com", new Date(now.getTime() + 1))).toEqual({ok: true})
         expect(evaluatePendingEmailRequest({tempEmail: "alex@example.com", emailConfirmationSentAt: now}, "alex@example.com", new Date(now.getTime() + emailConfirmationResendCooldownMs))).toEqual({ok: true})
     })
@@ -81,6 +85,22 @@ describe("account email confirmation", () => {
         expect(confirmed.$set.email).toBe("alex@example.com")
         expect(confirmed.$unset.tempEmail).toBe("")
         expect(confirmed.$unset.emailVerificationTokenHash).toBe("")
+    })
+
+    test("clears a pending confirmation without touching the confirmed email", () => {
+        const canceled = canceledPendingEmailUpdate(now)
+
+        expect(evaluateCancelPendingEmail({tempEmail: "other@example.com"})).toEqual({ok: true})
+        expect(evaluateCancelPendingEmail({})).toEqual({
+            ok: false,
+            statusCode: 409,
+            statusMessage: "There is no pending email confirmation to cancel"
+        })
+        expect(canceled.$set).not.toHaveProperty("email")
+        expect(canceled.$unset.tempEmail).toBe("")
+        expect(canceled.$unset.emailVerificationTokenHash).toBe("")
+        expect(canceled.$unset.emailVerificationExpiresAt).toBe("")
+        expect(canceled.$unset.emailConfirmationSentAt).toBe("")
     })
 
     test("rejects missing or expired confirmation tokens without distinguishing them", () => {

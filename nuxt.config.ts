@@ -1,6 +1,9 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import {defaultProSyncIntervalHours} from "./shared/sync-cadence"
+
 const appUrl = process.env.APP_URL || process.env.NUXT_PUBLIC_SITE_URL || "http://localhost:3007"
 const appHost = new URL(appUrl).hostname
+const proSyncIntervalHours = Number(process.env.PRO_SYNC_INTERVAL_HOURS || process.env.NUXT_PUBLIC_PRO_SYNC_INTERVAL_HOURS || defaultProSyncIntervalHours)
 
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
@@ -28,13 +31,12 @@ export default defineNuxtConfig({
     runtimeConfig: {
         public: {
             appName: process.env.NUXT_PUBLIC_APP_NAME || "PlaylistSyncer",
-            proPrice: process.env.NUXT_PUBLIC_PRO_PRICE || "Configured at checkout",
+            proPrice: process.env.NUXT_PUBLIC_PRO_PRICE || "9.99",
             supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || "info@playlistsyncer.com",
-            chatbaseHelpUrl:
-                process.env.NUXT_PUBLIC_CHATBASE_HELP_URL || "https://www.chatbase.co/taNwdeaQwZIYPfxthXqRu/help",
+            chatbaseHelpUrl: process.env.NUXT_PUBLIC_CHATBASE_HELP_URL || "https://www.chatbase.co/taNwdeaQwZIYPfxthXqRu/help",
             siteUrl: appUrl,
-            proSubscriptionRequiredAt:
-                process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT || process.env.PRO_SUBSCRIPTION_REQUIRED_AT || ""
+            proSubscriptionRequiredAt: process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT || process.env.PRO_SUBSCRIPTION_REQUIRED_AT || "",
+            proSyncIntervalHours: Number.isFinite(proSyncIntervalHours) && proSyncIntervalHours > 0 ? proSyncIntervalHours : defaultProSyncIntervalHours
         }
     },
     typescript: {
