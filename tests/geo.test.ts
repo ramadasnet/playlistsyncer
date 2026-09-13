@@ -6,7 +6,6 @@ describe("visitor country from request headers", () => {
         expect(
             countryFromHeaders({
                 "cf-ipcountry": "DE",
-                "x-vercel-ip-country": "US",
                 "cloudfront-viewer-country": "AT"
             })
         ).toBe("DE")
@@ -14,9 +13,7 @@ describe("visitor country from request headers", () => {
 
     test("falls back to other CDN country headers and ignores unknown Cloudflare codes", () => {
         expect(countryFromHeaders({"CF-IPCountry": "at"})).toBe("AT")
-        expect(countryFromHeaders({"x-vercel-ip-country": "AT"})).toBe("AT")
         expect(countryFromHeaders({"cloudfront-viewer-country": "DE"})).toBe("DE")
-        expect(countryFromHeaders({"cf-ipcountry": "XX", "x-vercel-ip-country": "DE"})).toBe("DE")
         expect(countryFromHeaders({"cf-ipcountry": "T1"})).toBeNull()
         expect(countryFromHeaders({})).toBeNull()
         expect(normalizeCountryCode("deu")).toBeNull()

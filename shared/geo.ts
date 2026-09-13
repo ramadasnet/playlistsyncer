@@ -1,6 +1,6 @@
 // Prefer Cloudflare's CF-IPCountry: this app is served through Cloudflare, the header is
 // already on the request, and it avoids sending visitor IPs to a third-party geo API.
-export const visitorCountryHeaders = ["cf-ipcountry", "x-vercel-ip-country", "cloudfront-viewer-country"] as const
+export const visitorCountryHeaders = ["cf-ipcountry", "cloudfront-viewer-country"] as const
 
 const impressumCountries = new Set(["DE", "AT"])
 const unknownCountryCodes = new Set(["XX", "T1", "ZZ"])
