@@ -1,3 +1,4 @@
+// Validate and create a sync task, then start its first run asynchronously.
 import {z} from "zod"
 import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
@@ -20,6 +21,7 @@ const taskSchema = z.object({
     })
 })
 
+// Enforce ownership and plan limits before persisting the task.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const entitlement = resolveEntitlement(user)
@@ -31,9 +33,7 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 400, statusMessage: "Choose two different provider accounts"})
     }
     const db = await collections()
-    const accounts = await db.providerAccounts
-        .find({_id: {$in: [sourceAccountId, destinationAccountId]}, userId: user._id!})
-        .toArray()
+    const accounts = await db.providerAccounts.find({_id: {$in: [sourceAccountId, destinationAccountId]}, userId: user._id!}).toArray()
     if (accounts.length !== 2) {
         logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Selected account ownership check failed")
         throw createError({statusCode: 403, statusMessage: "A selected provider account does not belong to this user"})
@@ -49,10 +49,7 @@ export default defineEventHandler(async (event) => {
     let destinationPlaylistId = body.destination.playlistId
     if (body.mode === "playlist" && body.destination.createNew) {
         const destinationAccount = accounts.find((account) => account._id?.equals(destinationAccountId))!
-        const playlist = await getProviderAdapter(destinationAccount.provider).createPlaylist(
-            destinationAccount,
-            body.source.name
-        )
+        const playlist = await getProviderAdapter(destinationAccount.provider).createPlaylist(destinationAccount, body.source.name)
         destinationPlaylistId = playlist.id
     }
     const direction: SyncTaskDirection = body.mode === "account" ? "one-way" : body.direction
@@ -72,13 +69,7 @@ export default defineEventHandler(async (event) => {
         createdAt: now,
         updatedAt: now
     })
-    logger.info(
-        "Tasks.create",
-        `Task ${result.insertedId.toHexString()}`,
-        `User ${user._id!.toHexString()}`,
-        `${accounts[0]!.provider} to ${accounts[1]!.provider}`,
-        direction
-    )
+    logger.info("Tasks.create", `Task ${result.insertedId.toHexString()}`, `User ${user._id!.toHexString()}`, `${accounts[0]!.provider} to ${accounts[1]!.provider}`, direction)
     event.waitUntil(
         runSyncTask(result.insertedId, "created").catch((error) => {
             logger.error("Tasks.createRun", `Task ${result.insertedId.toHexString()}`, error)

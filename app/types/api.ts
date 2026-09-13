@@ -1,12 +1,7 @@
-import type {
-    AccountTier,
-    Provider,
-    SyncRunStatus,
-    SyncTaskDirection,
-    SyncTaskMode,
-    SyncTaskStatus
-} from "~~/shared/types/domain"
+// Client-side representations returned by the server API.
+import type {AccountTier, Provider, SyncRunStatus, SyncTaskDirection, SyncTaskMode, SyncTaskStatus} from "~~/shared/types/domain"
 
+// Public authenticated session data.
 export interface SessionUser {
     id: string
     email?: string
@@ -21,6 +16,7 @@ export interface SessionUser {
     creemSubscriptionStatus?: string
 }
 
+// Connected provider account summary.
 export interface ConnectedAccount {
     id: string
     provider: Provider
@@ -31,6 +27,7 @@ export interface ConnectedAccount {
     tokenExpiresAt?: string
 }
 
+// Provider playlist summary used by selection views.
 export interface PlaylistSummary {
     id: string
     name: string
@@ -39,6 +36,7 @@ export interface PlaylistSummary {
     itemCount: number
 }
 
+// Serialized synchronization task and its latest visible run.
 export interface SyncTaskSummary {
     id: string
     mode?: SyncTaskMode

@@ -40,10 +40,7 @@ describe("Spotify provider", () => {
 
         const tracks = await spotifyAdapter.getPlaylistItems(account, "playlist-id")
 
-        expect(providerFetch).toHaveBeenCalledWith(
-            account,
-            "https://api.spotify.com/v1/playlists/playlist-id/items?limit=50"
-        )
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/playlists/playlist-id/items?limit=50")
         expect(tracks).toHaveLength(1)
         expect(tracks[0]?.trackId).toBe("spotify:track:track-id")
     })
@@ -55,21 +52,11 @@ describe("Spotify provider", () => {
         await spotifyAdapter.addTracks(account, "playlist-id", ["spotify:track:track-id"], onAdded)
         await spotifyAdapter.removePlaylistItems(account, "playlist-id", ["spotify:track:track-id:0"], onRemoved)
 
-        expect(providerFetch).toHaveBeenNthCalledWith(
-            1,
-            account,
-            "https://api.spotify.com/v1/playlists/playlist-id/items",
-            {method: "POST", body: JSON.stringify({uris: ["spotify:track:track-id"]})}
-        )
-        expect(providerFetch).toHaveBeenNthCalledWith(
-            2,
-            account,
-            "https://api.spotify.com/v1/playlists/playlist-id/items",
-            {
-                method: "DELETE",
-                body: JSON.stringify({items: [{uri: "spotify:track:track-id", positions: [0]}]})
-            }
-        )
+        expect(providerFetch).toHaveBeenNthCalledWith(1, account, "https://api.spotify.com/v1/playlists/playlist-id/items", {method: "POST", body: JSON.stringify({uris: ["spotify:track:track-id"]})})
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://api.spotify.com/v1/playlists/playlist-id/items", {
+            method: "DELETE",
+            body: JSON.stringify({items: [{uri: "spotify:track:track-id", positions: [0]}]})
+        })
         expect(onAdded).toHaveBeenCalledWith([{providerTrackId: "spotify:track:track-id"}])
         expect(onRemoved).toHaveBeenCalledWith(["spotify:track:track-id:0"])
     })
@@ -88,9 +75,7 @@ describe("Spotify provider", () => {
         const onAdded = mock(async () => undefined)
         providerFetch.mockRejectedValue(new Error("Provider failed"))
 
-        await expect(
-            spotifyAdapter.addTracks(account, "playlist-id", ["spotify:track:track-id"], onAdded)
-        ).rejects.toThrow("Provider failed")
+        await expect(spotifyAdapter.addTracks(account, "playlist-id", ["spotify:track:track-id"], onAdded)).rejects.toThrow("Provider failed")
 
         expect(onAdded).not.toHaveBeenCalled()
     })

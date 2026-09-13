@@ -1,3 +1,4 @@
+// Fetch regional legal-notice visibility for the current visitor.
 export async function useShowImpressum() {
     const {data} = await useFetch<{showImpressum: boolean}>("/api/geo", {
         key: "visitor-geo",

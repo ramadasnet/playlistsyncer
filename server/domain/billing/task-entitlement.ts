@@ -1,3 +1,4 @@
+// Keep sync tasks aligned with the user's current billing entitlement.
 import type {ObjectId} from "mongodb"
 import type {SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
@@ -8,23 +9,18 @@ export const entitlementEditBlockedMessage = "A PRO subscription is required to 
 
 type TaskEntitlementFields = Pick<SyncTaskDocument, "_id" | "mode" | "pauseReason" | "createdAt">
 
-export function retainedFreeTierTask<T extends Pick<SyncTaskDocument, "mode" | "createdAt">>(
-    tasks: T[]
-): T | undefined {
-    return [...tasks]
-        .filter((task) => task.mode !== "account")
-        .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())[0]
+// Select the oldest playlist task retained for a free-tier account.
+export function retainedFreeTierTask<T extends Pick<SyncTaskDocument, "mode" | "createdAt">>(tasks: T[]): T | undefined {
+    return [...tasks].filter((task) => task.mode !== "account").sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())[0]
 }
 
+// Check whether a task was paused because of billing entitlement.
 export function isEntitlementLocked(task: Pick<SyncTaskDocument, "pauseReason">): boolean {
     return task.pauseReason === "entitlement"
 }
 
-export function isPlanLockedTask(
-    task: Pick<SyncTaskDocument, "_id" | "mode" | "createdAt">,
-    tasks: Pick<SyncTaskDocument, "_id" | "mode" | "createdAt">[],
-    isPro: boolean
-): boolean {
+// Check whether a task is beyond the free-tier task allowance.
+export function isPlanLockedTask(task: Pick<SyncTaskDocument, "_id" | "mode" | "createdAt">, tasks: Pick<SyncTaskDocument, "_id" | "mode" | "createdAt">[], isPro: boolean): boolean {
     if (isPro || !task._id) {
         return false
     }
@@ -32,10 +28,8 @@ export function isPlanLockedTask(
     return !retained?._id?.equals(task._id)
 }
 
-export function planTaskEntitlement(
-    tasks: TaskEntitlementFields[],
-    isPro: boolean
-): {pauseIds: ObjectId[]; resumeIds: ObjectId[]} {
+// Calculate task pauses and resumes required by a plan change.
+export function planTaskEntitlement(tasks: TaskEntitlementFields[], isPro: boolean): {pauseIds: ObjectId[]; resumeIds: ObjectId[]} {
     const withIds = tasks.filter((task): task is TaskEntitlementFields & {_id: ObjectId} => Boolean(task._id))
     if (isPro) {
         return {
@@ -45,18 +39,12 @@ export function planTaskEntitlement(
     }
     const retainedId = retainedFreeTierTask(withIds)?._id
     return {
-        pauseIds: withIds
-            .filter(
-                (task) =>
-                    !task._id.equals(retainedId) && task.pauseReason !== "user" && task.pauseReason !== "entitlement"
-            )
-            .map((task) => task._id),
-        resumeIds: withIds
-            .filter((task) => task._id.equals(retainedId) && task.pauseReason === "entitlement")
-            .map((task) => task._id)
+        pauseIds: withIds.filter((task) => !task._id.equals(retainedId) && task.pauseReason !== "user" && task.pauseReason !== "entitlement").map((task) => task._id),
+        resumeIds: withIds.filter((task) => task._id.equals(retainedId) && task.pauseReason === "entitlement").map((task) => task._id)
     }
 }
 
+// Apply entitlement-driven task state changes in the database.
 export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "email" | "tier">): Promise<void> {
     if (!user._id) {
         return
@@ -64,16 +52,9 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
     const db = await collections()
     const isPro = resolveEntitlement(user).tier === "pro"
     if (isPro) {
-        const resumed = await db.syncTasks.updateMany(
-            {userId: user._id, pauseReason: "entitlement"},
-            {$set: {status: "active", nextRunAt: new Date(), updatedAt: new Date()}, $unset: {pauseReason: ""}}
-        )
+        const resumed = await db.syncTasks.updateMany({userId: user._id, pauseReason: "entitlement"}, {$set: {status: "active", nextRunAt: new Date(), updatedAt: new Date()}, $unset: {pauseReason: ""}})
         if (resumed.modifiedCount) {
-            logger.info(
-                "Billing.applyTaskEntitlement",
-                `User ${user._id.toHexString()}`,
-                `Resumed tasks ${resumed.modifiedCount}`
-            )
+            logger.info("Billing.applyTaskEntitlement", `User ${user._id.toHexString()}`, `Resumed tasks ${resumed.modifiedCount}`)
         }
         return
     }
@@ -94,11 +75,7 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
         }
     )
     if (paused.modifiedCount) {
-        logger.warn(
-            "Billing.applyTaskEntitlement",
-            `User ${user._id.toHexString()}`,
-            `Paused tasks ${paused.modifiedCount}`
-        )
+        logger.warn("Billing.applyTaskEntitlement", `User ${user._id.toHexString()}`, `Paused tasks ${paused.modifiedCount}`)
     }
     if (retainedTask && retainedTask.pauseReason === "entitlement") {
         await db.syncTasks.updateOne(
@@ -112,10 +89,6 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
                 $unset: {pauseReason: ""}
             }
         )
-        logger.info(
-            "Billing.applyTaskEntitlement",
-            `User ${user._id.toHexString()}`,
-            `Restored free-tier task ${retainedTask._id?.toHexString()}`
-        )
+        logger.info("Billing.applyTaskEntitlement", `User ${user._id.toHexString()}`, `Restored free-tier task ${retainedTask._id?.toHexString()}`)
     }
 }

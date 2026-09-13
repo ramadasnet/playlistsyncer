@@ -1,20 +1,17 @@
+// Resolve encrypted provider tokens and refresh them when they are near expiry.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {decryptSecret, encryptSecret} from "../../utils/secrets"
 import {getOAuthProvider} from "../auth/providers"
 
+// Return a usable access token, persisting refreshed credentials when needed.
 export async function getAccessToken(account: ProviderAccountDocument): Promise<string> {
     if (!account.tokenExpiresAt || account.tokenExpiresAt.getTime() > Date.now() + 60_000) {
         return decryptSecret(account.accessToken)
     }
     if (!account.refreshToken) {
-        logger.warn(
-            "Provider.refreshToken",
-            account.provider,
-            `Provider account ${account.externalAccountId}`,
-            "Refresh token is unavailable"
-        )
+        logger.warn("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`, "Refresh token is unavailable")
         throw createError({statusCode: 409, statusMessage: `${account.provider} must be reconnected`})
     }
     logger.info("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`)
@@ -25,22 +22,14 @@ export async function getAccessToken(account: ProviderAccountDocument): Promise<
     })
     const headers = new Headers({"Content-Type": "application/x-www-form-urlencoded"})
     if (definition.tokenAuth === "basic") {
-        headers.set(
-            "Authorization",
-            `Basic ${Buffer.from(`${definition.clientId}:${definition.clientSecret}`).toString("base64")}`
-        )
+        headers.set("Authorization", `Basic ${Buffer.from(`${definition.clientId}:${definition.clientSecret}`).toString("base64")}`)
     } else {
         body.set("client_id", definition.clientId)
         body.set("client_secret", definition.clientSecret)
     }
     const response = await fetch(definition.tokenUrl, {method: "POST", headers, body})
     if (!response.ok) {
-        logger.error(
-            "Provider.refreshToken",
-            account.provider,
-            `Provider account ${account.externalAccountId}`,
-            `Status ${response.status}`
-        )
+        logger.error("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`, `Status ${response.status}`)
         throw createError({
             statusCode: 409,
             statusMessage: `${account.provider} token refresh failed; reconnect the account`
@@ -61,11 +50,6 @@ export async function getAccessToken(account: ProviderAccountDocument): Promise<
         }
     )
     account.accessToken = encryptedAccessToken
-    logger.info(
-        "Provider.refreshToken",
-        account.provider,
-        `Provider account ${account.externalAccountId}`,
-        "Token refreshed"
-    )
+    logger.info("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`, "Token refreshed")
     return token.access_token
 }

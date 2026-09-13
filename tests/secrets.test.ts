@@ -24,11 +24,7 @@ describe("encrypted secrets", () => {
         const legacyKey = Buffer.alloc(32, 7)
         const iv = new Uint8Array(12).fill(3)
         const cryptoKey = await crypto.subtle.importKey("raw", legacyKey, "AES-GCM", false, ["encrypt"])
-        const ciphertext = await crypto.subtle.encrypt(
-            {name: "AES-GCM", iv},
-            cryptoKey,
-            new TextEncoder().encode("legacy-token")
-        )
+        const ciphertext = await crypto.subtle.encrypt({name: "AES-GCM", iv}, cryptoKey, new TextEncoder().encode("legacy-token"))
         const encrypted: EncryptedValue = {
             version: 1,
             iv: Buffer.from(iv).toString("base64url"),
@@ -41,8 +37,6 @@ describe("encrypted secrets", () => {
     test("rejects unknown ciphertext versions", async () => {
         const encrypted = await encryptSecret("secret", key)
 
-        expect(decryptSecret({...encrypted, version: 99}, key)).rejects.toThrow(
-            "Unsupported encrypted value version: 99"
-        )
+        expect(decryptSecret({...encrypted, version: 99}, key)).rejects.toThrow("Unsupported encrypted value version: 99")
     })
 })

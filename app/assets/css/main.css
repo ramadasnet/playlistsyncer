@@ -300,12 +300,7 @@ main {
 .hero-scrim {
     position: absolute;
     inset: 0;
-    background: linear-gradient(
-        90deg,
-        rgba(10, 13, 10, 0.92) 0%,
-        rgba(10, 13, 10, 0.65) 48%,
-        rgba(10, 13, 10, 0.08) 100%
-    );
+    background: linear-gradient(90deg, rgba(10, 13, 10, 0.92) 0%, rgba(10, 13, 10, 0.65) 48%, rgba(10, 13, 10, 0.08) 100%);
 }
 .hero-content {
     position: relative;
@@ -355,9 +350,7 @@ main {
     padding: 90px 0;
     border-bottom: 1px solid var(--line);
     background-color: var(--paper);
-    background-image:
-        linear-gradient(rgba(21, 24, 20, 0.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(21, 24, 20, 0.035) 1px, transparent 1px);
+    background-image: linear-gradient(rgba(21, 24, 20, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(21, 24, 20, 0.035) 1px, transparent 1px);
     background-size: 32px 32px;
 }
 .workflow-grid {
@@ -1210,12 +1203,7 @@ select {
         min-height: 720px;
     }
     .hero-scrim {
-        background: linear-gradient(
-            0deg,
-            rgba(10, 13, 10, 0.94) 0%,
-            rgba(10, 13, 10, 0.55) 75%,
-            rgba(10, 13, 10, 0.22) 100%
-        );
+        background: linear-gradient(0deg, rgba(10, 13, 10, 0.94) 0%, rgba(10, 13, 10, 0.55) 75%, rgba(10, 13, 10, 0.22) 100%);
     }
     .workflow-grid {
         grid-template-columns: 1fr;

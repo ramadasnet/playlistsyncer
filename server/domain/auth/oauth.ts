@@ -1,3 +1,4 @@
+// Implement OAuth login and provider-account linking with short-lived transactions.
 import {createHash, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
@@ -10,14 +11,17 @@ import {getOAuthProvider, type OAuthProfile} from "./providers"
 import {isProviderEnabled} from "../../utils/provider-availability"
 import {createSession, getCurrentUser, hashOpaqueToken} from "./session"
 
+// Build the callback URL registered for a provider.
 function callbackUrl(provider: Provider): string {
     return `${getServerConfig().appUrl}/api/auth/${provider}/callback`
 }
 
+// Accept only safe local redirects after authentication.
 function normalizeRedirect(value: unknown): string {
     return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") ? value : "/sync"
 }
 
+// Create a PKCE OAuth transaction and return the provider authorization URL.
 export async function beginOAuth(event: H3Event, provider: Provider): Promise<string> {
     if (!isProviderEnabled(provider)) {
         throw createError({statusCode: 404, statusMessage: "Unknown provider"})
@@ -38,11 +42,7 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
         createdAt: now,
         expiresAt: new Date(now.getTime() + 10 * 60 * 1000)
     })
-    logger.info(
-        "OAuth.begin",
-        provider,
-        currentUser?._id ? `Linking user ${currentUser._id.toHexString()}` : "New login"
-    )
+    logger.info("OAuth.begin", provider, currentUser?._id ? `Linking user ${currentUser._id.toHexString()}` : "New login")
 
     const url = new URL(definition.authorizeUrl)
     url.searchParams.set("client_id", definition.clientId)
@@ -59,6 +59,7 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
     return url.toString()
 }
 
+// Exchange an authorization code for provider access tokens.
 async function exchangeCode(provider: Provider, code: string, codeVerifier: string) {
     const definition = getOAuthProvider(provider)
     const body = new URLSearchParams({
@@ -69,10 +70,7 @@ async function exchangeCode(provider: Provider, code: string, codeVerifier: stri
     })
     const headers = new Headers({"Content-Type": "application/x-www-form-urlencoded"})
     if (definition.tokenAuth === "basic") {
-        headers.set(
-            "Authorization",
-            `Basic ${Buffer.from(`${definition.clientId}:${definition.clientSecret}`).toString("base64")}`
-        )
+        headers.set("Authorization", `Basic ${Buffer.from(`${definition.clientId}:${definition.clientSecret}`).toString("base64")}`)
     } else {
         body.set("client_id", definition.clientId)
         body.set("client_secret", definition.clientSecret)
@@ -91,10 +89,12 @@ async function exchangeCode(provider: Provider, code: string, codeVerifier: stri
     return {token, definition}
 }
 
+// Verify that a provider supplied a trusted email address.
 export function hasVerifiedProviderEmail(profile: Pick<OAuthProfile, "email" | "emailVerified">): boolean {
     return Boolean(profile.email?.trim() && profile.emailVerified)
 }
 
+// Construct a new local user from an OAuth profile.
 export function newUserFromOAuthProfile(profile: OAuthProfile, now: Date): UserDocument {
     const email = hasVerifiedProviderEmail(profile) ? profile.email!.trim().toLowerCase() : undefined
     return {
@@ -107,23 +107,18 @@ export function newUserFromOAuthProfile(profile: OAuthProfile, now: Date): UserD
     }
 }
 
-export function oauthRedirectAfterLogin(
-    user: Pick<UserDocument, "email" | "tempEmail">,
-    redirectAfter: string
-): string {
+// Select the post-login destination based on email completion.
+export function oauthRedirectAfterLogin(user: Pick<UserDocument, "email" | "tempEmail">, redirectAfter: string): string {
     return user.email || user.tempEmail ? redirectAfter : "/account"
 }
 
+// Reuse a matching user or create one for a first-time provider login.
 async function findOrCreateUser(profile: OAuthProfile, linkingUserId?: ObjectId) {
     const db = await collections()
     if (linkingUserId) {
         const linkedUser = await db.users.findOne({_id: linkingUserId})
         if (!linkedUser) {
-            logger.warn(
-                "OAuth.findOrCreateUser",
-                `Linking user ${linkingUserId.toHexString()}`,
-                "User no longer exists"
-            )
+            logger.warn("OAuth.findOrCreateUser", `Linking user ${linkingUserId.toHexString()}`, "User no longer exists")
             throw createError({statusCode: 401, statusMessage: "Linking session is no longer valid"})
         }
         logger.info("OAuth.findOrCreateUser", `Linking existing user ${linkingUserId.toHexString()}`)
@@ -141,14 +136,11 @@ async function findOrCreateUser(profile: OAuthProfile, linkingUserId?: ObjectId)
     }
     const now = new Date()
     const result = await db.users.insertOne(newUserFromOAuthProfile(profile, now))
-    logger.info(
-        "OAuth.findOrCreateUser",
-        `Created user ${result.insertedId.toHexString()}`,
-        hasVerifiedProviderEmail(profile) ? "Login completed" : "Email capture required"
-    )
+    logger.info("OAuth.findOrCreateUser", `Created user ${result.insertedId.toHexString()}`, hasVerifiedProviderEmail(profile) ? "Login completed" : "Email capture required")
     return db.users.findOne({_id: result.insertedId}).then((user) => user!)
 }
 
+// Attach a newly verified provider email to an account that lacks one.
 async function assignVerifiedProviderEmail(user: UserDocument, profile: OAuthProfile): Promise<UserDocument> {
     if (user.email || !hasVerifiedProviderEmail(profile)) {
         return user
@@ -183,6 +175,7 @@ async function assignVerifiedProviderEmail(user: UserDocument, profile: OAuthPro
     }
 }
 
+// Consume the OAuth transaction, persist the account, and establish a session.
 export async function finishOAuth(event: H3Event, provider: Provider, code: string, state: string): Promise<string> {
     const db = await collections()
     const transaction = await db.oauthTransactions.findOneAndDelete({
@@ -197,22 +190,11 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
     const {token, definition} = await exchangeCode(provider, code, transaction.codeVerifier)
     const profile = await definition.fetchProfile(token.access_token)
     const conflictingAccount = await db.providerAccounts.findOne({provider, externalAccountId: profile.id})
-    if (
-        transaction.linkingUserId &&
-        conflictingAccount &&
-        !conflictingAccount.userId.equals(transaction.linkingUserId)
-    ) {
-        logger.warn(
-            "OAuth.finish",
-            provider,
-            `Provider account ${profile.id}`,
-            "Account is already linked to another user"
-        )
+    if (transaction.linkingUserId && conflictingAccount && !conflictingAccount.userId.equals(transaction.linkingUserId)) {
+        logger.warn("OAuth.finish", provider, `Provider account ${profile.id}`, "Account is already linked to another user")
         throw createError({statusCode: 409, statusMessage: "This provider account is already linked to another user"})
     }
-    let user: UserDocument = conflictingAccount
-        ? await db.users.findOne({_id: conflictingAccount.userId}).then((value) => value!)
-        : await findOrCreateUser(profile, transaction.linkingUserId)
+    let user: UserDocument = conflictingAccount ? await db.users.findOne({_id: conflictingAccount.userId}).then((value) => value!) : await findOrCreateUser(profile, transaction.linkingUserId)
     user = await assignVerifiedProviderEmail(user, profile)
     const now = new Date()
     await db.providerAccounts.updateOne(
@@ -234,12 +216,6 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         {upsert: true}
     )
     await createSession(event, user._id!)
-    logger.info(
-        "OAuth.finish",
-        provider,
-        `User ${user._id!.toHexString()}`,
-        `Provider account ${profile.id}`,
-        transaction.linkingUserId ? "Account linked" : "Login completed"
-    )
+    logger.info("OAuth.finish", provider, `User ${user._id!.toHexString()}`, `Provider account ${profile.id}`, transaction.linkingUserId ? "Account linked" : "Login completed")
     return oauthRedirectAfterLogin(user, transaction.redirectAfter)
 }

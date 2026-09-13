@@ -64,14 +64,7 @@ describe("effective entitlement", () => {
     })
 
     test("does not treat paid PRO as trial access before the cutoff", () => {
-        expect(
-            resolveEntitlement(
-                {...freeUser, tier: "pro"},
-                trialConfig,
-                "production",
-                new Date("2026-09-12T00:00:00.000Z")
-            )
-        ).toEqual({
+        expect(resolveEntitlement({...freeUser, tier: "pro"}, trialConfig, "production", new Date("2026-09-12T00:00:00.000Z"))).toEqual({
             tier: "pro",
             developmentOverride: false,
             trialAccess: false

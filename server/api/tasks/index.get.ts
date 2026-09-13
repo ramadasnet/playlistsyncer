@@ -1,9 +1,11 @@
+// Return the user's sync tasks with entitlement-aware history visibility.
 import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {applyTaskEntitlement, isPlanLockedTask} from "../../domain/billing/task-entitlement"
 import {canViewRunHistory, serializeSyncTask} from "../../domain/sync/history-visibility"
 
+// Refresh billing locks before serializing task state.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     await applyTaskEntitlement(user)
@@ -33,13 +35,6 @@ export default defineEventHandler(async (event) => {
     const latestRun = new Map(runs.map((run) => [run.taskId.toHexString(), run]))
     const isPro = tier === "pro"
     return {
-        tasks: tasks.map((task) =>
-            serializeSyncTask(
-                task,
-                task._id ? latestRun.get(task._id.toHexString()) : undefined,
-                tier,
-                isPlanLockedTask(task, tasks, isPro)
-            )
-        )
+        tasks: tasks.map((task) => serializeSyncTask(task, task._id ? latestRun.get(task._id.toHexString()) : undefined, tier, isPlanLockedTask(task, tasks, isPro)))
     }
 })

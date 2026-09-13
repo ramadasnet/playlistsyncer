@@ -1,11 +1,6 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
-import {
-    isEntitlementLocked,
-    isPlanLockedTask,
-    planTaskEntitlement,
-    retainedFreeTierTask
-} from "../server/domain/billing/task-entitlement"
+import {isEntitlementLocked, isPlanLockedTask, planTaskEntitlement, retainedFreeTierTask} from "../server/domain/billing/task-entitlement"
 import {isComplimentaryTrialActive, parseSubscriptionRequiredAt, resolvePublicTrialCutoff} from "../shared/trial"
 
 const first = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a1")
@@ -32,15 +27,8 @@ describe("complimentary trial window", () => {
     })
 
     test("prefers the runtime PRO_SUBSCRIPTION_REQUIRED_AT env var over a baked public value", () => {
-        expect(
-            resolvePublicTrialCutoff(
-                {PRO_SUBSCRIPTION_REQUIRED_AT: "2027-01-01T00:00:00.000Z"},
-                "2026-01-01T00:00:00.000Z"
-            )
-        ).toBe("2027-01-01T00:00:00.000Z")
-        expect(
-            resolvePublicTrialCutoff({NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT: "2028-06-01T00:00:00.000Z"}, "")
-        ).toBe("2028-06-01T00:00:00.000Z")
+        expect(resolvePublicTrialCutoff({PRO_SUBSCRIPTION_REQUIRED_AT: "2027-01-01T00:00:00.000Z"}, "2026-01-01T00:00:00.000Z")).toBe("2027-01-01T00:00:00.000Z")
+        expect(resolvePublicTrialCutoff({NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT: "2028-06-01T00:00:00.000Z"}, "")).toBe("2028-06-01T00:00:00.000Z")
         expect(resolvePublicTrialCutoff({}, "2026-01-01T00:00:00.000Z")).toBe("2026-01-01T00:00:00.000Z")
         expect(resolvePublicTrialCutoff({PRO_SUBSCRIPTION_REQUIRED_AT: "  "}, "")).toBe("")
     })

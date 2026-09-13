@@ -1,3 +1,4 @@
+// Configure structured, secret-masking application logging.
 import logger from "anyhow"
 
 logger.setup("console")

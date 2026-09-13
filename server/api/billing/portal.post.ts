@@ -1,7 +1,9 @@
+// Create a hosted billing-portal link for an existing customer.
 import {requireUser} from "../../domain/auth/session"
 import {getCreem} from "../../domain/billing/creem"
 import logger from "../../utils/logger"
 
+// Require a billing customer before delegating to Creem.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     if (!user.creemCustomerId) {

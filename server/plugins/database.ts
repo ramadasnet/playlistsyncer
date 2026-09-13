@@ -1,8 +1,10 @@
+// Initialize MongoDB indexes at startup and close the client on shutdown.
 import {ensureIndexes} from "../data/collections"
 import {getServerConfig} from "../utils/config"
 import {closeDatabase} from "../utils/database"
 import logger from "../utils/logger"
 
+// Skip database initialization when the deployment intentionally has no URI.
 export default defineNitroPlugin(async (nitroApp) => {
     if (getServerConfig().mongodbUri) {
         logger.info("Database.init", "Ensuring MongoDB indexes")

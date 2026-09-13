@@ -33,11 +33,7 @@ describe("TIDAL provider", () => {
 
         const playlists = await tidalAdapter.listPlaylists(account)
 
-        expect(providerFetch).toHaveBeenCalledWith(
-            account,
-            "https://openapi.tidal.com/v2/playlists?filter%5Bowners.id%5D=me",
-            expect.objectContaining({headers: jsonApiHeaders()})
-        )
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://openapi.tidal.com/v2/playlists?filter%5Bowners.id%5D=me", expect.objectContaining({headers: jsonApiHeaders()}))
         expect(playlists).toEqual([{id: "owned-id", name: "Owned", description: undefined, itemCount: 3}])
     })
 
@@ -93,11 +89,7 @@ describe("TIDAL provider", () => {
 
         const tracks = await tidalAdapter.getPlaylistItems(account, "playlist-id")
 
-        expect(providerFetch).toHaveBeenCalledWith(
-            account,
-            "https://openapi.tidal.com/v2/playlists/playlist-id/relationships/items?include=items%2Citems.tracks%3Aartists%2Citems.tracks%3Aalbums",
-            expect.objectContaining({headers: jsonApiHeaders()})
-        )
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://openapi.tidal.com/v2/playlists/playlist-id/relationships/items?include=items%2Citems.tracks%3Aartists%2Citems.tracks%3Aalbums", expect.objectContaining({headers: jsonApiHeaders()}))
         expect(tracks).toHaveLength(1)
         expect(tracks[0]).toEqual({
             itemId: "track-id:item-1",
@@ -131,11 +123,7 @@ describe("TIDAL provider", () => {
             isrc: "USRC17607839"
         })
 
-        expect(providerFetch).toHaveBeenCalledWith(
-            account,
-            "https://openapi.tidal.com/v2/tracks?filter%5Bisrc%5D=USRC17607839&include=artists%2Calbums",
-            expect.objectContaining({headers: jsonApiHeaders()})
-        )
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://openapi.tidal.com/v2/tracks?filter%5Bisrc%5D=USRC17607839&include=artists%2Calbums", expect.objectContaining({headers: jsonApiHeaders()}))
         expect(isrcMatch?.trackId).toBe("match-id")
 
         providerFetch.mockResolvedValueOnce({
@@ -158,12 +146,7 @@ describe("TIDAL provider", () => {
             artists: ["Artist"]
         })
 
-        expect(providerFetch).toHaveBeenNthCalledWith(
-            2,
-            account,
-            "https://openapi.tidal.com/v2/searchResults/Artist%20Track/relationships/tracks?include=tracks%2Ctracks.artists%2Ctracks.albums",
-            expect.objectContaining({headers: jsonApiHeaders()})
-        )
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://openapi.tidal.com/v2/searchResults/Artist%20Track/relationships/tracks?include=tracks%2Ctracks.artists%2Ctracks.albums", expect.objectContaining({headers: jsonApiHeaders()}))
         expect(textMatch?.trackId).toBe("search-id")
     })
 
@@ -175,42 +158,27 @@ describe("TIDAL provider", () => {
         await tidalAdapter.addTracks(account, "playlist-id", trackIds, onAdded)
         await tidalAdapter.removePlaylistItems(account, "playlist-id", ["track-id:item-1"], onRemoved)
 
-        expect(providerFetch).toHaveBeenNthCalledWith(
-            1,
-            account,
-            "https://openapi.tidal.com/v2/playlists/playlist-id/relationships/items",
-            {
-                method: "POST",
-                headers: jsonApiHeaders(true),
-                body: JSON.stringify({
-                    data: trackIds.slice(0, 20).map((id) => ({id, type: "tracks"}))
-                })
-            }
-        )
-        expect(providerFetch).toHaveBeenNthCalledWith(
-            2,
-            account,
-            "https://openapi.tidal.com/v2/playlists/playlist-id/relationships/items",
-            {
-                method: "POST",
-                headers: jsonApiHeaders(true),
-                body: JSON.stringify({
-                    data: [{id: "track-20", type: "tracks"}]
-                })
-            }
-        )
-        expect(providerFetch).toHaveBeenNthCalledWith(
-            3,
-            account,
-            "https://openapi.tidal.com/v2/playlists/playlist-id/relationships/items",
-            {
-                method: "DELETE",
-                headers: jsonApiHeaders(true),
-                body: JSON.stringify({
-                    data: [{id: "track-id", type: "tracks", meta: {itemId: "item-1"}}]
-                })
-            }
-        )
+        expect(providerFetch).toHaveBeenNthCalledWith(1, account, "https://openapi.tidal.com/v2/playlists/playlist-id/relationships/items", {
+            method: "POST",
+            headers: jsonApiHeaders(true),
+            body: JSON.stringify({
+                data: trackIds.slice(0, 20).map((id) => ({id, type: "tracks"}))
+            })
+        })
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://openapi.tidal.com/v2/playlists/playlist-id/relationships/items", {
+            method: "POST",
+            headers: jsonApiHeaders(true),
+            body: JSON.stringify({
+                data: [{id: "track-20", type: "tracks"}]
+            })
+        })
+        expect(providerFetch).toHaveBeenNthCalledWith(3, account, "https://openapi.tidal.com/v2/playlists/playlist-id/relationships/items", {
+            method: "DELETE",
+            headers: jsonApiHeaders(true),
+            body: JSON.stringify({
+                data: [{id: "track-id", type: "tracks", meta: {itemId: "item-1"}}]
+            })
+        })
         expect(onAdded).toHaveBeenNthCalledWith(
             1,
             trackIds.slice(0, 20).map((providerTrackId) => ({providerTrackId}))
@@ -222,9 +190,7 @@ describe("TIDAL provider", () => {
         const onAdded = mock(async () => undefined)
         providerFetch.mockRejectedValue(new Error("Provider failed"))
 
-        await expect(tidalAdapter.addTracks(account, "playlist-id", ["track-id"], onAdded)).rejects.toThrow(
-            "Provider failed"
-        )
+        await expect(tidalAdapter.addTracks(account, "playlist-id", ["track-id"], onAdded)).rejects.toThrow("Provider failed")
 
         expect(onAdded).not.toHaveBeenCalled()
     })

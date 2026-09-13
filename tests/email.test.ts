@@ -27,22 +27,12 @@ describe("OAuth registration without a provider email", () => {
 
     test("does not trust an unverified provider email", () => {
         expect(hasVerifiedProviderEmail({email: "listener@example.com", emailVerified: false})).toBe(false)
-        expect(
-            newUserFromOAuthProfile(
-                {id: "amazon-1", email: "listener@example.com", emailVerified: false, displayName: "Amazon user"},
-                now
-            )
-        ).not.toHaveProperty("email")
+        expect(newUserFromOAuthProfile({id: "amazon-1", email: "listener@example.com", emailVerified: false, displayName: "Amazon user"}, now)).not.toHaveProperty("email")
     })
 
     test("stores a verified provider email in lowercase", () => {
         expect(hasVerifiedProviderEmail({email: "Listener@Example.com", emailVerified: true})).toBe(true)
-        expect(
-            newUserFromOAuthProfile(
-                {id: "spotify-1", email: "Listener@Example.com", emailVerified: true, displayName: "Spotify user"},
-                now
-            ).email
-        ).toBe("listener@example.com")
+        expect(newUserFromOAuthProfile({id: "spotify-1", email: "Listener@Example.com", emailVerified: true, displayName: "Spotify user"}, now).email).toBe("listener@example.com")
     })
 
     test("sends users without an email to the account page", () => {
@@ -67,27 +57,9 @@ describe("account email confirmation", () => {
     })
 
     test("rate limits resending the same pending address", () => {
-        expect(
-            evaluatePendingEmailRequest(
-                {tempEmail: "alex@example.com", emailConfirmationSentAt: now},
-                "alex@example.com",
-                new Date(now.getTime() + emailConfirmationResendCooldownMs - 1)
-            ).ok
-        ).toBe(false)
-        expect(
-            evaluatePendingEmailRequest(
-                {tempEmail: "alex@example.com", emailConfirmationSentAt: now},
-                "other@example.com",
-                new Date(now.getTime() + 1)
-            )
-        ).toEqual({ok: true})
-        expect(
-            evaluatePendingEmailRequest(
-                {tempEmail: "alex@example.com", emailConfirmationSentAt: now},
-                "alex@example.com",
-                new Date(now.getTime() + emailConfirmationResendCooldownMs)
-            )
-        ).toEqual({ok: true})
+        expect(evaluatePendingEmailRequest({tempEmail: "alex@example.com", emailConfirmationSentAt: now}, "alex@example.com", new Date(now.getTime() + emailConfirmationResendCooldownMs - 1)).ok).toBe(false)
+        expect(evaluatePendingEmailRequest({tempEmail: "alex@example.com", emailConfirmationSentAt: now}, "other@example.com", new Date(now.getTime() + 1))).toEqual({ok: true})
+        expect(evaluatePendingEmailRequest({tempEmail: "alex@example.com", emailConfirmationSentAt: now}, "alex@example.com", new Date(now.getTime() + emailConfirmationResendCooldownMs))).toEqual({ok: true})
     })
 
     test("stores the pending address as temp email until the link is confirmed", () => {

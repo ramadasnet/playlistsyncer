@@ -1,14 +1,6 @@
+// Provide typed MongoDB collections and create the indexes they require.
 import type {Collection} from "mongodb"
-import type {
-    OAuthTransactionDocument,
-    ProviderAccountDocument,
-    SessionDocument,
-    SyncRunDocument,
-    SyncSnapshotDocument,
-    SyncTaskDocument,
-    UserDocument,
-    WebhookEventDocument
-} from "~~/shared/types/domain"
+import type {OAuthTransactionDocument, ProviderAccountDocument, SessionDocument, SyncRunDocument, SyncSnapshotDocument, SyncTaskDocument, UserDocument, WebhookEventDocument} from "~~/shared/types/domain"
 import {getDatabase} from "../utils/database"
 
 const collectionNames = {
@@ -22,6 +14,7 @@ const collectionNames = {
     webhookEvents: "webhookEvents"
 } as const
 
+// Return the application's typed collection handles.
 export async function collections(): Promise<{
     users: Collection<UserDocument>
     providerAccounts: Collection<ProviderAccountDocument>
@@ -45,6 +38,7 @@ export async function collections(): Promise<{
     }
 }
 
+// Ensure uniqueness, lookup, TTL, and scheduling indexes exist.
 export async function ensureIndexes(): Promise<void> {
     const db = await collections()
     let emailIndex: {name?: string; sparse?: boolean} | undefined

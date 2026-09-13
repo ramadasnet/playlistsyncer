@@ -1,12 +1,7 @@
+// Execute playlist and account synchronization while recording resumable runs.
 import {randomUUID} from "node:crypto"
 import {ObjectId} from "mongodb"
-import type {
-    CanonicalTrack,
-    PlaylistMapping,
-    ProviderAccountDocument,
-    SyncRunTrackReference,
-    SyncTaskDocument
-} from "~~/shared/types/domain"
+import type {CanonicalTrack, PlaylistMapping, ProviderAccountDocument, SyncRunTrackReference, SyncTaskDocument} from "~~/shared/types/domain"
 import {resolvedTaskDirection} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
@@ -25,6 +20,7 @@ interface RecordedTrackChanges {
 
 type RecordTrackChanges = (changes: RecordedTrackChanges) => Promise<void>
 
+// Store provider tracks in the snapshot's canonical representation.
 function toCanonical(track: ProviderTrack): CanonicalTrack {
     return {
         occurrenceId: track.itemId,
@@ -39,6 +35,7 @@ function toCanonical(track: ProviderTrack): CanonicalTrack {
     }
 }
 
+// Convert a snapshot track back into the provider adapter representation.
 function fromCanonical(track: CanonicalTrack): ProviderTrack {
     return {
         itemId: track.providerItemId,
@@ -52,6 +49,7 @@ function fromCanonical(track: CanonicalTrack): ProviderTrack {
     }
 }
 
+// Group current provider occurrences by their matching key.
 function countTracks(tracks: ProviderTrack[]): Map<string, ProviderTrack[]> {
     const result = new Map<string, ProviderTrack[]>()
     for (const track of tracks) {
@@ -61,6 +59,7 @@ function countTracks(tracks: ProviderTrack[]): Map<string, ProviderTrack[]> {
     return result
 }
 
+// Map provider identifiers from a snapshot to canonical track keys.
 function aliasMap(items: CanonicalTrack[]): Map<string, string> {
     return new Map(
         items.flatMap((item) => [
@@ -70,16 +69,13 @@ function aliasMap(items: CanonicalTrack[]): Map<string, string> {
     )
 }
 
+// Attach snapshot aliases before reconciling fresh provider results.
 function applyAliases(tracks: ProviderTrack[], aliases: Map<string, string>): ProviderTrack[] {
     return tracks.map((track) => ({...track, canonicalKey: aliases.get(track.itemId) || aliases.get(track.trackId)}))
 }
 
-function trackReferences(
-    account: ProviderAccountDocument,
-    playlistId: string,
-    tracks: Pick<ProviderTrack, "trackId" | "itemId" | "title" | "artists">[],
-    playlistName: string
-): SyncRunTrackReference[] {
+// Build history references for tracks changed during a sync run.
+function trackReferences(account: ProviderAccountDocument, playlistId: string, tracks: Pick<ProviderTrack, "trackId" | "itemId" | "title" | "artists">[], playlistName: string): SyncRunTrackReference[] {
     return tracks.map((track) => ({
         providerAccountId: account._id!,
         playlistId,
@@ -91,6 +87,7 @@ function trackReferences(
     }))
 }
 
+// Apply additions and removals needed to reach the reconciled playlist state.
 async function applyDesired(
     account: ProviderAccountDocument,
     playlistId: string,
@@ -132,14 +129,7 @@ async function applyDesired(
         }
     }
     if (additions.length || removals.length || skipped) {
-        logger.info(
-            "Sync.applyDesired",
-            account.provider,
-            `Playlist ${playlistId}`,
-            `Additions ${additions.length}`,
-            `Removals ${removals.length}`,
-            `Unmatched ${skipped}`
-        )
+        logger.info("Sync.applyDesired", account.provider, `Playlist ${playlistId}`, `Additions ${additions.length}`, `Removals ${removals.length}`, `Unmatched ${skipped}`)
     }
     if (removals.length) {
         await adapter.removePlaylistItems(account, playlistId, removals, async (removedItemIds) => {
@@ -181,6 +171,7 @@ async function applyDesired(
     return {additions: additions.length, removals: removals.length, skipped, aliases: additions}
 }
 
+// Load a provider account while enforcing ownership.
 async function loadAccount(id: ObjectId, userId: ObjectId): Promise<ProviderAccountDocument> {
     const db = await collections()
     const account = await db.providerAccounts.findOne({_id: id, userId})
@@ -190,6 +181,7 @@ async function loadAccount(id: ObjectId, userId: ObjectId): Promise<ProviderAcco
     return account
 }
 
+// Reconcile one playlist pair and refresh its matching snapshot.
 async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrackChanges) {
     const db = await collections()
     const sourceAccount = await loadAccount(task.source.providerAccountId, task.userId)
@@ -208,13 +200,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         `Task ${task._id!.toHexString()}`,
         `${sourceAccount.provider} items ${sourceItems.length}`,
         `${destinationAccount.provider} items ${destinationItems.length}`,
-        currentSnapshot
-            ? oneWay
-                ? "Mirror run"
-                : "Reconciliation run"
-            : snapshot
-              ? "Matching upgrade run"
-              : "Initial run"
+        currentSnapshot ? (oneWay ? "Mirror run" : "Reconciliation run") : snapshot ? "Matching upgrade run" : "Initial run"
     )
 
     let sourceResult = {additions: 0, removals: 0, skipped: 0, aliases: [] as {trackId: string; canonicalKey: string}[]}
@@ -248,14 +234,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
                 }
             )
         }
-        destinationResult = await applyDesired(
-            destinationAccount,
-            task.destination.playlistId,
-            [],
-            desired,
-            recordChanges,
-            task.destination.name
-        )
+        destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, [], desired, recordChanges, task.destination.name)
         destinationResult.removals = destinationItems.length
     } else {
         const sourceAliases = aliasMap(currentSnapshot.sourceItems)
@@ -263,64 +242,30 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         const aliasedSource = applyAliases(sourceItems, sourceAliases)
         const aliasedDestination = applyAliases(destinationItems, destinationAliases)
         if (oneWay) {
-            destinationResult = await applyDesired(
-                destinationAccount,
-                task.destination.playlistId,
-                aliasedDestination,
-                reconcileOneWay(aliasedSource).desired,
-                recordChanges,
-                task.destination.name
-            )
+            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, aliasedDestination, reconcileOneWay(aliasedSource).desired, recordChanges, task.destination.name)
         } else {
-            const baseline = commonTracks(
-                currentSnapshot.sourceItems.map(fromCanonical),
-                currentSnapshot.destinationItems.map(fromCanonical)
-            )
+            const baseline = commonTracks(currentSnapshot.sourceItems.map(fromCanonical), currentSnapshot.destinationItems.map(fromCanonical))
             const reconciliation = reconcileThreeWay(baseline, aliasedSource, aliasedDestination)
             conflicts = reconciliation.conflicts
             if (conflicts.length) {
                 logger.warn("Sync.reconcile", `Task ${task._id!.toHexString()}`, `Conflicts ${conflicts.length}`)
             }
-            sourceResult = await applyDesired(
-                sourceAccount,
-                task.source.playlistId,
-                aliasedSource,
-                reconciliation.desired,
-                recordChanges,
-                task.source.name
-            )
-            destinationResult = await applyDesired(
-                destinationAccount,
-                task.destination.playlistId,
-                aliasedDestination,
-                reconciliation.desired,
-                recordChanges,
-                task.destination.name
-            )
+            sourceResult = await applyDesired(sourceAccount, task.source.playlistId, aliasedSource, reconciliation.desired, recordChanges, task.source.name)
+            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, aliasedDestination, reconciliation.desired, recordChanges, task.destination.name)
         }
     }
 
-    const [verifiedSource, verifiedDestination] = await Promise.all([
-        sourceAdapter.getPlaylistItems(sourceAccount, task.source.playlistId),
-        destinationAdapter.getPlaylistItems(destinationAccount, task.destination.playlistId)
-    ])
+    const [verifiedSource, verifiedDestination] = await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, task.source.playlistId), destinationAdapter.getPlaylistItems(destinationAccount, task.destination.playlistId)])
     const desiredAliases = new Map<string, string>([
-        ...(currentSnapshot
-            ? [...aliasMap(currentSnapshot.sourceItems), ...aliasMap(currentSnapshot.destinationItems)]
-            : []),
+        ...(currentSnapshot ? [...aliasMap(currentSnapshot.sourceItems), ...aliasMap(currentSnapshot.destinationItems)] : []),
         ...sourceResult.aliases.map((item) => [item.trackId, item.canonicalKey] as const),
         ...destinationResult.aliases.map((item) => [item.trackId, item.canonicalKey] as const)
     ])
-    const normalizedAliases = new Map(
-        [...countTracks(sourceItems)].map(([key, occurrences]) => [trackKey(occurrences[0]!), key] as const)
-    )
+    const normalizedAliases = new Map([...countTracks(sourceItems)].map(([key, occurrences]) => [trackKey(occurrences[0]!), key] as const))
     const canonicalize = (items: ProviderTrack[]) =>
         items.map((item) => ({
             ...item,
-            canonicalKey:
-                desiredAliases.get(item.itemId) ||
-                desiredAliases.get(item.trackId) ||
-                normalizedAliases.get(trackKey(item))
+            canonicalKey: desiredAliases.get(item.itemId) || desiredAliases.get(item.trackId) || normalizedAliases.get(trackKey(item))
         }))
     await db.syncSnapshots.updateOne(
         {taskId: task._id!},
@@ -342,63 +287,36 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     }
 }
 
-async function mirrorPlaylist(
-    sourceAccount: ProviderAccountDocument,
-    destinationAccount: ProviderAccountDocument,
-    sourcePlaylistId: string,
-    destinationPlaylistId: string,
-    playlistName: string,
-    recordChanges: RecordTrackChanges
-) {
+// Mirror one source playlist into its mapped destination playlist.
+async function mirrorPlaylist(sourceAccount: ProviderAccountDocument, destinationAccount: ProviderAccountDocument, sourcePlaylistId: string, destinationPlaylistId: string, playlistName: string, recordChanges: RecordTrackChanges) {
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
     const destinationAdapter = getProviderAdapter(destinationAccount.provider)
-    const [sourceItems, destinationItems] = await Promise.all([
-        sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylistId),
-        destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylistId)
-    ])
-    return applyDesired(
-        destinationAccount,
-        destinationPlaylistId,
-        destinationItems,
-        reconcileOneWay(sourceItems).desired,
-        recordChanges,
-        playlistName
-    )
+    const [sourceItems, destinationItems] = await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylistId), destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylistId)])
+    return applyDesired(destinationAccount, destinationPlaylistId, destinationItems, reconcileOneWay(sourceItems).desired, recordChanges, playlistName)
 }
 
+// Synchronize every source playlist and maintain destination mappings.
 async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrackChanges) {
     const db = await collections()
     const sourceAccount = await loadAccount(task.source.providerAccountId, task.userId)
     const destinationAccount = await loadAccount(task.destination.providerAccountId, task.userId)
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
     const destinationAdapter = getProviderAdapter(destinationAccount.provider)
-    const [sourcePlaylists, destinationPlaylists] = await Promise.all([
-        sourceAdapter.listPlaylists(sourceAccount),
-        destinationAdapter.listPlaylists(destinationAccount)
-    ])
+    const [sourcePlaylists, destinationPlaylists] = await Promise.all([sourceAdapter.listPlaylists(sourceAccount), destinationAdapter.listPlaylists(destinationAccount)])
     const sourceIds = new Set(sourcePlaylists.map((playlist) => playlist.id))
     const destinationById = new Map(destinationPlaylists.map((playlist) => [playlist.id, playlist]))
     const mappings: PlaylistMapping[] = [...(task.playlistMappings || [])]
-    const claimedDestinationIds = new Set(
-        mappings
-            .filter((mapping) => sourceIds.has(mapping.sourcePlaylistId))
-            .map((mapping) => mapping.destinationPlaylistId)
-    )
-    const persistMappings = () =>
-        db.syncTasks.updateOne({_id: task._id!}, {$set: {playlistMappings: mappings, updatedAt: new Date()}})
+    const claimedDestinationIds = new Set(mappings.filter((mapping) => sourceIds.has(mapping.sourcePlaylistId)).map((mapping) => mapping.destinationPlaylistId))
+    const persistMappings = () => db.syncTasks.updateOne({_id: task._id!}, {$set: {playlistMappings: mappings, updatedAt: new Date()}})
     let additions = 0
     let removals = 0
     let skipped = 0
 
     for (const sourcePlaylist of sourcePlaylists) {
         let mapping = mappings.find((item) => item.sourcePlaylistId === sourcePlaylist.id)
-        let destinationPlaylist: ProviderPlaylist | undefined = mapping
-            ? destinationById.get(mapping.destinationPlaylistId)
-            : undefined
+        let destinationPlaylist: ProviderPlaylist | undefined = mapping ? destinationById.get(mapping.destinationPlaylistId) : undefined
         if (!destinationPlaylist) {
-            destinationPlaylist = destinationPlaylists.find(
-                (playlist) => playlist.name === sourcePlaylist.name && !claimedDestinationIds.has(playlist.id)
-            )
+            destinationPlaylist = destinationPlaylists.find((playlist) => playlist.name === sourcePlaylist.name && !claimedDestinationIds.has(playlist.id))
         }
         if (!destinationPlaylist) {
             destinationPlaylist = await destinationAdapter.createPlaylist(destinationAccount, sourcePlaylist.name)
@@ -419,14 +337,7 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
             mapping.name = sourcePlaylist.name
             await persistMappings()
         }
-        const result = await mirrorPlaylist(
-            sourceAccount,
-            destinationAccount,
-            sourcePlaylist.id,
-            destinationPlaylist.id,
-            mapping.name,
-            recordChanges
-        )
+        const result = await mirrorPlaylist(sourceAccount, destinationAccount, sourcePlaylist.id, destinationPlaylist.id, mapping.name, recordChanges)
         additions += result.additions
         removals += result.removals
         skipped += result.skipped
@@ -440,12 +351,7 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
             const removedItems = await destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylist.id)
             await destinationAdapter.deletePlaylist(destinationAccount, destinationPlaylist.id)
             await recordChanges({
-                removedTracks: trackReferences(
-                    destinationAccount,
-                    destinationPlaylist.id,
-                    removedItems,
-                    mapping.name || destinationPlaylist.name
-                )
+                removedTracks: trackReferences(destinationAccount, destinationPlaylist.id, removedItems, mapping.name || destinationPlaylist.name)
             })
             removals += destinationPlaylist.itemCount
         }
@@ -453,21 +359,16 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
         await persistMappings()
     }
 
-    logger.info(
-        "Sync.executeAccount",
-        `Task ${task._id!.toHexString()}`,
-        `Playlists ${sourcePlaylists.length}`,
-        `Additions ${additions}`,
-        `Removals ${removals}`,
-        `Unmatched ${skipped}`
-    )
+    logger.info("Sync.executeAccount", `Task ${task._id!.toHexString()}`, `Playlists ${sourcePlaylists.length}`, `Additions ${additions}`, `Removals ${removals}`, `Unmatched ${skipped}`)
     return {additions, removals, skipped, conflicts: 0}
 }
 
+// Dispatch a task to playlist or account synchronization.
 async function execute(task: SyncTaskDocument, recordChanges: RecordTrackChanges) {
     return task.mode === "account" ? executeAccount(task, recordChanges) : executePlaylist(task, recordChanges)
 }
 
+// Acquire a lease, execute one task, and persist its run outcome.
 export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled") {
     const db = await collections()
     const current = await db.syncTasks.findOne({_id: taskId})
@@ -508,23 +409,16 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     logger.info("Sync.run", `Task ${taskId.toHexString()}`, `Run ${run.insertedId.toHexString()}`, "Started")
     const recordChanges: RecordTrackChanges = async ({addedTracks = [], removedTracks = []}) => {
         if (addedTracks.length) {
-            await db.syncRuns.updateOne(
-                {_id: run.insertedId},
-                {$push: {addedTracks: {$each: addedTracks}}, $inc: {additions: addedTracks.length}}
-            )
+            await db.syncRuns.updateOne({_id: run.insertedId}, {$push: {addedTracks: {$each: addedTracks}}, $inc: {additions: addedTracks.length}})
         }
         if (removedTracks.length) {
-            await db.syncRuns.updateOne(
-                {_id: run.insertedId},
-                {$push: {removedTracks: {$each: removedTracks}}, $inc: {removals: removedTracks.length}}
-            )
+            await db.syncRuns.updateOne({_id: run.insertedId}, {$push: {removedTracks: {$each: removedTracks}}, $inc: {removals: removedTracks.length}})
         }
     }
     try {
         const result = await execute(task, recordChanges)
         const user = await db.users.findOne({_id: task.userId})
-        const nextRunMs =
-            user && resolveEntitlement(user).tier === "pro" ? 12 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000
+        const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? 12 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000
         const finishedAt = new Date()
         const completed = await db.syncTasks.updateOne(
             {_id: taskId, leaseId, pauseReason: {$ne: "entitlement"}},
@@ -539,10 +433,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
                 $unset: {leaseId: "", leaseExpiresAt: "", lastError: ""}
             }
         )
-        await db.syncRuns.updateOne(
-            {_id: run.insertedId},
-            {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}}
-        )
+        await db.syncRuns.updateOne({_id: run.insertedId}, {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}})
         if (!completed.matchedCount) {
             await db.syncTasks.updateOne(
                 {_id: taskId},
@@ -576,18 +467,9 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         )
         await db.syncRuns.updateOne({_id: run.insertedId}, {$set: {status: "failed", error: message, finishedAt}})
         if (!failed.matchedCount) {
-            await db.syncTasks.updateOne(
-                {_id: taskId},
-                {$set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt}}
-            )
+            await db.syncTasks.updateOne({_id: taskId}, {$set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt}})
         }
-        logger.error(
-            "Sync.run",
-            `Task ${taskId.toHexString()}`,
-            `Run ${run.insertedId.toHexString()}`,
-            `Duration ${finishedAt.getTime() - now.getTime()}ms`,
-            error
-        )
+        logger.error("Sync.run", `Task ${taskId.toHexString()}`, `Run ${run.insertedId.toHexString()}`, `Duration ${finishedAt.getTime() - now.getTime()}ms`, error)
         throw error
     }
 }

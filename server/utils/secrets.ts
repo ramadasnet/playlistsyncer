@@ -1,3 +1,4 @@
+// Encrypt provider credentials with AES-GCM and support legacy key material.
 import type {EncryptedValue} from "~~/shared/types/domain"
 import {requireConfig} from "./config"
 
@@ -25,6 +26,7 @@ async function deriveKey(value: string): Promise<CryptoKey> {
     return crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt", "decrypt"])
 }
 
+// Encrypt a secret using a fresh IV and the current key derivation scheme.
 export async function encryptSecret(
     value: string,
     encodedKey = requireConfig("tokenEncryptionKey")
@@ -42,6 +44,7 @@ export async function encryptSecret(
     }
 }
 
+// Decrypt both current and legacy encrypted secret representations.
 export async function decryptSecret(
     value: EncryptedValue,
     encodedKey = requireConfig("tokenEncryptionKey")

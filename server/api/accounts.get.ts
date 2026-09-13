@@ -1,9 +1,11 @@
+// List the authenticated user's connected provider accounts.
 import {providers} from "~~/shared/types/domain"
 import {collections} from "../data/collections"
 import {requireUser} from "../domain/auth/session"
 import {getProviderAdapter} from "../domain/providers"
 import {isProviderEnabled} from "../utils/provider-availability"
 
+// Optionally enrich accounts with live playlist counts.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const db = await collections()
@@ -17,11 +19,7 @@ export default defineEventHandler(async (event) => {
                 provider: account.provider,
                 displayName: account.displayName,
                 email: account.email,
-                playlistCount: includePlaylistCount
-                    ? isProviderEnabled(account.provider)
-                        ? (await getProviderAdapter(account.provider).listPlaylists(account)).length
-                        : 0
-                    : undefined,
+                playlistCount: includePlaylistCount ? (isProviderEnabled(account.provider) ? (await getProviderAdapter(account.provider).listPlaylists(account)).length : 0) : undefined,
                 connectedAt: account.connectedAt,
                 tokenExpiresAt: account.tokenExpiresAt
             }))

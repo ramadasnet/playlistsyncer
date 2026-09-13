@@ -1,16 +1,20 @@
+// Reconciliation helpers compare provider playlists while preserving duplicate tracks.
 import type {ProviderTrack} from "../providers"
 
+// A normalized track occurrence and its number of desired copies.
 export interface ReconciledTrack {
     key: string
     count: number
     reference: ProviderTrack
 }
 
+// The desired playlist state and any concurrent-edit conflicts.
 export interface ReconciliationResult {
     desired: ReconciledTrack[]
     conflicts: string[]
 }
 
+// Normalize searchable track text so equivalent titles share a key.
 export function normalizeText(value: string): string {
     return value
         .normalize("NFKD")
@@ -21,6 +25,7 @@ export function normalizeText(value: string): string {
         .trim()
 }
 
+// Prefer a provider canonical key and otherwise derive one from track metadata.
 export function trackKey(track: Pick<ProviderTrack, "isrc" | "title" | "artists" | "durationMs">): string {
     if ("canonicalKey" in track && track.canonicalKey) {
         return track.canonicalKey as string
@@ -28,6 +33,7 @@ export function trackKey(track: Pick<ProviderTrack, "isrc" | "title" | "artists"
     return `meta:${normalizeText(track.title)}:${normalizeText(track.artists[0] || "")}`
 }
 
+// Count track occurrences by their reconciliation key.
 function counts(tracks: ProviderTrack[]): Map<string, {count: number; reference: ProviderTrack}> {
     const result = new Map<string, {count: number; reference: ProviderTrack}>()
     for (const track of tracks) {
@@ -38,6 +44,7 @@ function counts(tracks: ProviderTrack[]): Map<string, {count: number; reference:
     return result
 }
 
+// Return source occurrences that can be matched one-for-one in the destination.
 export function commonTracks(source: ProviderTrack[], destination: ProviderTrack[]): ProviderTrack[] {
     const remaining = new Map([...counts(destination)].map(([key, value]) => [key, value.count]))
     return source.filter((track) => {
@@ -49,6 +56,7 @@ export function commonTracks(source: ProviderTrack[], destination: ProviderTrack
     })
 }
 
+// Build a desired state that mirrors every source occurrence.
 export function reconcileOneWay(source: ProviderTrack[]): ReconciliationResult {
     return {
         desired: [...counts(source)].map(([key, value]) => ({
@@ -60,11 +68,8 @@ export function reconcileOneWay(source: ProviderTrack[]): ReconciliationResult {
     }
 }
 
-export function reconcileThreeWay(
-    baseline: ProviderTrack[],
-    source: ProviderTrack[],
-    destination: ProviderTrack[]
-): ReconciliationResult {
+// Merge source and destination changes against their shared baseline.
+export function reconcileThreeWay(baseline: ProviderTrack[], source: ProviderTrack[], destination: ProviderTrack[]): ReconciliationResult {
     const baselineCounts = counts(baseline)
     const sourceCounts = counts(source)
     const destinationCounts = counts(destination)
@@ -91,10 +96,7 @@ export function reconcileThreeWay(
             conflicts.push(key)
         }
 
-        const reference =
-            sourceCounts.get(key)?.reference ||
-            destinationCounts.get(key)?.reference ||
-            baselineCounts.get(key)?.reference
+        const reference = sourceCounts.get(key)?.reference || destinationCounts.get(key)?.reference || baselineCounts.get(key)?.reference
         if (count > 0 && reference) {
             desired.push({key, count, reference})
         }

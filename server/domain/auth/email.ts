@@ -1,3 +1,4 @@
+// Validate addresses and manage expiring email-confirmation transactions.
 import {randomBytes} from "node:crypto"
 import {createError} from "h3"
 import {z} from "zod"
@@ -28,6 +29,7 @@ export interface PreparedEmailConfirmation {
     message: OutboundEmail
 }
 
+// Normalize and validate an account email address.
 export function normalizeAccountEmail(value: string): string {
     const parsed = emailSchema.safeParse(value.trim())
     if (!parsed.success) {
@@ -36,16 +38,11 @@ export function normalizeAccountEmail(value: string): string {
     return parsed.data.toLowerCase()
 }
 
+// Build the plain-text and HTML confirmation message.
 export function buildConfirmationEmail(input: {to: string; confirmUrl: string; appName?: string}): OutboundEmail {
     const appName = input.appName || "PlaylistSyncer"
     const subject = `Confirm your ${appName} email address`
-    const text = [
-        `Confirm this email address for your ${appName} account:`,
-        "",
-        input.confirmUrl,
-        "",
-        "This link expires in 24 hours. If you did not request this, you can ignore the message."
-    ].join("\n")
+    const text = [`Confirm this email address for your ${appName} account:`, "", input.confirmUrl, "", "This link expires in 24 hours. If you did not request this, you can ignore the message."].join("\n")
     const html = [
         `<p>Confirm this email address for your ${appName} account.</p>`,
         `<p><a href="${input.confirmUrl}">Confirm email address</a></p>`,
@@ -54,14 +51,8 @@ export function buildConfirmationEmail(input: {to: string; confirmUrl: string; a
     return {to: input.to, subject, text, html}
 }
 
-export function prepareEmailConfirmation(input: {
-    email: string
-    appUrl: string
-    secret: string
-    now?: Date
-    token?: string
-    appName?: string
-}): PreparedEmailConfirmation {
+// Create the token, expiry, URL, and message used for confirmation.
+export function prepareEmailConfirmation(input: {email: string; appUrl: string; secret: string; now?: Date; token?: string; appName?: string}): PreparedEmailConfirmation {
     const now = input.now ?? new Date()
     const token = input.token ?? randomBytes(32).toString("base64url")
     const confirmUrl = `${input.appUrl}/confirm-email?token=${token}`
@@ -75,28 +66,19 @@ export function prepareEmailConfirmation(input: {
     }
 }
 
-export function evaluatePendingEmailRequest(
-    user: Pick<UserDocument, "email" | "tempEmail" | "emailConfirmationSentAt">,
-    email: string,
-    now: Date
-): {ok: true} | {ok: false; statusCode: number; statusMessage: string} {
+// Enforce account state and resend cooldown before sending a token.
+export function evaluatePendingEmailRequest(user: Pick<UserDocument, "email" | "tempEmail" | "emailConfirmationSentAt">, email: string, now: Date): {ok: true} | {ok: false; statusCode: number; statusMessage: string} {
     if (user.email) {
         return {ok: false, statusCode: 409, statusMessage: "This account already has a confirmed email address"}
     }
-    if (
-        user.tempEmail === email &&
-        user.emailConfirmationSentAt &&
-        now.getTime() - user.emailConfirmationSentAt.getTime() < emailConfirmationResendCooldownMs
-    ) {
+    if (user.tempEmail === email && user.emailConfirmationSentAt && now.getTime() - user.emailConfirmationSentAt.getTime() < emailConfirmationResendCooldownMs) {
         return {ok: false, statusCode: 429, statusMessage: "Wait a moment before requesting another confirmation email"}
     }
     return {ok: true}
 }
 
-export function evaluateEmailConfirmationToken(
-    user: Pick<UserDocument, "tempEmail" | "emailVerificationExpiresAt"> | null,
-    now: Date
-): {ok: true; email: string} | {ok: false; statusCode: number; statusMessage: string} {
+// Validate the stored confirmation token state at consumption time.
+export function evaluateEmailConfirmationToken(user: Pick<UserDocument, "tempEmail" | "emailVerificationExpiresAt"> | null, now: Date): {ok: true; email: string} | {ok: false; statusCode: number; statusMessage: string} {
     const invalid = {
         ok: false as const,
         statusCode: 400,
@@ -111,6 +93,7 @@ export function evaluateEmailConfirmationToken(
     return {ok: true, email: user.tempEmail}
 }
 
+// Produce the MongoDB update that stores a pending confirmation.
 export function pendingEmailUpdate(prepared: PreparedEmailConfirmation, now: Date) {
     return {
         $set: {
@@ -123,6 +106,7 @@ export function pendingEmailUpdate(prepared: PreparedEmailConfirmation, now: Dat
     }
 }
 
+// Produce the MongoDB update that promotes a temporary email to confirmed.
 export function confirmedEmailUpdate(email: string, now: Date) {
     return {
         $set: {email, updatedAt: now},
@@ -139,6 +123,7 @@ function isDuplicateKey(error: unknown): boolean {
     return Boolean(error && typeof error === "object" && "code" in error && error.code === 11000)
 }
 
+// Reserve an email, send its confirmation message, and expose dev-only links.
 export async function requestEmailConfirmation(
     user: UserDocument,
     email: string,
@@ -191,11 +176,7 @@ export async function requestEmailConfirmation(
         logger.error("Email.request", `User ${user._id!.toHexString()}`, error, "Confirmation email failed")
         throw createError({statusCode: 502, statusMessage: "The confirmation email could not be sent"})
     }
-    logger.info(
-        "Email.request",
-        `User ${user._id!.toHexString()}`,
-        sent ? "Confirmation email sent" : "Confirmation email skipped"
-    )
+    logger.info("Email.request", `User ${user._id!.toHexString()}`, sent ? "Confirmation email sent" : "Confirmation email skipped")
 
     const allowDevUrl = (options.nodeEnv ?? process.env.NODE_ENV) !== "production" && !sent
     return {
@@ -205,6 +186,7 @@ export async function requestEmailConfirmation(
     }
 }
 
+// Consume a valid token and atomically complete email confirmation.
 export async function confirmEmail(token: string, options: {now?: Date; secret?: string} = {}): Promise<UserDocument> {
     const now = options.now ?? new Date()
     const tokenHash = hashOpaqueToken(token, options.secret ?? requireConfig("sessionSecret"))

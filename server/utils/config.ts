@@ -1,3 +1,4 @@
+// Parse and cache configuration from environment variables.
 import {z} from "zod"
 
 const optionalCredential = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional())
@@ -65,16 +66,19 @@ const serverConfigSchema = z.object({
 
 export type ServerConfig = z.infer<typeof serverConfigSchema>
 
+// Validate raw configuration values and apply documented defaults.
 export function parseServerConfig(values: Record<string, unknown>): ServerConfig {
     return serverConfigSchema.parse(values)
 }
 
+// Resolve the public application URL from supported environment names.
 export function resolveAppUrl(environment: Record<string, string | undefined>): string | undefined {
     return environment.APP_URL || environment.NUXT_PUBLIC_SITE_URL
 }
 
 let cachedConfig: ServerConfig | undefined
 
+// Load configuration once so every request observes the same validated values.
 export function getServerConfig(): ServerConfig {
     if (!cachedConfig) {
         cachedConfig = parseServerConfig({
@@ -111,6 +115,7 @@ export function getServerConfig(): ServerConfig {
     return cachedConfig
 }
 
+// Return a required setting or fail with a service-unavailable response.
 export function requireConfig<K extends keyof ServerConfig>(key: K): NonNullable<ServerConfig[K]> {
     const value = getServerConfig()[key]
     if (!value) {

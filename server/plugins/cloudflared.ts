@@ -11,13 +11,7 @@ export default defineNitroPlugin((nitroApp) => {
 
     if (import.meta.dev) {
         nitroApp.hooks.hook("render:html", (htmlContext) => {
-            htmlContext.head = htmlContext.head.map((entry) =>
-                entry.replace(
-                    /href="(\/_nuxt\/[^"?]+\.css)(\?[^"#]*)?"/g,
-                    (_match, path: string, query: string | undefined) =>
-                        `href="${path}${query ? `${query}&` : "?"}direct&dev-no-store"`
-                )
-            )
+            htmlContext.head = htmlContext.head.map((entry) => entry.replace(/href="(\/_nuxt\/[^"?]+\.css)(\?[^"#]*)?"/g, (_match, path: string, query: string | undefined) => `href="${path}${query ? `${query}&` : "?"}direct&dev-no-store"`))
         })
     }
 

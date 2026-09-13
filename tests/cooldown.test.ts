@@ -7,9 +7,7 @@ describe("manual sync cooldown", () => {
     test("blocks Free accounts for 24 hours after a successful sync", () => {
         const lastSuccessAt = new Date(now.getTime() - freeManualSyncCooldownMs + 1)
 
-        expect(manualSyncAvailableAt("free", lastSuccessAt, now)).toEqual(
-            new Date(lastSuccessAt.getTime() + freeManualSyncCooldownMs)
-        )
+        expect(manualSyncAvailableAt("free", lastSuccessAt, now)).toEqual(new Date(lastSuccessAt.getTime() + freeManualSyncCooldownMs))
     })
 
     test("allows Free accounts after 24 hours", () => {

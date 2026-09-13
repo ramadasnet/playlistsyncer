@@ -65,9 +65,7 @@ async function confirm() {
                 </template>
                 <template v-else>
                     <p>Use the button below to confirm the email address for this PlaylistSyncer account.</p>
-                    <button class="button button-primary" type="button" :disabled="busy || !token" @click="confirm">
-                        <LoaderCircle v-if="busy" class="spin" :size="17" /> Confirm email address
-                    </button>
+                    <button class="button button-primary" type="button" :disabled="busy || !token" @click="confirm"><LoaderCircle v-if="busy" class="spin" :size="17" /> Confirm email address</button>
                 </template>
             </div>
         </section>

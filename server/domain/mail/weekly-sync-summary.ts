@@ -1,12 +1,5 @@
 import type {ObjectId} from "mongodb"
-import type {
-    AccountTier,
-    SyncRunDocument,
-    SyncRunTrackReference,
-    SyncSnapshotDocument,
-    SyncTaskDocument,
-    UserDocument
-} from "~~/shared/types/domain"
+import type {AccountTier, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import type {OutboundEmail} from "./send"
 
@@ -39,11 +32,7 @@ export interface WeeklySummaryStore {
     releaseClaim(userId: ObjectId): Promise<void>
 }
 
-export function evaluateWeeklySyncSummaryPreference(input: {
-    tier: AccountTier
-    email?: string
-    enabled: boolean
-}): {ok: true} | {ok: false; statusCode: number; statusMessage: string} {
+export function evaluateWeeklySyncSummaryPreference(input: {tier: AccountTier; email?: string; enabled: boolean}): {ok: true} | {ok: false; statusCode: number; statusMessage: string} {
     if (input.tier !== "pro") {
         return {ok: false, statusCode: 403, statusMessage: "Weekly sync summaries require a PRO account"}
     }
@@ -57,11 +46,7 @@ export function evaluateWeeklySyncSummaryPreference(input: {
     return {ok: true}
 }
 
-export function isWeeklySyncSummaryDue(
-    user: Pick<UserDocument, "weeklySyncSummaryEnabled" | "weeklySyncSummarySentAt" | "email">,
-    now: Date,
-    intervalMs = weeklySyncSummaryIntervalMs
-): boolean {
+export function isWeeklySyncSummaryDue(user: Pick<UserDocument, "weeklySyncSummaryEnabled" | "weeklySyncSummarySentAt" | "email">, now: Date, intervalMs = weeklySyncSummaryIntervalMs): boolean {
     if (!user.weeklySyncSummaryEnabled || !user.email) {
         return false
     }
@@ -71,11 +56,7 @@ export function isWeeklySyncSummaryDue(
     return now.getTime() - user.weeklySyncSummarySentAt.getTime() >= intervalMs
 }
 
-export function weeklySummaryWindowStart(
-    sentAt: Date | undefined,
-    now: Date,
-    intervalMs = weeklySyncSummaryIntervalMs
-): Date {
+export function weeklySummaryWindowStart(sentAt: Date | undefined, now: Date, intervalMs = weeklySyncSummaryIntervalMs): Date {
     return sentAt ?? new Date(now.getTime() - intervalMs)
 }
 
@@ -86,25 +67,14 @@ export function formatTrackLabel(track: Pick<WeeklySummaryTrack, "title" | "arti
 }
 
 export function escapeHtml(value: string): string {
-    return value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;")
+    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;")
 }
 
-export function playlistNameForChange(
-    task: SyncTaskDocument | undefined,
-    playlistId: string,
-    recordedName?: string
-): string {
+export function playlistNameForChange(task: SyncTaskDocument | undefined, playlistId: string, recordedName?: string): string {
     if (recordedName?.trim()) {
         return recordedName
     }
-    const mapping = task?.playlistMappings?.find(
-        (item) => item.sourcePlaylistId === playlistId || item.destinationPlaylistId === playlistId
-    )
+    const mapping = task?.playlistMappings?.find((item) => item.sourcePlaylistId === playlistId || item.destinationPlaylistId === playlistId)
     if (mapping?.name.trim()) {
         return mapping.name
     }
@@ -121,18 +91,11 @@ function trackIdentity(ref: SyncRunTrackReference): string {
     return `${ref.providerAccountId.toHexString()}:${ref.playlistId}:${ref.providerTrackId}:${ref.providerItemId ?? ""}`
 }
 
-function titleFromSnapshot(
-    snapshot: SyncSnapshotDocument | undefined,
-    ref: SyncRunTrackReference
-): Pick<WeeklySummaryTrack, "title" | "artists"> | undefined {
+function titleFromSnapshot(snapshot: SyncSnapshotDocument | undefined, ref: SyncRunTrackReference): Pick<WeeklySummaryTrack, "title" | "artists"> | undefined {
     if (!snapshot) {
         return undefined
     }
-    const match = [...snapshot.sourceItems, ...snapshot.destinationItems].find(
-        (item) =>
-            item.providerTrackId === ref.providerTrackId ||
-            (ref.providerItemId !== undefined && item.providerItemId === ref.providerItemId)
-    )
+    const match = [...snapshot.sourceItems, ...snapshot.destinationItems].find((item) => item.providerTrackId === ref.providerTrackId || (ref.providerItemId !== undefined && item.providerItemId === ref.providerItemId))
     return match ? {title: match.title, artists: match.artists} : undefined
 }
 
@@ -151,17 +114,10 @@ function sortTracks(tracks: WeeklySummaryTrack[]): WeeklySummaryTrack[] {
     return [...tracks].sort((left, right) => formatTrackLabel(left).localeCompare(formatTrackLabel(right)))
 }
 
-export function summarizeSyncChanges(
-    runs: SyncRunDocument[],
-    tasks: SyncTaskDocument[],
-    snapshots: SyncSnapshotDocument[] = []
-): WeeklySyncSummary {
+export function summarizeSyncChanges(runs: SyncRunDocument[], tasks: SyncTaskDocument[], snapshots: SyncSnapshotDocument[] = []): WeeklySyncSummary {
     const tasksById = new Map(tasks.flatMap((task) => (task._id ? [[task._id.toHexString(), task] as const] : [])))
     const snapshotsByTask = new Map(snapshots.map((snapshot) => [snapshot.taskId.toHexString(), snapshot]))
-    const playlists = new Map<
-        string,
-        {playlistName: string; added: Map<string, WeeklySummaryTrack>; removed: Map<string, WeeklySummaryTrack>}
-    >()
+    const playlists = new Map<string, {playlistName: string; added: Map<string, WeeklySummaryTrack>; removed: Map<string, WeeklySummaryTrack>}>()
 
     for (const run of runs) {
         if (run.status === "running") {
@@ -208,13 +164,7 @@ function playlistCountLabel(count: number): string {
     return count === 1 ? "1 playlist" : `${count} playlists`
 }
 
-export function buildWeeklySyncSummaryEmail(input: {
-    to: string
-    displayName?: string
-    summary: WeeklySyncSummary
-    appUrl?: string
-    appName?: string
-}): OutboundEmail {
+export function buildWeeklySyncSummaryEmail(input: {to: string; displayName?: string; summary: WeeklySyncSummary; appUrl?: string; appName?: string}): OutboundEmail {
     const appName = input.appName || "PlaylistSyncer"
     const greeting = input.displayName?.trim() ? `Hi ${input.displayName.trim()},` : "Hi,"
     const playlistCount = input.summary.playlists.length
@@ -233,33 +183,14 @@ export function buildWeeklySyncSummaryEmail(input: {
     })
     const htmlPlaylists = input.summary.playlists
         .map((playlist) => {
-            const added = playlist.addedTracks.length
-                ? `<p>Added</p><ul>${playlist.addedTracks
-                      .map((track) => `<li>${escapeHtml(formatTrackLabel(track))}</li>`)
-                      .join("")}</ul>`
-                : ""
-            const removed = playlist.removedTracks.length
-                ? `<p>Removed</p><ul>${playlist.removedTracks
-                      .map((track) => `<li>${escapeHtml(formatTrackLabel(track))}</li>`)
-                      .join("")}</ul>`
-                : ""
+            const added = playlist.addedTracks.length ? `<p>Added</p><ul>${playlist.addedTracks.map((track) => `<li>${escapeHtml(formatTrackLabel(track))}</li>`).join("")}</ul>` : ""
+            const removed = playlist.removedTracks.length ? `<p>Removed</p><ul>${playlist.removedTracks.map((track) => `<li>${escapeHtml(formatTrackLabel(track))}</li>`).join("")}</ul>` : ""
             return `<h2>${escapeHtml(playlist.playlistName)}</h2>${added}${removed}`
         })
         .join("")
     const syncUrl = input.appUrl ? `${input.appUrl}/sync` : undefined
-    const text = [
-        greeting,
-        "",
-        intro,
-        ...textPlaylists,
-        ...(syncUrl ? ["", `Open ${appName} to review your tasks:`, syncUrl] : [])
-    ].join("\n")
-    const html = [
-        `<p>${escapeHtml(greeting)}</p>`,
-        `<p>${escapeHtml(intro)}</p>`,
-        htmlPlaylists,
-        ...(syncUrl ? [`<p><a href="${escapeHtml(syncUrl)}">Review your sync tasks</a></p>`] : [])
-    ].join("")
+    const text = [greeting, "", intro, ...textPlaylists, ...(syncUrl ? ["", `Open ${appName} to review your tasks:`, syncUrl] : [])].join("\n")
+    const html = [`<p>${escapeHtml(greeting)}</p>`, `<p>${escapeHtml(intro)}</p>`, htmlPlaylists, ...(syncUrl ? [`<p><a href="${escapeHtml(syncUrl)}">Review your sync tasks</a></p>`] : [])].join("")
     return {
         to: input.to,
         subject: `Your ${appName} weekly sync summary`,
@@ -275,10 +206,7 @@ function dueUserFilter(dueBefore: Date, now: Date) {
         $and: [
             {$or: [{weeklySyncSummarySentAt: {$exists: false}}, {weeklySyncSummarySentAt: {$lte: dueBefore}}]},
             {
-                $or: [
-                    {weeklySyncSummaryLeaseExpiresAt: {$exists: false}},
-                    {weeklySyncSummaryLeaseExpiresAt: {$lt: now}}
-                ]
+                $or: [{weeklySyncSummaryLeaseExpiresAt: {$exists: false}}, {weeklySyncSummaryLeaseExpiresAt: {$lt: now}}]
             }
         ]
     }
@@ -379,9 +307,7 @@ export async function sendDueWeeklySyncSummaries(input: {
         const since = weeklySummaryWindowStart(user.weeklySyncSummarySentAt, now)
         const tasks = await input.store.findTasks(user._id)
         const taskIds = tasks.flatMap((task) => (task._id ? [task._id] : []))
-        const runs = taskIds.length
-            ? await input.store.findRuns(taskIds, since, now, Boolean(user.weeklySyncSummarySentAt))
-            : []
+        const runs = taskIds.length ? await input.store.findRuns(taskIds, since, now, Boolean(user.weeklySyncSummarySentAt)) : []
         const snapshots = taskIds.length ? await input.store.findSnapshots(taskIds) : []
         const summary = summarizeSyncChanges(runs, tasks, snapshots)
         if (!weeklySyncSummaryHasChanges(summary)) {

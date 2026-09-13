@@ -1,9 +1,11 @@
+// List playlists from a connected provider account owned by the user.
 import {collections} from "../../../data/collections"
 import {requireUser} from "../../../domain/auth/session"
 import {getProviderAdapter} from "../../../domain/providers"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
 
+// Check ownership before making the external provider request.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const accountId = parseObjectId(getRouterParam(event, "id"), "account id")
@@ -13,11 +15,6 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 404, statusMessage: "Provider account not found"})
     }
     const playlists = await getProviderAdapter(account.provider).listPlaylists(account)
-    logger.info(
-        "Accounts.listPlaylists",
-        account.provider,
-        `Provider account ${account.externalAccountId}`,
-        `Playlists ${playlists.length}`
-    )
+    logger.info("Accounts.listPlaylists", account.provider, `Provider account ${account.externalAccountId}`, `Playlists ${playlists.length}`)
     return {playlists}
 })

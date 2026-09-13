@@ -1,8 +1,10 @@
+// Process a bounded batch of scheduler-due synchronization tasks.
 import {collections} from "../../data/collections"
 import {runSyncTask} from "../../domain/sync/engine"
 import logger from "../../utils/logger"
 import {requireScheduler} from "../../utils/scheduler-auth"
 
+// Require scheduler authentication and isolate failures per task.
 export default defineEventHandler(async (event) => {
     requireScheduler(event)
     const db = await collections()

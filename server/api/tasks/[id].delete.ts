@@ -1,8 +1,10 @@
+// Delete a user's sync task and its recorded execution history.
 import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
 import logger from "../../utils/logger"
 import {parseObjectId} from "../../utils/object-id"
 
+// Scope deletion to the authenticated task owner.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const taskId = parseObjectId(getRouterParam(event, "id"), "task id")

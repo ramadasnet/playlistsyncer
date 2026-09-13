@@ -1,3 +1,4 @@
+// Deliver transactional email when SMTP is configured.
 import nodemailer from "nodemailer"
 import {getServerConfig, type ServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
@@ -9,6 +10,7 @@ export interface OutboundEmail {
     html: string
 }
 
+// Check whether outbound SMTP delivery is available.
 export function isMailConfigured(config: Pick<ServerConfig, "smtpHost"> = getServerConfig()): boolean {
     return Boolean(config.smtpHost)
 }
@@ -17,6 +19,7 @@ function mailFrom(config: ServerConfig): string {
     return config.smtpFrom || `PlaylistSyncer <${process.env.NUXT_PUBLIC_SUPPORT_EMAIL || "info@playlistsyncer.com"}>`
 }
 
+// Send an email and report whether delivery was attempted.
 export async function sendMail(message: OutboundEmail, config: ServerConfig = getServerConfig()): Promise<boolean> {
     if (!config.smtpHost) {
         logger.warn("Mail.send", "SMTP is not configured; message was not delivered")

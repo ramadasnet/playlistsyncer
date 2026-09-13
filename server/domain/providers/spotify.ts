@@ -1,3 +1,4 @@
+// Adapt Spotify playlist operations to the provider-neutral sync contract.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
 import {findBestTrackMatch, searchableTitle} from "./matching"
@@ -15,6 +16,7 @@ interface SpotifyTrack {
     external_ids?: {isrc?: string}
 }
 
+// Follow Spotify continuation URLs until all items are collected.
 async function collectPages<T>(account: ProviderAccountDocument, url: string): Promise<T[]> {
     const items: T[] = []
     let next: string | null = url
@@ -26,6 +28,7 @@ async function collectPages<T>(account: ProviderAccountDocument, url: string): P
     return items
 }
 
+// Convert Spotify track payloads into the shared track representation.
 function mapTrack(track: SpotifyTrack, itemId = track.uri): ProviderTrack {
     return {
         itemId,
@@ -39,6 +42,7 @@ function mapTrack(track: SpotifyTrack, itemId = track.uri): ProviderTrack {
     }
 }
 
+// Spotify adapter with batched playlist mutations and stable item positions.
 export const spotifyAdapter: ProviderAdapter = {
     provider: "spotify",
     async listPlaylists(account) {
@@ -81,22 +85,12 @@ export const spotifyAdapter: ProviderAdapter = {
         })
     },
     async getPlaylistItems(account, playlistId) {
-        const items = await collectPages<{item: SpotifyTrack | null}>(
-            account,
-            `${apiBase}/playlists/${encodeURIComponent(playlistId)}/items?limit=50`
-        )
+        const items = await collectPages<{item: SpotifyTrack | null}>(account, `${apiBase}/playlists/${encodeURIComponent(playlistId)}/items?limit=50`)
         return items.flatMap((entry, index) => (entry.item ? [mapTrack(entry.item, `${entry.item.uri}:${index}`)] : []))
     },
     async searchTrack(account, track) {
-        const query = track.isrc
-            ? `isrc:${track.isrc}`
-            : [`track:${searchableTitle(track.title)}`, track.artists[0] ? `artist:${track.artists[0]}` : ""]
-                  .filter(Boolean)
-                  .join(" ")
-        const result = await providerFetch<{tracks: {items: SpotifyTrack[]}}>(
-            account,
-            `${apiBase}/search?type=track&limit=10&q=${encodeURIComponent(query)}`
-        )
+        const query = track.isrc ? `isrc:${track.isrc}` : [`track:${searchableTitle(track.title)}`, track.artists[0] ? `artist:${track.artists[0]}` : ""].filter(Boolean).join(" ")
+        const result = await providerFetch<{tracks: {items: SpotifyTrack[]}}>(account, `${apiBase}/search?type=track&limit=10&q=${encodeURIComponent(query)}`)
         return findBestTrackMatch(
             track,
             result.tracks.items.map((candidate) => mapTrack(candidate))

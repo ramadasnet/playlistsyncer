@@ -1,3 +1,4 @@
+// Describe OAuth endpoints and profile mapping for each provider.
 import type {Provider} from "~~/shared/types/domain"
 import {getServerConfig, requireConfig, type ServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
@@ -20,6 +21,7 @@ interface OAuthProvider {
     fetchProfile(accessToken: string): Promise<OAuthProfile>
 }
 
+// Fetch a provider profile with a bearer token and normalized error handling.
 async function fetchJson<T>(url: string, accessToken: string, extraHeaders?: HeadersInit): Promise<T> {
     const headers = new Headers(extraHeaders)
     headers.set("Authorization", `Bearer ${accessToken}`)
@@ -36,13 +38,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
     spotify: {
         authorizeUrl: "https://accounts.spotify.com/authorize",
         tokenUrl: "https://accounts.spotify.com/api/token",
-        scopes: [
-            "user-read-email",
-            "playlist-read-private",
-            "playlist-read-collaborative",
-            "playlist-modify-private",
-            "playlist-modify-public"
-        ],
+        scopes: ["user-read-email", "playlist-read-private", "playlist-read-collaborative", "playlist-modify-private", "playlist-modify-public"],
         clientIdKey: "spotifyClientId",
         clientSecretKey: "spotifyClientSecret",
         tokenAuth: "basic",
@@ -94,10 +90,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
         clientSecretKey: "amazonClientSecret",
         tokenAuth: "body",
         async fetchProfile(accessToken) {
-            const profile = await fetchJson<{user_id: string; email?: string; name?: string}>(
-                "https://api.amazon.com/user/profile",
-                accessToken
-            )
+            const profile = await fetchJson<{user_id: string; email?: string; name?: string}>("https://api.amazon.com/user/profile", accessToken)
             return {
                 id: profile.user_id,
                 email: profile.email,
@@ -127,11 +120,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 }
             }>("https://openapi.tidal.com/v2/users/me", accessToken, {Accept: "application/vnd.api+json"})
             const attributes = document.data.attributes || {}
-            const displayName =
-                [attributes.firstName, attributes.lastName].filter(Boolean).join(" ") ||
-                attributes.username ||
-                attributes.email ||
-                "TIDAL user"
+            const displayName = [attributes.firstName, attributes.lastName].filter(Boolean).join(" ") || attributes.username || attributes.email || "TIDAL user"
             return {
                 id: document.data.id,
                 email: attributes.email,
@@ -142,6 +131,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
     }
 }
 
+// Resolve an OAuth definition with its configured client credentials.
 export function getOAuthProvider(provider: Provider): OAuthProvider & {clientId: string; clientSecret: string} {
     const definition = oauthProviders[provider]
     const config = getServerConfig()
@@ -152,6 +142,7 @@ export function getOAuthProvider(provider: Provider): OAuthProvider & {clientId:
     }
 }
 
+// Check whether both OAuth credentials exist for a provider.
 export function hasOAuthCredentials(provider: Provider, config: ServerConfig = getServerConfig()): boolean {
     const definition = oauthProviders[provider]
     return Boolean(config[definition.clientIdKey] && config[definition.clientSecretKey])

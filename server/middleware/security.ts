@@ -1,8 +1,10 @@
+// Add browser security headers and reject cross-site state mutations.
 import {getServerConfig} from "../utils/config"
 
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
 const externalRoutes = ["/api/jobs/", "/api/webhooks/"]
 
+// Protect browser-originated mutations while allowing signed external callbacks.
 export default defineEventHandler((event) => {
     setResponseHeaders(event, {
         "Referrer-Policy": "strict-origin-when-cross-origin",

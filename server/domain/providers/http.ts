@@ -1,12 +1,10 @@
+// Perform authenticated requests against provider APIs and normalize failures.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import logger from "../../utils/logger"
 import {getAccessToken} from "./token"
 
-export async function providerFetch<T>(
-    account: ProviderAccountDocument,
-    url: string,
-    init: RequestInit = {}
-): Promise<T> {
+// Add the current provider token, parse successful responses, and map errors.
+export async function providerFetch<T>(account: ProviderAccountDocument, url: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set("Authorization", `Bearer ${await getAccessToken(account)}`)
     if (init.body && !headers.has("Content-Type")) {
@@ -15,13 +13,7 @@ export async function providerFetch<T>(
     const response = await fetch(url, {...init, headers})
     if (!response.ok) {
         const requestUrl = new URL(url)
-        const logParts = [
-            account.provider,
-            init.method || "GET",
-            requestUrl.pathname,
-            `Status ${response.status}`,
-            `Provider account ${account.externalAccountId}`
-        ]
+        const logParts = [account.provider, init.method || "GET", requestUrl.pathname, `Status ${response.status}`, `Provider account ${account.externalAccountId}`]
         if (response.status === 429) {
             logger.warn("Provider.request", ...logParts, "Rate limited")
         } else {

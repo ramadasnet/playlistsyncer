@@ -1,9 +1,11 @@
+// Create a hosted PRO checkout for an eligible authenticated user.
 import {requireUser} from "../../domain/auth/session"
 import {getCreem} from "../../domain/billing/creem"
 import {canStartCheckout, resolveEntitlement} from "../../domain/billing/entitlement"
 import {getServerConfig, requireConfig} from "../../utils/config"
 import logger from "../../utils/logger"
 
+// Enforce entitlement and email prerequisites before calling Creem.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     if (!canStartCheckout(resolveEntitlement(user))) {

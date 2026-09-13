@@ -1,3 +1,4 @@
+// Expose the configured public subscription cutoff.
 import {getServerConfig} from "../utils/config"
 
 export default defineEventHandler(() => {

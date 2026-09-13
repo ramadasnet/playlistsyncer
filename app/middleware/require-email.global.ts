@@ -1,3 +1,4 @@
+// Redirect authenticated users without an email to the account confirmation flow.
 export default defineNuxtRouteMiddleware((to) => {
     const auth = useAuthStore()
     if (!auth.loaded || !auth.user) {

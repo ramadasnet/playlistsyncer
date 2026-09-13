@@ -1,3 +1,4 @@
+// Resolve paid, trial, and development access for a user.
 import type {UserDocument} from "~~/shared/types/domain"
 import {isComplimentaryTrialActive} from "../../../shared/trial"
 import {getServerConfig, type ServerConfig} from "../../utils/config"
@@ -11,15 +12,9 @@ export interface EffectiveEntitlement {
     trialAccess: boolean
 }
 
-export function resolveEntitlement(
-    user: EntitlementUser,
-    config: EntitlementConfig = getServerConfig(),
-    nodeEnv: string | undefined = process.env.NODE_ENV,
-    now: Date = new Date()
-): EffectiveEntitlement {
-    const developmentOverride =
-        nodeEnv === "development" &&
-        Boolean(user.email && config.developmentProUserEmails.includes(user.email.trim().toLowerCase()))
+// Calculate the effective tier, including configured development and trial access.
+export function resolveEntitlement(user: EntitlementUser, config: EntitlementConfig = getServerConfig(), nodeEnv: string | undefined = process.env.NODE_ENV, now: Date = new Date()): EffectiveEntitlement {
+    const developmentOverride = nodeEnv === "development" && Boolean(user.email && config.developmentProUserEmails.includes(user.email.trim().toLowerCase()))
 
     if (developmentOverride) {
         return {tier: "pro", developmentOverride: true, trialAccess: false}
@@ -34,6 +29,7 @@ export function resolveEntitlement(
     return {tier: "free", developmentOverride: false, trialAccess: false}
 }
 
+// Determine whether the account may begin a paid checkout flow.
 export function canStartCheckout(entitlement: EffectiveEntitlement): boolean {
     return entitlement.tier === "free" || entitlement.trialAccess
 }

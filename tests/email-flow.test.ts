@@ -17,9 +17,7 @@ describe.skipIf(!mongoUri)("email confirmation against MongoDB", () => {
         await ensureIndexes()
         const db = await collections()
         const now = new Date()
-        const inserted = await db.users.insertOne(
-            newUserFromOAuthProfile({id: "flow-1", emailVerified: false, displayName: "Email Flow"}, now)
-        )
+        const inserted = await db.users.insertOne(newUserFromOAuthProfile({id: "flow-1", emailVerified: false, displayName: "Email Flow"}, now))
         const userId = inserted.insertedId
         const address = `flow-${userId.toHexString()}@playlistsyncer.test`
         const sent: OutboundEmail[] = []
@@ -62,12 +60,8 @@ describe.skipIf(!mongoUri)("email confirmation against MongoDB", () => {
         await ensureIndexes()
         const db = await collections()
         const now = new Date()
-        const first = await db.users.insertOne(
-            newUserFromOAuthProfile({id: "flow-a", emailVerified: false, displayName: "A"}, now)
-        )
-        const second = await db.users.insertOne(
-            newUserFromOAuthProfile({id: "flow-b", emailVerified: false, displayName: "B"}, now)
-        )
+        const first = await db.users.insertOne(newUserFromOAuthProfile({id: "flow-a", emailVerified: false, displayName: "A"}, now))
+        const second = await db.users.insertOne(newUserFromOAuthProfile({id: "flow-b", emailVerified: false, displayName: "B"}, now))
         try {
             expect(await db.users.find({_id: {$in: [first.insertedId, second.insertedId]}}).toArray()).toHaveLength(2)
         } finally {

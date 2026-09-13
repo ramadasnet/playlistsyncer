@@ -34,23 +34,15 @@ describe("server configuration", () => {
     test("parses the PRO subscription-required instant", () => {
         expect(parseServerConfig({}).proSubscriptionRequiredAt).toBeUndefined()
         expect(parseServerConfig({proSubscriptionRequiredAt: ""}).proSubscriptionRequiredAt).toBeUndefined()
-        expect(parseServerConfig({proSubscriptionRequiredAt: "2027-01-01"}).proSubscriptionRequiredAt).toEqual(
-            new Date("2027-01-01")
-        )
-        expect(
-            parseServerConfig({proSubscriptionRequiredAt: "2027-01-01T00:00:00.000Z"}).proSubscriptionRequiredAt
-        ).toEqual(new Date("2027-01-01T00:00:00.000Z"))
+        expect(parseServerConfig({proSubscriptionRequiredAt: "2027-01-01"}).proSubscriptionRequiredAt).toEqual(new Date("2027-01-01"))
+        expect(parseServerConfig({proSubscriptionRequiredAt: "2027-01-01T00:00:00.000Z"}).proSubscriptionRequiredAt).toEqual(new Date("2027-01-01T00:00:00.000Z"))
         expect(() => parseServerConfig({proSubscriptionRequiredAt: "not-a-date"})).toThrow()
     })
 
     test("uses the configured application origin", () => {
-        expect(resolveAppUrl({APP_URL: "https://dev.playlistsyncer.com", NUXT_PUBLIC_SITE_URL: "http://legacy"})).toBe(
-            "https://dev.playlistsyncer.com"
-        )
+        expect(resolveAppUrl({APP_URL: "https://dev.playlistsyncer.com", NUXT_PUBLIC_SITE_URL: "http://legacy"})).toBe("https://dev.playlistsyncer.com")
         expect(resolveAppUrl({NUXT_PUBLIC_SITE_URL: "http://localhost:3007"})).toBe("http://localhost:3007")
-        expect(parseServerConfig({appUrl: "https://dev.playlistsyncer.com/"}).appUrl).toBe(
-            "https://dev.playlistsyncer.com"
-        )
+        expect(parseServerConfig({appUrl: "https://dev.playlistsyncer.com/"}).appUrl).toBe("https://dev.playlistsyncer.com")
         expect(() => parseServerConfig({appUrl: "https://dev.playlistsyncer.com/base"})).toThrow()
     })
 })

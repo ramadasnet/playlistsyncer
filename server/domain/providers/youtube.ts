@@ -1,3 +1,4 @@
+// Adapt YouTube playlist operations to the provider-neutral sync contract.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
 import {findBestTrackMatch, searchableTitle, youtubeMetadata} from "./matching"
@@ -5,6 +6,7 @@ import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
 const apiBase = "https://www.googleapis.com/youtube/v3"
 
+// Follow YouTube continuation tokens until all pages are collected.
 async function collectPages<T>(account: ProviderAccountDocument, url: URL): Promise<T[]> {
     const items: T[] = []
     let pageToken: string | undefined
@@ -19,6 +21,7 @@ async function collectPages<T>(account: ProviderAccountDocument, url: URL): Prom
     return items
 }
 
+// YouTube adapter using playlist item identifiers for stable removals.
 export const youtubeAdapter: ProviderAdapter = {
     provider: "youtube",
     async listPlaylists(account) {
@@ -38,14 +41,10 @@ export const youtubeAdapter: ProviderAdapter = {
         }))
     },
     async createPlaylist(account, name) {
-        const playlist = await providerFetch<{id: string; snippet: {title: string; description?: string}}>(
-            account,
-            `${apiBase}/playlists?part=snippet,status`,
-            {
-                method: "POST",
-                body: JSON.stringify({snippet: {title: name}, status: {privacyStatus: "private"}})
-            }
-        )
+        const playlist = await providerFetch<{id: string; snippet: {title: string; description?: string}}>(account, `${apiBase}/playlists?part=snippet,status`, {
+            method: "POST",
+            body: JSON.stringify({snippet: {title: name}, status: {privacyStatus: "private"}})
+        })
         return {
             id: playlist.id,
             name: playlist.snippet.title,

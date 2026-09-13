@@ -1,3 +1,4 @@
+// Manually run a task after applying ownership and free-tier cooldown rules.
 import {collections} from "../../../data/collections"
 import {requireUser} from "../../../domain/auth/session"
 import {resolveEntitlement} from "../../../domain/billing/entitlement"
@@ -6,6 +7,7 @@ import {runSyncTask} from "../../../domain/sync/engine"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
 
+// Reject runs during the cooldown and delegate eligible runs to the engine.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const taskId = parseObjectId(getRouterParam(event, "id"), "task id")
@@ -18,12 +20,7 @@ export default defineEventHandler(async (event) => {
     if (availableAt) {
         const retryAfterSeconds = Math.ceil((availableAt.getTime() - Date.now()) / 1000)
         setResponseHeader(event, "Retry-After", retryAfterSeconds)
-        logger.warn(
-            "Tasks.run",
-            `Task ${taskId.toHexString()}`,
-            `User ${user._id!.toHexString()}`,
-            `Free tier cooldown ${retryAfterSeconds}s`
-        )
+        logger.warn("Tasks.run", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`, `Free tier cooldown ${retryAfterSeconds}s`)
         throw createError({
             statusCode: 429,
             statusMessage: "Free accounts can manually synchronize once every 24 hours"

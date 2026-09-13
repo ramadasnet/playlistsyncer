@@ -20,13 +20,7 @@ watch(
                 <span>PlaylistSyncer</span>
             </NuxtLink>
 
-            <button
-                class="icon-button nav-toggle"
-                type="button"
-                :aria-expanded="open"
-                aria-label="Toggle navigation"
-                @click="open = !open"
-            >
+            <button class="icon-button nav-toggle" type="button" :aria-expanded="open" aria-label="Toggle navigation" @click="open = !open">
                 <X v-if="open" :size="20" />
                 <Menu v-else :size="20" />
             </button>
@@ -36,16 +30,12 @@ watch(
                 <template v-if="auth.user">
                     <NuxtLink to="/sync">Sync tasks</NuxtLink>
                     <NuxtLink to="/account">Account</NuxtLink>
-                    <span class="plan-badge" :class="planBadgeClass(auth.user)">{{
-                        planBadgeLabel(auth.user, true)
-                    }}</span>
+                    <span class="plan-badge" :class="planBadgeClass(auth.user)">{{ planBadgeLabel(auth.user, true) }}</span>
                     <button class="icon-button" type="button" title="Log out" aria-label="Log out" @click="auth.logout">
                         <LogOut :size="18" />
                     </button>
                 </template>
-                <NuxtLink v-else class="button button-small" to="/login"
-                    ><SlidersHorizontal :size="17" /> Start syncing</NuxtLink
-                >
+                <NuxtLink v-else class="button button-small" to="/login"><SlidersHorizontal :size="17" /> Start syncing</NuxtLink>
             </nav>
         </div>
     </header>

@@ -1,3 +1,4 @@
+// Adapt TIDAL's JSON:API resources to the provider-neutral sync contract.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
 import {findBestTrackMatch, searchableTitle} from "./matching"
@@ -28,11 +29,13 @@ interface JsonApiDocument<T = JsonApiResource | JsonApiResource[] | JsonApiIdent
     links?: {next?: string}
 }
 
+// Set the media types required by TIDAL's JSON:API endpoints.
 const jsonApiHeaders = (body?: boolean): HeadersInit => ({
     Accept: jsonApi,
     ...(body ? {"Content-Type": jsonApi} : {})
 })
 
+// Perform an authenticated TIDAL request with JSON:API headers.
 function tidalFetch<T>(account: ProviderAccountDocument, url: string, init: RequestInit = {}): Promise<T> {
     return providerFetch<T>(account, url, {
         ...init,
@@ -40,6 +43,7 @@ function tidalFetch<T>(account: ProviderAccountDocument, url: string, init: Requ
     })
 }
 
+// Resolve absolute and relative pagination links returned by TIDAL.
 function resolveTidalUrl(href: string): string {
     if (href.startsWith("https://") || href.startsWith("http://")) {
         return href
@@ -50,10 +54,8 @@ function resolveTidalUrl(href: string): string {
     return href.startsWith("/") ? `${apiBase}${href}` : `${apiBase}/${href}`
 }
 
-async function collectPages<T extends JsonApiIdentifier | JsonApiResource>(
-    account: ProviderAccountDocument,
-    url: string
-): Promise<{items: T[]; included: JsonApiResource[]}> {
+// Collect all JSON:API pages and their included relationship resources.
+async function collectPages<T extends JsonApiIdentifier | JsonApiResource>(account: ProviderAccountDocument, url: string): Promise<{items: T[]; included: JsonApiResource[]}> {
     const items: T[] = []
     const included: JsonApiResource[] = []
     let next: string | undefined = url
@@ -66,6 +68,7 @@ async function collectPages<T extends JsonApiIdentifier | JsonApiResource>(
     return {items, included}
 }
 
+// Convert an ISO-8601 duration into milliseconds.
 function durationMs(value: unknown): number | undefined {
     if (typeof value !== "string") {
         return undefined
@@ -137,16 +140,12 @@ function asPlaylist(resource: JsonApiResource): ProviderPlaylist {
     }
 }
 
+// TIDAL adapter with JSON:API relationship and batch mutation handling.
 export const tidalAdapter: ProviderAdapter = {
     provider: "tidal",
     async listPlaylists(account) {
-        const {items} = await collectPages<JsonApiResource>(
-            account,
-            `${apiBase}/playlists?${new URLSearchParams({"filter[owners.id]": "me"}).toString()}`
-        )
-        return items
-            .filter((playlist) => !playlist.attributes?.playlistType || playlist.attributes.playlistType === "USER")
-            .map(asPlaylist)
+        const {items} = await collectPages<JsonApiResource>(account, `${apiBase}/playlists?${new URLSearchParams({"filter[owners.id]": "me"}).toString()}`)
+        return items.filter((playlist) => !playlist.attributes?.playlistType || playlist.attributes.playlistType === "USER").map(asPlaylist)
     },
     async createPlaylist(account, name) {
         const document = await tidalFetch<JsonApiDocument<JsonApiResource>>(account, `${apiBase}/playlists`, {
@@ -168,10 +167,7 @@ export const tidalAdapter: ProviderAdapter = {
     },
     async getPlaylistItems(account, playlistId) {
         const include = "items,items.tracks:artists,items.tracks:albums"
-        const {items, included} = await collectPages<JsonApiIdentifier>(
-            account,
-            `${apiBase}/playlists/${encodeURIComponent(playlistId)}/relationships/items?${new URLSearchParams({include}).toString()}`
-        )
+        const {items, included} = await collectPages<JsonApiIdentifier>(account, `${apiBase}/playlists/${encodeURIComponent(playlistId)}/relationships/items?${new URLSearchParams({include}).toString()}`)
         return items.flatMap((identifier, index) => {
             if (identifier.type !== "tracks") {
                 return []
@@ -186,10 +182,7 @@ export const tidalAdapter: ProviderAdapter = {
                 "filter[isrc]": track.isrc,
                 include: "artists,albums"
             })
-            const result = await tidalFetch<JsonApiDocument<JsonApiResource[]>>(
-                account,
-                `${apiBase}/tracks?${query.toString()}`
-            )
+            const result = await tidalFetch<JsonApiDocument<JsonApiResource[]>>(account, `${apiBase}/tracks?${query.toString()}`)
             return findBestTrackMatch(
                 track,
                 (result.data || []).map((candidate) => mapTrack(candidate, result.included || [], candidate.id))
@@ -200,10 +193,7 @@ export const tidalAdapter: ProviderAdapter = {
             return null
         }
         const params = new URLSearchParams({include: "tracks,tracks.artists,tracks.albums"})
-        const result = await tidalFetch<JsonApiDocument<JsonApiIdentifier[]>>(
-            account,
-            `${apiBase}/searchResults/${encodeURIComponent(query)}/relationships/tracks?${params.toString()}`
-        )
+        const result = await tidalFetch<JsonApiDocument<JsonApiIdentifier[]>>(account, `${apiBase}/searchResults/${encodeURIComponent(query)}/relationships/tracks?${params.toString()}`)
         const included = result.included || []
         const candidates = (result.data || []).flatMap((identifier) => {
             const resource = includedResource(included, "tracks", identifier.id)

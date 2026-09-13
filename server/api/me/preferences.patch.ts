@@ -1,3 +1,4 @@
+// Update account preferences that control optional notification mail.
 import {z} from "zod"
 import {collections} from "../../data/collections"
 import {requireUser, serializeUser} from "../../domain/auth/session"
@@ -9,6 +10,7 @@ const bodySchema = z.object({
     weeklySyncSummaryEnabled: z.boolean()
 })
 
+// Validate the preference against the user's entitlement before saving it.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const body = bodySchema.parse(await readBody(event))
@@ -22,18 +24,10 @@ export default defineEventHandler(async (event) => {
     }
     const now = new Date()
     const db = await collections()
-    const updated = await db.users.findOneAndUpdate(
-        {_id: user._id!},
-        {$set: {weeklySyncSummaryEnabled: body.weeklySyncSummaryEnabled, updatedAt: now}},
-        {returnDocument: "after"}
-    )
+    const updated = await db.users.findOneAndUpdate({_id: user._id!}, {$set: {weeklySyncSummaryEnabled: body.weeklySyncSummaryEnabled, updatedAt: now}}, {returnDocument: "after"})
     if (!updated) {
         throw createError({statusCode: 404, statusMessage: "Account not found"})
     }
-    logger.info(
-        "Account.preferences",
-        `User ${user._id!.toHexString()}`,
-        `Weekly summary ${body.weeklySyncSummaryEnabled}`
-    )
+    logger.info("Account.preferences", `User ${user._id!.toHexString()}`, `Weekly summary ${body.weeklySyncSummaryEnabled}`)
     return {user: serializeUser(updated)}
 })

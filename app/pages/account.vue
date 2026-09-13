@@ -24,14 +24,8 @@ const devConfirmationUrl = ref("")
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
 const pendingEmail = computed(() => Boolean(auth.user?.tempEmail && !auth.user?.email))
 const canEditWeeklySummary = computed(() => auth.user?.tier === "pro" && Boolean(auth.user.email))
-const isPaidPro = computed(() =>
-    Boolean(auth.user?.tier === "pro" && !auth.user.developmentProOverride && !auth.user.trialAccess)
-)
-const trialEndsAt = computed(() =>
-    complimentaryTrialEndsAt(
-        auth.user?.proSubscriptionRequiredAt || String(runtimeConfig.public.proSubscriptionRequiredAt || "")
-    )
-)
+const isPaidPro = computed(() => Boolean(auth.user?.tier === "pro" && !auth.user.developmentProOverride && !auth.user.trialAccess))
+const trialEndsAt = computed(() => complimentaryTrialEndsAt(auth.user?.proSubscriptionRequiredAt || String(runtimeConfig.public.proSubscriptionRequiredAt || "")))
 const billingCopy = computed(() => {
     if (!auth.user?.email) {
         return "Confirm an email address before upgrading."
@@ -56,9 +50,7 @@ const billingTitle = computed(() => {
     }
     return auth.user?.tier === "pro" ? "PRO plan" : "Free plan"
 })
-const resendSameEmail = computed(
-    () => pendingEmail.value && emailInput.value.trim().toLowerCase() === auth.user?.tempEmail
-)
+const resendSameEmail = computed(() => pendingEmail.value && emailInput.value.trim().toLowerCase() === auth.user?.tempEmail)
 
 watch(
     () => data.value?.accounts,
@@ -112,9 +104,7 @@ async function setWeeklySyncSummary(enabled: boolean) {
             body: {weeklySyncSummaryEnabled: enabled}
         })
         auth.setUser(result.user)
-        successMessage.value = enabled
-            ? "Weekly sync summaries are on. You will get an email when tracks are added or removed."
-            : "Weekly sync summaries are off."
+        successMessage.value = enabled ? "Weekly sync summaries are on. You will get an email when tracks are added or removed." : "Weekly sync summaries are off."
     } catch (error) {
         errorMessage.value = statusMessage(error, "The weekly summary preference could not be saved")
     } finally {
@@ -139,9 +129,7 @@ async function saveEmail() {
         auth.setUser(result.user)
         emailInput.value = result.user.tempEmail || emailInput.value
         devConfirmationUrl.value = result.devConfirmationUrl || ""
-        successMessage.value = result.sent
-            ? "Confirmation email sent. Check your inbox to finish adding this address."
-            : "Email saved. Confirm it from the link we sent, or use the development link if mail is not configured."
+        successMessage.value = result.sent ? "Confirmation email sent. Check your inbox to finish adding this address." : "Email saved. Confirm it from the link we sent, or use the development link if mail is not configured."
     } catch (error) {
         errorMessage.value = statusMessage(error, "The email address could not be saved")
     } finally {
@@ -162,18 +150,10 @@ onMounted(() => refresh())
 
 <template>
     <div class="shell page-shell">
-        <PageHeading
-            eyebrow="Preferences"
-            title="Account"
-            description="Manage the identities, services, and plan behind your synchronization tasks."
-        />
+        <PageHeading eyebrow="Preferences" title="Account" description="Manage the identities, services, and plan behind your synchronization tasks." />
 
-        <div v-if="needsEmail" class="notice" role="status">
-            Your music service did not share an email address. Add one below to finish setting up your account.
-        </div>
-        <div v-else-if="pendingEmail" class="notice" role="status">
-            Confirm {{ auth.user?.tempEmail }} from the link we sent. You can send another link below.
-        </div>
+        <div v-if="needsEmail" class="notice" role="status">Your music service did not share an email address. Add one below to finish setting up your account.</div>
+        <div v-else-if="pendingEmail" class="notice" role="status">Confirm {{ auth.user?.tempEmail }} from the link we sent. You can send another link below.</div>
         <div v-if="successMessage" class="notice notice-success" role="status">
             <span>{{ successMessage }}</span>
             <a v-if="devConfirmationUrl" :href="devConfirmationUrl">Confirm email</a>
@@ -186,9 +166,7 @@ onMounted(() => refresh())
                     <p class="eyebrow">Profile</p>
                     <h2 id="profile-heading">Your PlaylistSyncer account</h2>
                 </div>
-                <span class="plan-badge" :class="auth.user ? planBadgeClass(auth.user) : 'plan-free'">{{
-                    auth.user ? planBadgeLabel(auth.user) : ""
-                }}</span>
+                <span class="plan-badge" :class="auth.user ? planBadgeClass(auth.user) : 'plan-free'">{{ auth.user ? planBadgeLabel(auth.user) : "" }}</span>
             </div>
             <div class="profile-line">
                 <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="" />
@@ -199,25 +177,13 @@ onMounted(() => refresh())
                     <span v-else-if="auth.user?.tempEmail">Pending confirmation: {{ auth.user.tempEmail }}</span>
                     <span v-else>No email address yet</span>
                 </div>
-                <CheckCircle2
-                    v-if="auth.user?.email"
-                    :size="20"
-                    class="success-icon"
-                    aria-label="Confirmed email address"
-                />
+                <CheckCircle2 v-if="auth.user?.email" :size="20" class="success-icon" aria-label="Confirmed email address" />
                 <CircleAlert v-else :size="20" class="warning-icon" aria-label="Email address required" />
             </div>
             <form v-if="!auth.user?.email" class="email-capture" @submit.prevent="saveEmail">
                 <label>
                     <span>{{ pendingEmail ? "Email address to confirm" : "Email address" }}</span>
-                    <input
-                        v-model="emailInput"
-                        type="email"
-                        name="email"
-                        autocomplete="email"
-                        required
-                        :disabled="emailBusy"
-                    />
+                    <input v-model="emailInput" type="email" name="email" autocomplete="email" required :disabled="emailBusy" />
                 </label>
                 <button class="button button-primary" type="submit" :disabled="emailBusy || !emailInput.trim()">
                     <LoaderCircle v-if="emailBusy" class="spin" :size="17" />
@@ -241,22 +207,13 @@ onMounted(() => refresh())
                         <div class="connection-copy">
                             <strong>{{ connectedAccount(provider)?.displayName }}</strong
                             ><span>{{ connectedAccount(provider)?.email || "Connected" }}</span
-                            ><span
-                                >{{ connectedAccount(provider)?.playlistCount ?? 0 }}
-                                {{ connectedAccount(provider)?.playlistCount === 1 ? "playlist" : "playlists" }}</span
-                            >
+                            ><span>{{ connectedAccount(provider)?.playlistCount ?? 0 }} {{ connectedAccount(provider)?.playlistCount === 1 ? "playlist" : "playlists" }}</span>
                         </div>
                         <span class="status-dot"><span /> Connected</span>
                     </template>
                     <template v-else>
-                        <div class="connection-copy">
-                            <strong>Not connected</strong><span>Add this provider to use it in playlist pairs.</span>
-                        </div>
-                        <a
-                            class="button button-small button-secondary"
-                            :href="`/api/auth/${provider}?redirect=/account`"
-                            ><Plus :size="16" /> Connect</a
-                        >
+                        <div class="connection-copy"><strong>Not connected</strong><span>Add this provider to use it in playlist pairs.</span></div>
+                        <a class="button button-small button-secondary" :href="`/api/auth/${provider}?redirect=/account`"><Plus :size="16" /> Connect</a>
                     </template>
                 </div>
             </div>
@@ -286,11 +243,7 @@ onMounted(() => refresh())
                     type="button"
                     role="switch"
                     :aria-checked="Boolean(auth.user?.weeklySyncSummaryEnabled)"
-                    :aria-label="
-                        auth.user?.weeklySyncSummaryEnabled
-                            ? 'Disable weekly sync summary'
-                            : 'Enable weekly sync summary'
-                    "
+                    :aria-label="auth.user?.weeklySyncSummaryEnabled ? 'Disable weekly sync summary' : 'Enable weekly sync summary'"
                     :disabled="preferenceBusy || !canEditWeeklySummary"
                     @click="setWeeklySyncSummary(!auth.user?.weeklySyncSummaryEnabled)"
                 >
@@ -313,22 +266,8 @@ onMounted(() => refresh())
                     <strong>{{ billingTitle }}</strong>
                     <p>{{ billingCopy }}</p>
                 </div>
-                <button
-                    v-if="isPaidPro"
-                    class="button button-secondary"
-                    type="button"
-                    :disabled="busy"
-                    @click="openBilling('portal')"
-                >
-                    Manage billing <ArrowUpRight :size="17" />
-                </button>
-                <button
-                    v-else
-                    class="button button-primary"
-                    type="button"
-                    :disabled="busy || !auth.user?.email"
-                    @click="openBilling('checkout')"
-                >
+                <button v-if="isPaidPro" class="button button-secondary" type="button" :disabled="busy" @click="openBilling('portal')">Manage billing <ArrowUpRight :size="17" /></button>
+                <button v-else class="button button-primary" type="button" :disabled="busy || !auth.user?.email" @click="openBilling('checkout')">
                     <LoaderCircle v-if="busy" class="spin" :size="17" />
                     {{ auth.user?.trialAccess ? "Keep PRO" : "Upgrade to PRO" }}
                 </button>

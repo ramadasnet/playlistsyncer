@@ -1,5 +1,7 @@
+// Resolve the visitor country used to display the regional legal notice.
 import {countryFromHeaders, shouldShowImpressum, visitorCountryHeaders} from "../../shared/geo"
 
+// Keep geo-derived presentation data private and uncached.
 export default defineEventHandler((event) => {
     const headers: Record<string, string | undefined> = {}
     for (const name of visitorCountryHeaders) {

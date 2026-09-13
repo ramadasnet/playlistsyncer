@@ -43,6 +43,6 @@
         "singleQuote": false,
         "arrowParens": "always",
         "bracketSpacing": false,
-        "printWidth": 120
+        "printWidth": 250
     }
 }

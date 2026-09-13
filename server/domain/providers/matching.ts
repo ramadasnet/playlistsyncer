@@ -1,22 +1,12 @@
+// Normalize provider metadata and choose the safest track match.
 import type {ProviderTrack} from "./types"
 
+// Increment when matching semantics change so existing snapshots can be rebuilt.
 export const trackMatchingVersion = 2
 
-const bracketedTitleNoise =
-    /\s*[([][^\])]*(?:official|video|audio|lyrics?|visuali[sz]er|remaster(?:ed)?|hd|hq)[^\])]*[\])]\s*$/i
-const trailingTitleNoise =
-    /\s*[-–—]\s*(?:(?:official\s+)?(?:music\s+)?(?:video|audio|lyrics?|visuali[sz]er)|(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?|hd|hq)\s*$/i
-const recordingQualifiers = [
-    "live",
-    "acoustic",
-    "remix",
-    "karaoke",
-    "instrumental",
-    "cover",
-    "demo",
-    "sped up",
-    "slowed"
-]
+const bracketedTitleNoise = /\s*[([][^\])]*(?:official|video|audio|lyrics?|visuali[sz]er|remaster(?:ed)?|hd|hq)[^\])]*[\])]\s*$/i
+const trailingTitleNoise = /\s*[-–—]\s*(?:(?:official\s+)?(?:music\s+)?(?:video|audio|lyrics?|visuali[sz]er)|(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?|hd|hq)\s*$/i
+const recordingQualifiers = ["live", "acoustic", "remix", "karaoke", "instrumental", "cover", "demo", "sped up", "slowed"]
 
 function normalize(value: string): string {
     return value
@@ -28,6 +18,7 @@ function normalize(value: string): string {
         .trim()
 }
 
+// Remove common release and video suffixes before provider searches.
 export function searchableTitle(value: string): string {
     let title = value.trim()
     let previous = ""
@@ -45,9 +36,7 @@ function normalizedTitle(value: string): string {
 function hasQualifierMismatch(source: string, candidate: string): boolean {
     const sourceTitle = normalize(source)
     const candidateTitle = normalize(candidate)
-    return recordingQualifiers.some(
-        (qualifier) => sourceTitle.includes(qualifier) !== candidateTitle.includes(qualifier)
-    )
+    return recordingQualifiers.some((qualifier) => sourceTitle.includes(qualifier) !== candidateTitle.includes(qualifier))
 }
 
 function words(value: string): Set<string> {
@@ -74,6 +63,7 @@ function artistSimilarity(source: string, candidate: string): number {
     return wordSimilarity(left, right)
 }
 
+// Extract artist and title metadata from YouTube's display conventions.
 export function youtubeMetadata(title: string, channelTitle?: string): Pick<ProviderTrack, "title" | "artists"> {
     const parts = title.split(/\s[-–—]\s/, 2)
     if (parts.length === 2) {
@@ -87,6 +77,7 @@ export function youtubeMetadata(title: string, channelTitle?: string): Pick<Prov
     return {title, artists: artist ? [artist] : []}
 }
 
+// Select a candidate using ISRCs first and conservative metadata scoring second.
 export function findBestTrackMatch(source: ProviderTrack, candidates: ProviderTrack[]): ProviderTrack | null {
     if (source.isrc) {
         const isrcMatch = candidates.find((candidate) => candidate.isrc === source.isrc)
@@ -99,12 +90,7 @@ export function findBestTrackMatch(source: ProviderTrack, candidates: ProviderTr
     for (const candidate of candidates) {
         if (hasQualifierMismatch(source.title, candidate.title)) continue
         const titleScore = wordSimilarity(sourceTitle, normalizedTitle(candidate.title))
-        const artistScore = Math.max(
-            0,
-            ...source.artists.flatMap((sourceArtist) =>
-                candidate.artists.map((candidateArtist) => artistSimilarity(sourceArtist, candidateArtist))
-            )
-        )
+        const artistScore = Math.max(0, ...source.artists.flatMap((sourceArtist) => candidate.artists.map((candidateArtist) => artistSimilarity(sourceArtist, candidateArtist))))
         if (titleScore < 0.8 || artistScore < 0.8) continue
         const score = titleScore * 0.65 + artistScore * 0.35
         if (!best || score > best.score) best = {track: candidate, score}

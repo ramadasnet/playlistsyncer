@@ -1,3 +1,4 @@
+// Integrate Creem subscriptions with local entitlements and task locks.
 import {Creem} from "creem"
 import type {SubscriptionEntity, WebhookEventEntity} from "creem/models/components"
 import {ObjectId} from "mongodb"
@@ -8,6 +9,7 @@ import {applyTaskEntitlement} from "./task-entitlement"
 
 let creemClient: Creem | undefined
 
+// Lazily initialize the configured Creem client.
 export function getCreem(): Creem {
     if (!creemClient) {
         const server = getServerConfig().creemServer
@@ -20,6 +22,7 @@ export function getCreem(): Creem {
 type CreemSubscription = Pick<SubscriptionEntity, "id" | "customer" | "status">
 const paidStatuses = new Set(["active", "trialing", "scheduled_cancel"])
 
+// Identify subscription states that grant PRO access.
 export function hasPaidEntitlement(status: string): boolean {
     return paidStatuses.has(status)
 }
@@ -28,10 +31,8 @@ function customerId(customer: CreemSubscription["customer"]): string {
     return typeof customer === "string" ? customer : customer.id
 }
 
-export async function applySubscription(
-    subscription: CreemSubscription,
-    status: string = subscription.status
-): Promise<void> {
+// Persist subscription status and reconcile the user's task entitlement.
+export async function applySubscription(subscription: CreemSubscription, status: string = subscription.status): Promise<void> {
     const isPaid = hasPaidEntitlement(status)
     const db = await collections()
     const user = await db.users.findOneAndUpdate(
@@ -51,16 +52,11 @@ export async function applySubscription(
         logger.warn("Creem.applySubscription", `Customer ${customerId(subscription.customer)}`, "User not found")
         return
     }
-    logger.info(
-        "Creem.applySubscription",
-        `User ${user._id!.toHexString()}`,
-        `Subscription ${subscription.id}`,
-        `Status ${status}`,
-        `Tier ${isPaid ? "pro" : "free"}`
-    )
+    logger.info("Creem.applySubscription", `User ${user._id!.toHexString()}`, `Subscription ${subscription.id}`, `Status ${status}`, `Tier ${isPaid ? "pro" : "free"}`)
     await applyTaskEntitlement(user)
 }
 
+// Deduplicate and process one verified Creem webhook event.
 export async function processCreemEvent(event: WebhookEventEntity): Promise<void> {
     const db = await collections()
     try {
@@ -85,6 +81,7 @@ export async function processCreemEvent(event: WebhookEventEntity): Promise<void
     }
 }
 
+// Map each supported Creem event type to the local subscription update.
 async function applyCreemEvent(event: WebhookEventEntity): Promise<void> {
     const db = await collections()
     if (event.eventType === "checkout.completed") {
@@ -94,13 +91,8 @@ async function applyCreemEvent(event: WebhookEventEntity): Promise<void> {
         if (typeof userId === "string" && customer && subscription) {
             const creemCustomerId = typeof customer === "string" ? customer : customer.id
             const creemSubscriptionId = typeof subscription === "string" ? subscription : subscription.id
-            await db.users.updateOne(
-                {_id: new ObjectId(userId)},
-                {$set: {creemCustomerId, creemSubscriptionId, updatedAt: new Date()}}
-            )
-            await applySubscription(
-                typeof subscription === "string" ? await getCreem().subscriptions.get(subscription) : subscription
-            )
+            await db.users.updateOne({_id: new ObjectId(userId)}, {$set: {creemCustomerId, creemSubscriptionId, updatedAt: new Date()}})
+            await applySubscription(typeof subscription === "string" ? await getCreem().subscriptions.get(subscription) : subscription)
         }
         return
     }

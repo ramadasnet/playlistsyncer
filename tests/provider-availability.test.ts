@@ -17,12 +17,7 @@ describe("provider availability", () => {
     test("requires both OAuth client ID and secret", () => {
         expect(isProviderEnabled("spotify", parseServerConfig({spotifyClientId: "spotify-id"}))).toBe(false)
         expect(isProviderEnabled("spotify", parseServerConfig({spotifyClientSecret: "spotify-secret"}))).toBe(false)
-        expect(
-            isProviderEnabled(
-                "youtube",
-                parseServerConfig({googleClientId: "google-id", googleClientSecret: "google-secret"})
-            )
-        ).toBe(true)
+        expect(isProviderEnabled("youtube", parseServerConfig({googleClientId: "google-id", googleClientSecret: "google-secret"}))).toBe(true)
     })
 
     test("keeps an explicitly disabled provider hidden even when credentials are set", () => {

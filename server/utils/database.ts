@@ -1,3 +1,4 @@
+// Manage the shared MongoDB client and application database handle.
 import {MongoClient, type Db} from "mongodb"
 import {getServerConfig, requireConfig} from "./config"
 import logger from "./logger"
@@ -5,6 +6,7 @@ import logger from "./logger"
 let client: MongoClient | undefined
 let database: Db | undefined
 
+// Connect lazily and reuse the database handle for all requests.
 export async function getDatabase(): Promise<Db> {
     if (database) {
         return database
@@ -31,6 +33,7 @@ export async function getDatabase(): Promise<Db> {
     }
 }
 
+// Close the MongoDB client and clear cached connection state.
 export async function closeDatabase(): Promise<void> {
     if (client) {
         logger.info("Database.close", "Closing MongoDB connection")
