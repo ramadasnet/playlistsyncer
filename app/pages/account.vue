@@ -193,7 +193,7 @@ onMounted(() => refresh())
 
 <template>
     <div class="shell page-shell">
-        <PageHeading eyebrow="Connections and preferences" title="Account" description="Manage your music provider connections and account preferences." />
+        <PageHeading title="Account" description="Manage your music provider connections and account preferences." />
 
         <div v-if="needsEmail" class="notice" role="status">Your music service did not share an email address. Add one to finish setting up your account.</div>
         <div v-else-if="pendingEmail" class="notice" role="status">

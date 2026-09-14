@@ -1,9 +1,9 @@
-// Return the user's sync tasks with entitlement-aware history visibility.
+// Return the user's sync tasks with the latest run counts.
 import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {applyTaskEntitlement, isPlanLockedTask} from "../../domain/billing/task-entitlement"
-import {canViewRunHistory, serializeSyncTask} from "../../domain/sync/history-visibility"
+import {serializeSyncTask} from "../../domain/sync/history-visibility"
 
 // Refresh billing locks before serializing task state.
 export default defineEventHandler(async (event) => {
@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
     const db = await collections()
     const tasks = await db.syncTasks.find({userId: user._id!}).sort({createdAt: -1}).toArray()
     const tier = resolveEntitlement(user).tier
-    const taskIds = canViewRunHistory(tier) ? tasks.flatMap((task) => (task._id ? [task._id] : [])) : []
+    const taskIds = tasks.flatMap((task) => (task._id ? [task._id] : []))
     const runs = taskIds.length
         ? await db.syncRuns
               .find(

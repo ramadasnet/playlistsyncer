@@ -1,4 +1,5 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import {resolvePublicSafeMode} from "./shared/env-flag"
 import {defaultProSyncIntervalHours} from "./shared/sync-cadence"
 
 const appUrl = process.env.APP_URL || process.env.NUXT_PUBLIC_SITE_URL || "http://localhost:3007"
@@ -36,7 +37,8 @@ export default defineNuxtConfig({
             chatbaseHelpUrl: process.env.NUXT_PUBLIC_CHATBASE_HELP_URL || "https://www.chatbase.co/taNwdeaQwZIYPfxthXqRu/help",
             siteUrl: appUrl,
             proSubscriptionRequiredAt: process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT || process.env.PRO_SUBSCRIPTION_REQUIRED_AT || "",
-            proSyncIntervalHours: Number.isFinite(proSyncIntervalHours) && proSyncIntervalHours > 0 ? proSyncIntervalHours : defaultProSyncIntervalHours
+            proSyncIntervalHours: Number.isFinite(proSyncIntervalHours) && proSyncIntervalHours > 0 ? proSyncIntervalHours : defaultProSyncIntervalHours,
+            safeMode: resolvePublicSafeMode(process.env)
         }
     },
     typescript: {

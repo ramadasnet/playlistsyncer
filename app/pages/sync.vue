@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {AlertTriangle, ArrowRight, CirclePause, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
+import {AlertTriangle, ArrowLeftRight, ArrowRight, CirclePause, ListMusic, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
 import type {ConnectedAccount, PlaylistSummary, SyncTaskSummary} from "~/types/api"
 import type {SyncTaskDirection} from "~~/shared/types/domain"
 
@@ -22,6 +22,8 @@ const loadingPlaylists = ref(false)
 const busyTask = ref("")
 const submitting = ref(false)
 const errorMessage = ref("")
+const showDetails = ref(false)
+const detailsTask = ref<SyncTaskSummary | null>(null)
 const allPlaylistsId = "__all__"
 const createPlaylistId = "__create__"
 
@@ -35,7 +37,6 @@ const tasks = computed(() =>
     })
 )
 const canCreate = computed(() => accounts.value.length >= 2 && (auth.user?.tier === "pro" || tasks.value.length === 0))
-const canViewHistory = computed(() => auth.user?.tier === "pro")
 const syncAllPlaylists = computed(() => sourcePlaylistId.value === allPlaylistsId)
 const effectiveDirection = computed<SyncTaskDirection>({
     get: () => (syncAllPlaylists.value ? "one-way" : syncDirection.value),
@@ -170,14 +171,23 @@ function isOneWay(task: SyncTaskSummary) {
     return task.direction === "one-way"
 }
 
+function hasSharedName(task: SyncTaskSummary) {
+    return task.source.name === task.destination.name
+}
+
 function isEntitlementLocked(task: SyncTaskSummary) {
     return Boolean(task.entitlementLocked) || task.pauseReason === "entitlement"
+}
+
+function openDetails(task: SyncTaskSummary) {
+    detailsTask.value = task
+    showDetails.value = true
 }
 </script>
 
 <template>
     <div class="shell page-shell sync-page">
-        <PageHeading eyebrow="Library operations" title="Sync tasks" description="Pair playlists, keep them aligned on a schedule, and inspect run history on PRO.">
+        <PageHeading title="My Sync Tasks" description="Pair playlists, keep them aligned on a schedule, and inspect run history on PRO.">
             <template #actions
                 ><button class="button button-primary" type="button" :disabled="!canCreate" @click="toggleCreate"><X v-if="showCreate" :size="17" /><Plus v-else :size="17" />{{ showCreate ? "Close" : "New sync task" }}</button></template
             >
@@ -194,8 +204,8 @@ function isEntitlementLocked(task: SyncTaskSummary) {
         <section v-if="showCreate && canCreate" id="task-builder" ref="taskBuilder" class="task-builder" aria-labelledby="builder-heading">
             <div class="builder-heading">
                 <div>
-                    <p class="eyebrow light">New pair</p>
-                    <h2 id="builder-heading">Choose two playlists</h2>
+                    <p class="eyebrow light">New sync task</p>
+                    <h2 id="builder-heading">Choose playlists</h2>
                 </div>
                 <RefreshCw :size="25" />
             </div>
@@ -229,7 +239,7 @@ function isEntitlementLocked(task: SyncTaskSummary) {
                 <label
                     ><span>{{ oneWayLabels ? "Mirror playlist" : "Destination playlist" }}</span
                     ><select v-model="destinationPlaylistId" :disabled="!destinationAccountId || loadingPlaylists || syncAllPlaylists">
-                        <option v-if="syncAllPlaylists" value="">Matched by master playlist name</option>
+                        <option v-if="syncAllPlaylists" value="">Auto</option>
                         <option value="">Choose playlist</option>
                         <option v-if="sourcePlaylist" :value="createPlaylistId">Create new playlist: {{ sourcePlaylist.name }}</option>
                         <option v-for="playlist in destinationPlaylists" :key="playlist.id" :value="playlist.id">{{ playlist.name }} ({{ playlist.itemCount }})</option>
@@ -238,19 +248,19 @@ function isEntitlementLocked(task: SyncTaskSummary) {
             </div>
             <fieldset class="direction-picker">
                 <legend class="sr-only">Sync direction</legend>
-                <label class="direction-option" :class="{selected: effectiveDirection === 'two-way', disabled: syncAllPlaylists}">
-                    <input v-model="effectiveDirection" type="radio" name="sync-direction" value="two-way" :disabled="syncAllPlaylists" />
-                    <strong><RefreshCw :size="16" /> Two-way</strong>
-                    <span>Both playlists stay equal. Additions and removals travel in either direction.</span>
-                </label>
                 <label class="direction-option" :class="{selected: effectiveDirection === 'one-way'}">
                     <input v-model="effectiveDirection" type="radio" name="sync-direction" value="one-way" />
                     <strong><ArrowRight :size="16" /> One-way</strong>
                     <span> The first playlist is the master. The second playlist mirrors it and is never copied back. </span>
                 </label>
+                <label class="direction-option" :class="{selected: effectiveDirection === 'two-way', disabled: syncAllPlaylists}">
+                    <input v-model="effectiveDirection" type="radio" name="sync-direction" value="two-way" :disabled="syncAllPlaylists" />
+                    <strong><RefreshCw :size="16" /> Two-way</strong>
+                    <span>Both playlists stay equal. Additions and removals travel in either direction.</span>
+                </label>
             </fieldset>
             <div class="builder-footer">
-                <p v-if="syncAllPlaylists">Mirror playlists are matched by name. Missing playlists are created and removed master playlists are deleted from the mirror account.</p>
+                <p v-if="syncAllPlaylists">Playlists are matched by name. Missing playlists are created and removed master playlists are deleted from the mirrored account.</p>
                 <p v-else-if="effectiveDirection === 'one-way'">Later runs copy the master's additions and removals onto the mirror playlist only.</p>
                 <p v-else>The first run copies missing source tracks. Later runs reconcile changes in both directions.</p>
                 <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create pair</button>
@@ -258,61 +268,61 @@ function isEntitlementLocked(task: SyncTaskSummary) {
         </section>
 
         <section v-if="tasks.length" class="task-list" aria-label="Playlist sync tasks">
-            <article v-for="task in tasks" :key="task.id" class="task-row">
-                <div class="task-pair">
-                    <div>
-                        <ProviderBadge :provider="providerFor(task.source.providerAccountId)" /><strong>{{ task.source.name }}</strong>
+            <article v-for="task in tasks" :key="task.id" class="task-card">
+                <div class="task-card-head">
+                    <h3 class="task-title" :class="{split: !hasSharedName(task)}">
+                        <template v-if="hasSharedName(task)">{{ task.source.name }}</template>
+                        <template v-else>
+                            <span>{{ task.source.name }}</span>
+                            <ArrowRight v-if="isOneWay(task)" class="task-title-arrow" :size="16" />
+                            <ArrowLeftRight v-else class="task-title-arrow" :size="16" />
+                            <span>{{ task.destination.name }}</span>
+                        </template>
+                    </h3>
+                    <div class="task-providers">
+                        <ProviderBadge :provider="providerFor(task.source.providerAccountId)" />
+                        <span class="sync-direction">
+                            <ArrowRight v-if="isOneWay(task)" :size="15" />
+                            <ArrowLeftRight v-else :size="15" />
+                            <span class="sr-only">{{ isOneWay(task) ? "mirrors to" : "syncs with" }}</span>
+                        </span>
+                        <ProviderBadge :provider="providerFor(task.destination.providerAccountId)" />
                     </div>
-                    <span class="sync-direction">
-                        <ArrowRight v-if="isOneWay(task)" :size="18" />
-                        <RefreshCw v-else :size="18" />
-                        <span class="sr-only">{{ isOneWay(task) ? "mirrors to" : "syncs with" }}</span>
-                    </span>
-                    <div>
-                        <ProviderBadge :provider="providerFor(task.destination.providerAccountId)" /><strong>{{ task.destination.name }}</strong>
+                    <div class="task-actions">
+                        <button class="icon-button" :class="{'has-alert': Boolean(task.latestRun?.skipped)}" type="button" title="View run details" aria-haspopup="dialog" :aria-expanded="showDetails && detailsTask?.id === task.id" @click="openDetails(task)">
+                            <ListMusic :size="18" />
+                        </button>
+                        <button v-if="!isEntitlementLocked(task)" class="icon-button" type="button" :title="runTitle(task)" :disabled="busyTask === task.id || task.status === 'paused' || !!manualSyncAvailableAt(task)" @click="taskAction(task, 'run')">
+                            <LoaderCircle v-if="busyTask === task.id" class="spin" :size="18" /><Play v-else :size="18" />
+                        </button>
+                        <button
+                            v-if="!isEntitlementLocked(task)"
+                            class="icon-button"
+                            type="button"
+                            :title="task.status === 'paused' ? 'Resume' : 'Pause'"
+                            :disabled="busyTask === task.id"
+                            @click="taskAction(task, task.status === 'paused' ? 'resume' : 'pause')"
+                        >
+                            <Play v-if="task.status === 'paused'" :size="18" /><CirclePause v-else :size="18" />
+                        </button>
+                        <button class="icon-button danger" type="button" title="Delete task" :disabled="busyTask === task.id" @click="taskAction(task, 'delete')">
+                            <Trash2 :size="18" />
+                        </button>
                     </div>
                 </div>
-                <div class="task-state">
+                <div class="task-meta">
                     <span class="status-label" :class="`status-${task.status}`"><span />{{ task.status.replace("_", " ") }}</span>
-                    <p>
-                        <strong>Direction:</strong>
-                        {{ isOneWay(task) ? "One-way · master to mirror" : "Two-way" }}
-                    </p>
-                    <p><strong>Next:</strong> {{ task.status === "paused" ? "Paused" : formatDate(task.nextRunAt) }}</p>
-                    <template v-if="canViewHistory">
-                        <p><strong>Last:</strong> {{ formatDate(task.lastSuccessAt) }}</p>
-                        <p v-if="task.latestRun">
-                            <strong>Changes:</strong> +{{ task.latestRun.additions }} / −{{ task.latestRun.removals }}<template v-if="task.latestRun.conflicts"> · {{ task.latestRun.conflicts }} conflict</template>
-                        </p>
-                    </template>
-                    <p v-else class="task-history-locked">
-                        Run history and conflicts are on PRO.
-                        <NuxtLink to="/account">See PRO <ArrowRight :size="14" /></NuxtLink>
-                    </p>
-                    <p v-if="isEntitlementLocked(task)" class="task-entitlement-note">
-                        A PRO subscription is needed to enable this sync task.
-                        <NuxtLink to="/account">See PRO <ArrowRight :size="14" /></NuxtLink>
-                    </p>
-                    <p v-if="task.lastError" class="task-error">{{ task.lastError }}</p>
+                    <span>{{ isOneWay(task) ? "One-way · master to mirror" : "Two-way" }}</span>
+                    <span>{{ task.status === "paused" ? "Paused" : `Next ${formatDate(task.nextRunAt)}` }}</span>
+                    <span>Last {{ formatDate(task.lastSuccessAt) }}</span>
+                    <span v-if="task.latestRun">Changes +{{ task.latestRun.additions }} / −{{ task.latestRun.removals }}<template v-if="task.latestRun.conflicts"> · {{ task.latestRun.conflicts }} conflict</template></span>
+                    <span v-if="task.latestRun?.skipped" class="task-unmatched">{{ task.latestRun.skipped }} unmatched</span>
                 </div>
-                <div class="task-actions">
-                    <button v-if="!isEntitlementLocked(task)" class="icon-button" type="button" :title="runTitle(task)" :disabled="busyTask === task.id || task.status === 'paused' || !!manualSyncAvailableAt(task)" @click="taskAction(task, 'run')">
-                        <LoaderCircle v-if="busyTask === task.id" class="spin" :size="18" /><Play v-else :size="18" />
-                    </button>
-                    <button
-                        v-if="!isEntitlementLocked(task)"
-                        class="icon-button"
-                        type="button"
-                        :title="task.status === 'paused' ? 'Resume' : 'Pause'"
-                        :disabled="busyTask === task.id"
-                        @click="taskAction(task, task.status === 'paused' ? 'resume' : 'pause')"
-                    >
-                        <Play v-if="task.status === 'paused'" :size="18" /><CirclePause v-else :size="18" />
-                    </button>
-                    <button class="icon-button danger" type="button" title="Delete task" :disabled="busyTask === task.id" @click="taskAction(task, 'delete')">
-                        <Trash2 :size="18" />
-                    </button>
-                </div>
+                <p v-if="isEntitlementLocked(task)" class="task-entitlement-note">
+                    A PRO subscription is needed to enable this sync task.
+                    <NuxtLink to="/account">See PRO <ArrowRight :size="14" /></NuxtLink>
+                </p>
+                <p v-if="task.lastError" class="task-error">{{ task.lastError }}</p>
             </article>
         </section>
         <section v-else-if="!showCreate" class="empty-state">
@@ -322,5 +332,6 @@ function isEntitlementLocked(task: SyncTaskSummary) {
             <button v-if="canCreate" class="button button-primary" type="button" @click="openCreate"><Plus :size="17" />Create your first task</button>
             <NuxtLink v-else class="button button-secondary" to="/account">Manage connections</NuxtLink>
         </section>
+        <SyncTaskRunDialog v-model="showDetails" :task="detailsTask" :source-provider="providerFor(detailsTask?.source.providerAccountId || '')" :destination-provider="providerFor(detailsTask?.destination.providerAccountId || '')" />
     </div>
 </template>

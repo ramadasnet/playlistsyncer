@@ -59,3 +59,25 @@ export interface SyncTaskSummary {
         startedAt: string
     }
 }
+
+export interface SyncRunTrack {
+    title: string
+    artists: string[]
+    playlistName?: string
+}
+
+export interface SyncRunDetail {
+    id: string
+    trigger: "created" | "manual" | "scheduled"
+    status: SyncRunStatus
+    additions: number
+    removals: number
+    conflicts: number
+    skipped: number
+    startedAt: string
+    finishedAt?: string
+    error?: string
+    addedTracks: SyncRunTrack[]
+    removedTracks: SyncRunTrack[]
+    unmatchedTracks: SyncRunTrack[]
+}

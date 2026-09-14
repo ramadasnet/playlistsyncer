@@ -15,14 +15,14 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
     ["Automatic sync", "Weekly", everyTitleLabel.value],
     ["Two-way or one-way sync", true, true],
     ["Manual sync", true, true],
-    ["Run history and conflict visibility", false, true],
+    ["Past run history", false, true],
     ["Weekly playlist summary and suggestions", false, true]
 ])
 </script>
 
 <template>
     <div class="shell page-shell">
-        <PageHeading eyebrow="Free vs. PRO" title="Get more with PRO" description="Start for free with one playlist pair. Go PRO when your library spans more services and moods." />
+        <PageHeading title="Get more with PRO" description="Start for free with one playlist pair. Go PRO when your library spans more services and moods." />
 
         <div v-if="trialEndsAt" class="notice" role="status">
             <span>

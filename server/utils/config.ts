@@ -1,5 +1,7 @@
 // Parse and cache configuration from environment variables.
+
 import {z} from "zod"
+import {parseBooleanEnvFlag} from "../../shared/env-flag"
 import {defaultProSyncIntervalHours} from "../../shared/sync-cadence"
 
 const optionalCredential = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional())
@@ -13,10 +15,7 @@ const emailList = z.preprocess(
             : value,
     z.array(z.email().transform((email) => email.toLowerCase())).default([])
 )
-const optionalPort = z.preprocess(
-    (value) => (value === "" || value === undefined || value === null ? 587 : value),
-    z.coerce.number().int().min(1).max(65535)
-)
+const optionalPort = z.preprocess((value) => (value === "" || value === undefined || value === null ? 587 : value), z.coerce.number().int().min(1).max(65535))
 const optionalInstant = z.preprocess((value) => {
     if (value === "" || value === undefined || value === null) {
         return undefined
@@ -27,6 +26,10 @@ const optionalInstant = z.preprocess((value) => {
     }
     return parsed
 }, z.date().optional())
+const booleanFlag = z.preprocess((value) => {
+    const parsed = parseBooleanEnvFlag(value)
+    return parsed === undefined ? value : parsed
+}, z.boolean().default(false))
 const appUrl = z
     .string()
     .url()
@@ -63,7 +66,8 @@ const serverConfigSchema = z.object({
     smtpPort: optionalPort,
     smtpUser: optionalCredential,
     smtpPassword: optionalCredential,
-    smtpFrom: optionalCredential
+    smtpFrom: optionalCredential,
+    safeMode: booleanFlag
 })
 
 export type ServerConfig = z.infer<typeof serverConfigSchema>
@@ -104,14 +108,14 @@ export function getServerConfig(): ServerConfig {
             creemProProductId: process.env.CREEM_PRO_PRODUCT_ID,
             creemServer: process.env.CREEM_SERVER,
             developmentProUserEmails: process.env.DEVELOPMENT_PRO_USER_EMAILS,
-            proSubscriptionRequiredAt:
-                process.env.PRO_SUBSCRIPTION_REQUIRED_AT || process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT,
+            proSubscriptionRequiredAt: process.env.PRO_SUBSCRIPTION_REQUIRED_AT || process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT,
             proSyncIntervalHours: process.env.PRO_SYNC_INTERVAL_HOURS,
             smtpHost: process.env.SMTP_HOST,
             smtpPort: process.env.SMTP_PORT,
             smtpUser: process.env.SMTP_USER,
             smtpPassword: process.env.SMTP_PASSWORD,
-            smtpFrom: process.env.SMTP_FROM
+            smtpFrom: process.env.SMTP_FROM,
+            safeMode: process.env.SAFE_MODE
         })
     }
 

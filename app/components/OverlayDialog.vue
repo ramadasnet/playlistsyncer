@@ -4,7 +4,7 @@
 import {X} from "lucide-vue-next"
 
 const open = defineModel<boolean>({required: true})
-const props = defineProps<{title: string; busy?: boolean}>()
+const props = defineProps<{title: string; busy?: boolean; wide?: boolean}>()
 
 const dialog = useTemplateRef<HTMLDialogElement>("dialog")
 const titleId = useId()
@@ -51,7 +51,7 @@ function onDialogClick(event: MouseEvent) {
 </script>
 
 <template>
-    <dialog ref="dialog" class="overlay-dialog" :aria-labelledby="titleId" @close="onDialogClose" @cancel="onDialogCancel" @click="onDialogClick">
+    <dialog ref="dialog" class="overlay-dialog" :class="{wide}" :aria-labelledby="titleId" @close="onDialogClose" @cancel="onDialogCancel" @click="onDialogClick">
         <div class="overlay-dialog-card">
             <header class="overlay-dialog-header">
                 <h2 :id="titleId">{{ title }}</h2>

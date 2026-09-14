@@ -200,6 +200,7 @@ export interface SyncRunDocument {
     skipped: number
     addedTracks: SyncRunTrackReference[]
     removedTracks: SyncRunTrackReference[]
+    unmatchedTracks?: SyncRunTrackReference[]
     error?: string
     startedAt: Date
     finishedAt?: Date

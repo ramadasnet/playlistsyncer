@@ -5,6 +5,7 @@ import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {getProviderAdapter} from "../../domain/providers"
 import {runSyncTask} from "../../domain/sync/engine"
+import {isSafeModeEnabled, logSafeModeCreatePlaylist, safeModeWriteBlockedMessage} from "../../domain/sync/safe-mode"
 import logger from "../../utils/logger"
 import {parseObjectId} from "../../utils/object-id"
 import type {SyncTaskDirection} from "~~/shared/types/domain"
@@ -49,6 +50,12 @@ export default defineEventHandler(async (event) => {
     let destinationPlaylistId = body.destination.playlistId
     if (body.mode === "playlist" && body.destination.createNew) {
         const destinationAccount = accounts.find((account) => account._id?.equals(destinationAccountId))!
+        // Creating a destination playlist is a provider write, so SAFE_MODE refuses the task.
+        if (isSafeModeEnabled()) {
+            logSafeModeCreatePlaylist(destinationAccount.provider, body.source.name)
+            logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, safeModeWriteBlockedMessage)
+            throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
+        }
         const playlist = await getProviderAdapter(destinationAccount.provider).createPlaylist(destinationAccount, body.source.name)
         destinationPlaylistId = playlist.id
     }
