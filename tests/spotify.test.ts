@@ -19,7 +19,30 @@ describe("Spotify provider", () => {
 
         expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists", {
             method: "POST",
-            body: JSON.stringify({name: "Source playlist"})
+            body: JSON.stringify({name: "Source playlist", description: ""})
+        })
+    })
+
+    test("copies the source playlist description when creating", async () => {
+        providerFetch.mockResolvedValue({id: "playlist-id", name: "Source playlist", description: "Late night mix", images: []})
+
+        await spotifyAdapter.createPlaylist(account, "Source playlist", "Late night mix")
+
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists", {
+            method: "POST",
+            body: JSON.stringify({name: "Source playlist", description: "Late night mix"})
+        })
+    })
+
+    test("truncates long source descriptions to Spotify's limit", async () => {
+        const description = `${"a".repeat(300)}extra`
+        providerFetch.mockResolvedValue({id: "playlist-id", name: "Source playlist", description: "a".repeat(300), images: []})
+
+        await spotifyAdapter.createPlaylist(account, "Source playlist", description)
+
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists", {
+            method: "POST",
+            body: JSON.stringify({name: "Source playlist", description: "a".repeat(300)})
         })
     })
 

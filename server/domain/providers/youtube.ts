@@ -35,20 +35,20 @@ export const youtubeAdapter: ProviderAdapter = {
         return playlists.map((playlist): ProviderPlaylist => ({
             id: playlist.id,
             name: playlist.snippet.title,
-            description: playlist.snippet.description,
+            description: playlist.snippet.description ?? "",
             imageUrl: playlist.snippet.thumbnails?.high?.url || playlist.snippet.thumbnails?.default?.url,
             itemCount: playlist.contentDetails.itemCount
         }))
     },
-    async createPlaylist(account, name) {
+    async createPlaylist(account, name, description) {
         const playlist = await providerFetch<{id: string; snippet: {title: string; description?: string}}>(account, `${apiBase}/playlists?part=snippet,status`, {
             method: "POST",
-            body: JSON.stringify({snippet: {title: name}, status: {privacyStatus: "private"}})
+            body: JSON.stringify({snippet: {title: name, description: description ?? ""}, status: {privacyStatus: "private"}})
         })
         return {
             id: playlist.id,
             name: playlist.snippet.title,
-            description: playlist.snippet.description,
+            description: playlist.snippet.description ?? "",
             itemCount: 0
         }
     },

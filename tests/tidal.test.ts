@@ -34,7 +34,7 @@ describe("TIDAL provider", () => {
         const playlists = await tidalAdapter.listPlaylists(account)
 
         expect(providerFetch).toHaveBeenCalledWith(account, "https://openapi.tidal.com/v2/playlists?filter%5Bowners.id%5D=me", expect.objectContaining({headers: jsonApiHeaders()}))
-        expect(playlists).toEqual([{id: "owned-id", name: "Owned", description: undefined, itemCount: 3}])
+        expect(playlists).toEqual([{id: "owned-id", name: "Owned", description: "", itemCount: 3}])
     })
 
     test("creates unlisted playlists for the current user", async () => {
@@ -48,13 +48,13 @@ describe("TIDAL provider", () => {
             method: "POST",
             headers: jsonApiHeaders(true),
             body: JSON.stringify({
-                data: {type: "playlists", attributes: {name: "Source playlist", accessType: "UNLISTED"}}
+                data: {type: "playlists", attributes: {name: "Source playlist", description: "", accessType: "UNLISTED"}}
             })
         })
         expect(playlist).toEqual({
             id: "playlist-id",
             name: "Source playlist",
-            description: undefined,
+            description: "",
             itemCount: 0
         })
 

@@ -39,7 +39,7 @@ export type TrackRemovalProgress = (itemIds: string[]) => Promise<void>
 export interface ProviderAdapter {
     provider: Provider
     listPlaylists(account: ProviderAccountDocument): Promise<ProviderPlaylist[]>
-    createPlaylist(account: ProviderAccountDocument, name: string): Promise<ProviderPlaylist>
+    createPlaylist(account: ProviderAccountDocument, name: string, description?: string): Promise<ProviderPlaylist>
     deletePlaylist(account: ProviderAccountDocument, playlistId: string): Promise<void>
     getPlaylistItems(account: ProviderAccountDocument, playlistId: string): Promise<ProviderTrack[]>
     searchTrack(account: ProviderAccountDocument, track: ProviderTrack): Promise<ProviderTrack | null>

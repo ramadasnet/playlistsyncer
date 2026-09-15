@@ -364,7 +364,7 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
                 skipped += result.skipped
                 continue
             }
-            destinationPlaylist = await destinationAdapter.createPlaylist(destinationAccount, sourcePlaylist.name)
+            destinationPlaylist = await destinationAdapter.createPlaylist(destinationAccount, sourcePlaylist.name, sourcePlaylist.description)
             destinationPlaylists.push(destinationPlaylist)
             destinationById.set(destinationPlaylist.id, destinationPlaylist)
         }

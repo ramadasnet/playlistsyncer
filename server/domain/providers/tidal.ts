@@ -135,7 +135,7 @@ function asPlaylist(resource: JsonApiResource): ProviderPlaylist {
     return {
         id: resource.id,
         name: attributeString(resource, "name") || "Untitled playlist",
-        description: attributeString(resource, "description"),
+        description: attributeString(resource, "description") || "",
         itemCount: typeof resource.attributes?.numberOfItems === "number" ? resource.attributes.numberOfItems : 0
     }
 }
@@ -147,11 +147,11 @@ export const tidalAdapter: ProviderAdapter = {
         const {items} = await collectPages<JsonApiResource>(account, `${apiBase}/playlists?${new URLSearchParams({"filter[owners.id]": "me"}).toString()}`)
         return items.filter((playlist) => !playlist.attributes?.playlistType || playlist.attributes.playlistType === "USER").map(asPlaylist)
     },
-    async createPlaylist(account, name) {
+    async createPlaylist(account, name, description) {
         const document = await tidalFetch<JsonApiDocument<JsonApiResource>>(account, `${apiBase}/playlists`, {
             method: "POST",
             body: JSON.stringify({
-                data: {type: "playlists", attributes: {name, accessType: "UNLISTED"}}
+                data: {type: "playlists", attributes: {name, description: description ?? "", accessType: "UNLISTED"}}
             })
         })
         if (!document.data || Array.isArray(document.data)) {

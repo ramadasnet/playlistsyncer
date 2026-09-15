@@ -13,7 +13,7 @@ import type {SyncTaskDirection} from "~~/shared/types/domain"
 const taskSchema = z.object({
     mode: z.enum(["playlist", "account"]).default("playlist"),
     direction: z.enum(["two-way", "one-way"]).default("two-way"),
-    source: z.object({accountId: z.string(), playlistId: z.string().min(1), name: z.string().min(1).max(200)}),
+    source: z.object({accountId: z.string(), playlistId: z.string().min(1), name: z.string().min(1).max(200), description: z.string().max(5000).optional()}),
     destination: z.object({
         accountId: z.string(),
         playlistId: z.string().min(1),
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
             logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, safeModeWriteBlockedMessage)
             throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
         }
-        const playlist = await getProviderAdapter(destinationAccount.provider).createPlaylist(destinationAccount, body.source.name)
+        const playlist = await getProviderAdapter(destinationAccount.provider).createPlaylist(destinationAccount, body.source.name, body.source.description)
         destinationPlaylistId = playlist.id
     }
     const direction: SyncTaskDirection = body.mode === "account" ? "one-way" : body.direction

@@ -106,7 +106,8 @@ async function createTask() {
                 source: {
                     accountId: sourceAccountId.value,
                     playlistId: syncAllPlaylists.value ? allPlaylistsId : sourcePlaylist.value!.id,
-                    name: syncAllPlaylists.value ? "ALL playlists" : sourcePlaylist.value!.name
+                    name: syncAllPlaylists.value ? "ALL playlists" : sourcePlaylist.value!.name,
+                    description: sourcePlaylist.value?.description
                 },
                 destination: {
                     accountId: destinationAccountId.value,
@@ -289,10 +290,25 @@ function openDetails(task: SyncTaskSummary) {
                         <ProviderBadge :provider="providerFor(task.destination.providerAccountId)" />
                     </div>
                     <div class="task-actions">
-                        <button class="icon-button" :class="{'has-alert': Boolean(task.latestRun?.skipped)}" type="button" title="View run details" aria-haspopup="dialog" :aria-expanded="showDetails && detailsTask?.id === task.id" @click="openDetails(task)">
+                        <button
+                            class="icon-button"
+                            :class="{'has-alert': Boolean(task.latestRun?.skipped)}"
+                            type="button"
+                            title="View run details"
+                            aria-haspopup="dialog"
+                            :aria-expanded="showDetails && detailsTask?.id === task.id"
+                            @click="openDetails(task)"
+                        >
                             <ListMusic :size="18" />
                         </button>
-                        <button v-if="!isEntitlementLocked(task)" class="icon-button" type="button" :title="runTitle(task)" :disabled="busyTask === task.id || task.status === 'paused' || !!manualSyncAvailableAt(task)" @click="taskAction(task, 'run')">
+                        <button
+                            v-if="!isEntitlementLocked(task)"
+                            class="icon-button"
+                            type="button"
+                            :title="runTitle(task)"
+                            :disabled="busyTask === task.id || task.status === 'paused' || !!manualSyncAvailableAt(task)"
+                            @click="taskAction(task, 'run')"
+                        >
                             <LoaderCircle v-if="busyTask === task.id" class="spin" :size="18" /><Play v-else :size="18" />
                         </button>
                         <button
@@ -315,7 +331,9 @@ function openDetails(task: SyncTaskSummary) {
                     <span>{{ isOneWay(task) ? "One-way · master to mirror" : "Two-way" }}</span>
                     <span>{{ task.status === "paused" ? "Paused" : `Next ${formatDate(task.nextRunAt)}` }}</span>
                     <span>Last {{ formatDate(task.lastSuccessAt) }}</span>
-                    <span v-if="task.latestRun">Changes +{{ task.latestRun.additions }} / −{{ task.latestRun.removals }}<template v-if="task.latestRun.conflicts"> · {{ task.latestRun.conflicts }} conflict</template></span>
+                    <span v-if="task.latestRun"
+                        >Changes +{{ task.latestRun.additions }} / −{{ task.latestRun.removals }}<template v-if="task.latestRun.conflicts"> · {{ task.latestRun.conflicts }} conflict</template></span
+                    >
                     <span v-if="task.latestRun?.skipped" class="task-unmatched">{{ task.latestRun.skipped }} unmatched</span>
                 </div>
                 <p v-if="isEntitlementLocked(task)" class="task-entitlement-note">

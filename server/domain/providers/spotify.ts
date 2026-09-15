@@ -5,6 +5,12 @@ import {findBestTrackMatch, searchableTitle} from "./matching"
 import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
 const apiBase = "https://api.spotify.com/v1"
+const descriptionMaxLength = 300
+
+// Spotify stores omitted descriptions as null, so always send a string and stay within the API limit.
+function createDescription(description?: string): string {
+    return (description ?? "").slice(0, descriptionMaxLength)
+}
 
 interface SpotifyTrack {
     id: string
@@ -56,12 +62,12 @@ export const spotifyAdapter: ProviderAdapter = {
         return playlists.map((playlist): ProviderPlaylist => ({
             id: playlist.id,
             name: playlist.name,
-            description: playlist.description,
+            description: playlist.description ?? "",
             imageUrl: playlist.images?.[0]?.url,
             itemCount: playlist.tracks.total
         }))
     },
-    async createPlaylist(account, name) {
+    async createPlaylist(account, name, description) {
         const playlist = await providerFetch<{
             id: string
             name: string
@@ -69,12 +75,12 @@ export const spotifyAdapter: ProviderAdapter = {
             images?: {url: string}[]
         }>(account, `${apiBase}/me/playlists`, {
             method: "POST",
-            body: JSON.stringify({name})
+            body: JSON.stringify({name, description: createDescription(description)})
         })
         return {
             id: playlist.id,
             name: playlist.name,
-            description: playlist.description,
+            description: playlist.description ?? "",
             imageUrl: playlist.images?.[0]?.url,
             itemCount: 0
         }

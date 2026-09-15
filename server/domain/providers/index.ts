@@ -14,7 +14,7 @@ export function withoutProviderWrites(adapter: ProviderAdapter): ProviderAdapter
         listPlaylists: (account) => adapter.listPlaylists(account),
         getPlaylistItems: (account, playlistId) => adapter.getPlaylistItems(account, playlistId),
         searchTrack: (account, track) => adapter.searchTrack(account, track),
-        async createPlaylist(account: ProviderAccountDocument, name: string) {
+        async createPlaylist(account: ProviderAccountDocument, name: string, _description?: string) {
             logSafeModeCreatePlaylist(account.provider, name)
             throw new Error(safeModeWriteBlockedMessage)
         },
