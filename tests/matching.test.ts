@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test"
-import {findBestTrackMatch, youtubeMetadata} from "../server/domain/providers/matching"
+import {durationSimilarity, findBestTrackMatch, parseIsoDurationMs, rankSimilarTracks, youtubeMetadata} from "../server/domain/providers/matching"
 import type {ProviderTrack} from "../server/domain/providers"
 
 function track(title: string, artists: string[], isrc?: string): ProviderTrack {
@@ -55,5 +55,17 @@ describe("provider track matching", () => {
         const correct = track("Hotel California", ["Eagles"], "USRC17607839")
 
         expect(findBestTrackMatch(source, [correct])).toBe(correct)
+    })
+
+    test("ranks looser similar tracks using title, artist, and length", () => {
+        const source: ProviderTrack = {itemId: "src", trackId: "src", title: "Midnight Radio", artists: ["Velvet Hours"], durationMs: 210_000}
+        const closer: ProviderTrack = {itemId: "a", trackId: "a", title: "Midnight Radio", artists: ["Velvet Hours"], durationMs: 212_000}
+        const farther: ProviderTrack = {itemId: "b", trackId: "b", title: "Midnight Radio", artists: ["Velvet Hours"], durationMs: 180_000}
+        const live: ProviderTrack = {itemId: "c", trackId: "c", title: "Midnight Radio (Live)", artists: ["Velvet Hours"], durationMs: 211_000}
+        const unrelated: ProviderTrack = {itemId: "d", trackId: "d", title: "Ocean Walk", artists: ["Other Band"], durationMs: 210_000}
+
+        expect(rankSimilarTracks(source, [unrelated, farther, live, closer]).map((item) => item.track)).toEqual([closer, farther, live])
+        expect(durationSimilarity(210_000, 212_000)).toBeGreaterThan(durationSimilarity(210_000, 180_000))
+        expect(parseIsoDurationMs("PT3M30S")).toBe(210_000)
     })
 })

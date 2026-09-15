@@ -97,3 +97,51 @@ export function findBestTrackMatch(source: ProviderTrack, candidates: ProviderTr
     }
     return best?.track || null
 }
+
+export interface SimilarTrackMatch {
+    track: ProviderTrack
+    score: number
+}
+
+// Score how close two durations are. Exact-ish lengths rank highest; gaps over 30s score 0.
+export function durationSimilarity(sourceMs?: number, candidateMs?: number): number {
+    if (!sourceMs || !candidateMs) return 0.5
+    const delta = Math.abs(sourceMs - candidateMs)
+    if (delta <= 2000) return 1
+    if (delta >= 30000) return 0
+    return 1 - (delta - 2000) / 28000
+}
+
+function similarTrackScore(source: ProviderTrack, candidate: ProviderTrack): number {
+    if (source.isrc && candidate.isrc === source.isrc) return 1
+    const titleScore = wordSimilarity(normalizedTitle(source.title), normalizedTitle(candidate.title))
+    const artistScore = source.artists.length ? Math.max(0, ...source.artists.flatMap((sourceArtist) => candidate.artists.map((candidateArtist) => artistSimilarity(sourceArtist, candidateArtist)))) : 0.45
+    const lengthScore = durationSimilarity(source.durationMs, candidate.durationMs)
+    const qualifierPenalty = hasQualifierMismatch(source.title, candidate.title) ? 0.72 : 1
+    return (titleScore * 0.5 + artistScore * 0.3 + lengthScore * 0.2) * qualifierPenalty
+}
+
+// Rank looser near-matches for manual selection after automatic matching failed.
+export function rankSimilarTracks(source: ProviderTrack, candidates: ProviderTrack[], limit = 5): SimilarTrackMatch[] {
+    const seen = new Set<string>()
+    return candidates
+        .map((track) => ({track, score: similarTrackScore(source, track)}))
+        .filter((item) => {
+            if (item.score < 0.4 || seen.has(item.track.trackId)) return false
+            seen.add(item.track.trackId)
+            return true
+        })
+        .sort((left, right) => right.score - left.score)
+        .slice(0, limit)
+}
+
+// Parse YouTube/TIDAL ISO-8601 durations such as PT3M12S into milliseconds.
+export function parseIsoDurationMs(value?: string): number | undefined {
+    if (!value) return undefined
+    const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/i.exec(value.trim())
+    if (!match) return undefined
+    const hours = Number(match[1] || 0)
+    const minutes = Number(match[2] || 0)
+    const seconds = Number(match[3] || 0)
+    return Math.round((hours * 3600 + minutes * 60 + seconds) * 1000)
+}

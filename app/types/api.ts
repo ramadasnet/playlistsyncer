@@ -64,6 +64,21 @@ export interface SyncRunTrack {
     title: string
     artists: string[]
     playlistName?: string
+    playlistId?: string
+    providerTrackId?: string
+    providerItemId?: string
+    providerAccountId?: string
+    durationMs?: number
+    side?: "source" | "destination"
+}
+
+export interface SimilarTrackSuggestion {
+    trackId: string
+    title: string
+    artists: string[]
+    album?: string
+    durationMs?: number
+    imageUrl?: string
 }
 
 export interface SyncRunDetail {

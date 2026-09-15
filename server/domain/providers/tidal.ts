@@ -2,6 +2,7 @@
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
 import {findBestTrackMatch, searchableTitle} from "./matching"
+import {trackIdsForProvider} from "./track-ids"
 import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
 const apiOrigin = "https://openapi.tidal.com"
@@ -176,30 +177,48 @@ export const tidalAdapter: ProviderAdapter = {
             return resource ? [mapTrack(resource, included, playlistItemId(identifier, index))] : []
         })
     },
-    async searchTrack(account, track) {
+    async searchTrackCandidates(account, track) {
         if (track.isrc) {
             const query = new URLSearchParams({
                 "filter[isrc]": track.isrc,
                 include: "artists,albums"
             })
             const result = await tidalFetch<JsonApiDocument<JsonApiResource[]>>(account, `${apiBase}/tracks?${query.toString()}`)
-            return findBestTrackMatch(
-                track,
-                (result.data || []).map((candidate) => mapTrack(candidate, result.included || [], candidate.id))
-            )
+            return (result.data || []).map((candidate) => mapTrack(candidate, result.included || [], candidate.id))
         }
         const query = [track.artists[0], searchableTitle(track.title)].filter(Boolean).join(" ").trim()
         if (!query) {
-            return null
+            return []
         }
         const params = new URLSearchParams({include: "tracks,tracks.artists,tracks.albums"})
         const result = await tidalFetch<JsonApiDocument<JsonApiIdentifier[]>>(account, `${apiBase}/searchResults/${encodeURIComponent(query)}/relationships/tracks?${params.toString()}`)
         const included = result.included || []
-        const candidates = (result.data || []).flatMap((identifier) => {
+        return (result.data || []).flatMap((identifier) => {
             const resource = includedResource(included, "tracks", identifier.id)
             return resource ? [mapTrack(resource, included, resource.id)] : []
         })
-        return findBestTrackMatch(track, candidates)
+    },
+    async searchTrack(account, track) {
+        return findBestTrackMatch(track, await this.searchTrackCandidates(account, track))
+    },
+    async getTrackDurations(account, trackIds) {
+        const durations = new Map<string, number>()
+        const ids = trackIdsForProvider("tidal", trackIds)
+        if (!ids.length) {
+            return durations
+        }
+        const query = new URLSearchParams({
+            "filter[id]": ids.join(","),
+            include: "artists,albums"
+        })
+        const result = await tidalFetch<JsonApiDocument<JsonApiResource[]>>(account, `${apiBase}/tracks?${query.toString()}`)
+        for (const resource of result.data || []) {
+            const mapped = mapTrack(resource, result.included || [], resource.id)
+            if (mapped.durationMs) {
+                durations.set(resource.id, mapped.durationMs)
+            }
+        }
+        return durations
     },
     async addTracks(account, playlistId, trackIds, onAdded) {
         for (let index = 0; index < trackIds.length; index += mutationBatchSize) {

@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
-import {canViewRunHistory, runHistoryLimitFor, serializeSyncRun, serializeSyncTask, unmatchedTracksFromSnapshot} from "../server/domain/sync/history-visibility"
+import {canViewRunHistory, runHistoryLimitFor, serializeSyncRun, serializeSyncTask, unmatchedTracksFromSnapshot, withTrackDurations} from "../server/domain/sync/history-visibility"
 import type {CanonicalTrack, SyncRunDocument, SyncTaskDocument} from "../shared/types/domain"
 
 const now = new Date("2026-09-11T12:00:00.000Z")
@@ -65,9 +65,9 @@ describe("run history visibility", () => {
             removals: 1,
             conflicts: 0,
             skipped: 2,
-            addedTracks: [{providerAccountId: accountId, playlistId: "dst", providerTrackId: "sp-1", title: " Added Song ", artists: [" Ada ", ""], playlistName: "Bike Deluxe"}],
-            removedTracks: [{providerAccountId: accountId, playlistId: "dst", providerTrackId: "sp-2", title: "Old Song", artists: ["Bea"]}],
-            unmatchedTracks: [{providerAccountId: accountId, playlistId: "dst", providerTrackId: "yt-9", title: "Missing Song", artists: ["Cara"], playlistName: "Bike Deluxe"}],
+            addedTracks: [{providerAccountId: accountId, playlistId: "dst", providerTrackId: "sp-1", title: " Added Song ", artists: [" Ada ", ""], playlistName: "Bike Deluxe", durationMs: 201_000}],
+            removedTracks: [{providerAccountId: accountId, playlistId: "dst", providerTrackId: "sp-2", title: "Old Song", artists: ["Bea"], durationMs: 184_000}],
+            unmatchedTracks: [{providerAccountId: accountId, playlistId: "dst", providerTrackId: "yt-9", title: "Missing Song", artists: ["Cara"], playlistName: "Bike Deluxe", durationMs: 210_000}],
             startedAt: now,
             finishedAt: now
         }
@@ -77,10 +77,45 @@ describe("run history visibility", () => {
             trigger: "manual",
             status: "partial",
             skipped: 2,
-            addedTracks: [{title: "Added Song", artists: ["Ada"], playlistName: "Bike Deluxe"}],
-            removedTracks: [{title: "Old Song", artists: ["Bea"]}],
-            unmatchedTracks: [{title: "Missing Song", artists: ["Cara"], playlistName: "Bike Deluxe"}]
+            addedTracks: [{title: "Added Song", artists: ["Ada"], playlistName: "Bike Deluxe", playlistId: "dst", providerTrackId: "sp-1", durationMs: 201_000}],
+            removedTracks: [{title: "Old Song", artists: ["Bea"], playlistId: "dst", providerTrackId: "sp-2", durationMs: 184_000}],
+            unmatchedTracks: [{title: "Missing Song", artists: ["Cara"], playlistName: "Bike Deluxe", playlistId: "dst", providerTrackId: "yt-9", durationMs: 210_000}]
         })
+    })
+
+    test("fills missing run-track lengths from the snapshot", () => {
+        const accountId = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a4")
+        const run: SyncRunDocument = {
+            _id: new ObjectId("68c2c0a0c0a0c0a0c0a0c0a6"),
+            taskId: task._id!,
+            trigger: "scheduled",
+            status: "partial",
+            additions: 1,
+            removals: 0,
+            conflicts: 0,
+            skipped: 0,
+            addedTracks: [{providerAccountId: accountId, playlistId: "dst", providerTrackId: "sp-1", title: "Added Song", artists: ["Ada"]}],
+            removedTracks: [],
+            unmatchedTracks: [],
+            startedAt: now
+        }
+
+        expect(
+            serializeSyncRun(run, task, {
+                sourceItems: [],
+                destinationItems: [
+                    {
+                        occurrenceId: "dst-1",
+                        canonicalKey: "canonical:added",
+                        title: "Added Song",
+                        artists: ["Ada"],
+                        durationMs: 201_000,
+                        providerItemId: "dst-1",
+                        providerTrackId: "sp-1"
+                    }
+                ]
+            }).addedTracks
+        ).toEqual([{title: "Added Song", artists: ["Ada"], playlistId: "dst", providerTrackId: "sp-1", providerAccountId: accountId.toHexString(), durationMs: 201_000}])
     })
 
     test("treats missing unmatched track lists as empty", () => {
@@ -159,12 +194,7 @@ describe("run history visibility", () => {
             providerTrackId: "sp-1"
         }
 
-        expect(
-            unmatchedTracksFromSnapshot(
-                {sourceItems: [sourceOnly], destinationItems: [destOnly]},
-                {...task, direction: "one-way"}
-            ).map((track) => track.title)
-        ).toEqual(["Master Track"])
+        expect(unmatchedTracksFromSnapshot({sourceItems: [sourceOnly], destinationItems: [destOnly]}, {...task, direction: "one-way"}).map((track) => track.title)).toEqual(["Master Track"])
     })
 
     test("includes unmatched tracks from either side on two-way syncs", () => {
@@ -185,8 +215,14 @@ describe("run history visibility", () => {
             providerTrackId: "sp-1"
         }
 
-        expect(
-            unmatchedTracksFromSnapshot({sourceItems: [sourceOnly], destinationItems: [destOnly]}, task).map((track) => track.title)
-        ).toEqual(["YouTube Only", "Spotify Only"])
+        expect(unmatchedTracksFromSnapshot({sourceItems: [sourceOnly], destinationItems: [destOnly]}, task).map((track) => track.title)).toEqual(["YouTube Only", "Spotify Only"])
+    })
+
+    test("copies catalog durations onto unmatched tracks that were stored without length", () => {
+        const accountId = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a4")
+        const unmatched = {providerAccountId: accountId, playlistId: "src", providerTrackId: "yt-2", title: "Midnight Radio", artists: ["Velvet Hours"]}
+
+        expect(withTrackDurations([unmatched], new Map([["yt-2", 210_000]]))).toEqual([{...unmatched, durationMs: 210_000}])
+        expect(withTrackDurations([{...unmatched, durationMs: 180_000}], new Map([["yt-2", 210_000]]))).toEqual([{...unmatched, durationMs: 180_000}])
     })
 })

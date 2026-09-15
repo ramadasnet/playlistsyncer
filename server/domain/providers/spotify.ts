@@ -2,6 +2,7 @@
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
 import {findBestTrackMatch, searchableTitle} from "./matching"
+import {trackIdsForProvider} from "./track-ids"
 import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
 const apiBase = "https://api.spotify.com/v1"
@@ -94,13 +95,31 @@ export const spotifyAdapter: ProviderAdapter = {
         const items = await collectPages<{item: SpotifyTrack | null}>(account, `${apiBase}/playlists/${encodeURIComponent(playlistId)}/items?limit=50`)
         return items.flatMap((entry, index) => (entry.item ? [mapTrack(entry.item, `${entry.item.uri}:${index}`)] : []))
     },
-    async searchTrack(account, track) {
+    async searchTrackCandidates(account, track) {
         const query = track.isrc ? `isrc:${track.isrc}` : [`track:${searchableTitle(track.title)}`, track.artists[0] ? `artist:${track.artists[0]}` : ""].filter(Boolean).join(" ")
         const result = await providerFetch<{tracks: {items: SpotifyTrack[]}}>(account, `${apiBase}/search?type=track&limit=10&q=${encodeURIComponent(query)}`)
-        return findBestTrackMatch(
-            track,
-            result.tracks.items.map((candidate) => mapTrack(candidate))
-        )
+        return result.tracks.items.map((candidate) => mapTrack(candidate))
+    },
+    async searchTrack(account, track) {
+        return findBestTrackMatch(track, await this.searchTrackCandidates(account, track))
+    },
+    async getTrackDurations(account, trackIds) {
+        const durations = new Map<string, number>()
+        const ids = trackIdsForProvider("spotify", trackIds).map((id) => (id.startsWith("spotify:track:") ? id.slice("spotify:track:".length) : id))
+        if (!ids.length) {
+            return durations
+        }
+        for (let index = 0; index < ids.length; index += 50) {
+            const batch = ids.slice(index, index + 50)
+            const result = await providerFetch<{tracks: (SpotifyTrack | null)[]}>(account, `${apiBase}/tracks?ids=${encodeURIComponent(batch.join(","))}`)
+            for (const track of result.tracks) {
+                if (track?.duration_ms) {
+                    durations.set(track.uri, track.duration_ms)
+                    durations.set(track.id, track.duration_ms)
+                }
+            }
+        }
+        return durations
     },
     async addTracks(account, playlistId, trackIds, onAdded) {
         for (let index = 0; index < trackIds.length; index += 100) {

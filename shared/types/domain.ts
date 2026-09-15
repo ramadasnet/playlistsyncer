@@ -185,6 +185,7 @@ export interface SyncRunTrackReference {
     providerItemId?: string
     title?: string
     artists?: string[]
+    durationMs?: number
     playlistName?: string
 }
 

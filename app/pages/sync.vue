@@ -184,6 +184,14 @@ function openDetails(task: SyncTaskSummary) {
     detailsTask.value = task
     showDetails.value = true
 }
+
+async function onManualMatch() {
+    await refreshTasks()
+    const currentId = detailsTask.value?.id
+    if (currentId) {
+        detailsTask.value = tasks.value.find((task) => task.id === currentId) || detailsTask.value
+    }
+}
 </script>
 
 <template>
@@ -328,7 +336,7 @@ function openDetails(task: SyncTaskSummary) {
                 </div>
                 <div class="task-meta">
                     <span class="status-label" :class="`status-${task.status}`"><span />{{ task.status.replace("_", " ") }}</span>
-                    <span>{{ isOneWay(task) ? "One-way · master to mirror" : "Two-way" }}</span>
+                    <span>{{ isOneWay(task) ? "One-way" : "Two-way" }}</span>
                     <span>{{ task.status === "paused" ? "Paused" : `Next ${formatDate(task.nextRunAt)}` }}</span>
                     <span>Last {{ formatDate(task.lastSuccessAt) }}</span>
                     <span v-if="task.latestRun"
@@ -350,6 +358,12 @@ function openDetails(task: SyncTaskSummary) {
             <button v-if="canCreate" class="button button-primary" type="button" @click="openCreate"><Plus :size="17" />Create your first task</button>
             <NuxtLink v-else class="button button-secondary" to="/account">Manage connections</NuxtLink>
         </section>
-        <SyncTaskRunDialog v-model="showDetails" :task="detailsTask" :source-provider="providerFor(detailsTask?.source.providerAccountId || '')" :destination-provider="providerFor(detailsTask?.destination.providerAccountId || '')" />
+        <SyncTaskRunDialog
+            v-model="showDetails"
+            :task="detailsTask"
+            :source-provider="providerFor(detailsTask?.source.providerAccountId || '')"
+            :destination-provider="providerFor(detailsTask?.destination.providerAccountId || '')"
+            @matched="onManualMatch"
+        />
     </div>
 </template>

@@ -40,7 +40,7 @@ Two-way tasks then compare both current playlists with that baseline:
 - The same change made on both sides is accepted.
 - Contradictory changes preserve the larger occurrence count, are recorded as conflicts, and leave the task in `needs_attention`.
 - Duplicate track occurrences are counted and preserved where the provider permits them.
-- Tracks that cannot be matched in the other provider's catalog are skipped and make the run partial rather than applying a low-confidence result.
+- Tracks that cannot be matched in the other provider's catalog are skipped and make the run partial rather than applying a low-confidence result. From the run details overlay, a user can search for similar catalog tracks (title, artist, and length) and pick one to add. Two-way and one-way playlist tasks store a snapshot alias between the unmatched song and that pick so later syncs keep both copies instead of removing the manual choice.
 
 One-way tasks keep the first selected playlist as the master. Later runs copy that membership onto the second playlist only: additions and removals on the master are mirrored, extra tracks on the destination are removed, and the master is never rewritten.
 
@@ -64,7 +64,7 @@ Creem webhook events are the source of truth for paid entitlement. Downgrades an
 
 OAuth uses Authorization Code with PKCE, hashed single-use state, exact callback URLs, and ten-minute transaction expiry. Automatic registration matches a provider-verified email to an existing account. If the provider does not share a verified email, the user is signed in and sent to the account page to enter an address. That value is stored as a temporary email until the user confirms it from a mailed link; only then is it set on the profile. An already authenticated user may explicitly link another provider account. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies outside development.
 
-Provider tokens are encrypted at rest with versioned AES-GCM values. Mutating application requests are restricted to the configured origin, scheduler routes require a constant-time-checked bearer secret, and Creem webhooks require valid signatures and unique event IDs. Secrets, authorization headers, OAuth codes and tokens, raw webhook payloads, and email addresses are excluded from logs.
+Provider tokens are encrypted at rest with versioned AES-GCM values. Access tokens are refreshed 15 minutes before expiry, concurrent refreshes for the same account are coalesced, and a provider 401 retries once after a forced refresh. Mutating application requests are restricted to the configured origin, scheduler routes require a constant-time-checked bearer secret, and Creem webhooks require valid signatures and unique event IDs. Secrets, authorization headers, OAuth codes and tokens, raw webhook payloads, and email addresses are excluded from logs.
 
 ## Run locally
 

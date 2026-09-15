@@ -102,4 +102,10 @@ describe("Spotify provider", () => {
 
         expect(onAdded).not.toHaveBeenCalled()
     })
+
+    test("does not look up YouTube video IDs on the Spotify tracks endpoint", async () => {
+        await expect(spotifyAdapter.getTrackDurations(account, ["dQw4w9WgXcQ", "123456789"])).resolves.toEqual(new Map())
+
+        expect(providerFetch).not.toHaveBeenCalled()
+    })
 })

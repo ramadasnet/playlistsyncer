@@ -43,6 +43,8 @@ export interface ProviderAdapter {
     deletePlaylist(account: ProviderAccountDocument, playlistId: string): Promise<void>
     getPlaylistItems(account: ProviderAccountDocument, playlistId: string): Promise<ProviderTrack[]>
     searchTrack(account: ProviderAccountDocument, track: ProviderTrack): Promise<ProviderTrack | null>
+    searchTrackCandidates(account: ProviderAccountDocument, track: ProviderTrack): Promise<ProviderTrack[]>
+    getTrackDurations(account: ProviderAccountDocument, trackIds: string[]): Promise<Map<string, number>>
     addTracks(account: ProviderAccountDocument, playlistId: string, trackIds: string[], onAdded?: TrackAdditionProgress): Promise<void>
     removePlaylistItems(account: ProviderAccountDocument, playlistId: string, itemIds: string[], onRemoved?: TrackRemovalProgress): Promise<void>
 }

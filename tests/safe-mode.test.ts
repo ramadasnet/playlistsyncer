@@ -15,6 +15,8 @@ function recordingAdapter(): ProviderAdapter & {writes: string[]} {
         listPlaylists: async () => [],
         getPlaylistItems: async () => [],
         searchTrack: async () => null,
+        searchTrackCandidates: async () => [],
+        getTrackDurations: async () => new Map(),
         createPlaylist: async () => {
             writes.push("createPlaylist")
             return {id: "playlist-id", name: "Created", itemCount: 0}

@@ -3,6 +3,7 @@ import {collections} from "../../../data/collections"
 import {requireUser} from "../../../domain/auth/session"
 import {resolveEntitlement} from "../../../domain/billing/entitlement"
 import {canViewRunHistory, runHistoryLimitFor, runNeedsUnmatchedBackfill, serializeSyncRun, unmatchedTracksFromSnapshot} from "../../../domain/sync/history-visibility"
+import {fillMissingRunTrackDurations} from "../../../domain/sync/track-durations"
 import {parseObjectId} from "../../../utils/object-id"
 
 // Load owned runs, limiting Free accounts to the latest completed snapshot.
@@ -24,8 +25,9 @@ export default defineEventHandler(async (event) => {
             await db.syncRuns.updateOne({_id: latest._id, $or: [{unmatchedTracks: {$exists: false}}, {unmatchedTracks: {$size: 0}}]}, {$set: {unmatchedTracks}})
         }
     }
+    const runsWithDurations = await fillMissingRunTrackDurations(user._id!, runs, [task.source.providerAccountId, task.destination.providerAccountId])
     return {
         canBrowseHistory: canViewRunHistory(tier),
-        runs: runs.map(serializeSyncRun)
+        runs: runsWithDurations.map((run) => serializeSyncRun(run, task, snapshot || undefined))
     }
 })
