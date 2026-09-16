@@ -30,6 +30,8 @@ export async function sendMail(message: OutboundEmail, config: ServerConfig = ge
         host: config.smtpHost,
         port: config.smtpPort,
         secure: config.smtpPort === 465,
+        // StartTLS on message submission ports so credentials and content are never sent in the clear.
+        requireTLS: config.smtpPort !== 465,
         auth: config.smtpUser && config.smtpPassword ? {user: config.smtpUser, pass: config.smtpPassword} : undefined
     })
     await transporter.sendMail({

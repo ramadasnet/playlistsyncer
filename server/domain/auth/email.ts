@@ -1,6 +1,7 @@
 // Validate addresses and manage expiring email-confirmation transactions.
 import {randomBytes} from "node:crypto"
 import {createError} from "h3"
+import type {WithId} from "mongodb"
 import {z} from "zod"
 import type {UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
@@ -239,7 +240,7 @@ export async function confirmEmail(token: string, options: {now?: Date; secret?:
 }
 
 // Drop a pending confirmation and leave any confirmed email in place.
-export async function cancelPendingEmail(user: UserDocument, options: {now?: Date} = {}): Promise<UserDocument> {
+export async function cancelPendingEmail(user: UserDocument, options: {now?: Date} = {}): Promise<WithId<UserDocument>> {
     const evaluation = evaluateCancelPendingEmail(user)
     if (!evaluation.ok) {
         throw createError({statusCode: evaluation.statusCode, statusMessage: evaluation.statusMessage})

@@ -132,26 +132,53 @@ export const spotifyAdapter: ProviderAdapter = {
         }
     },
     async removePlaylistItems(account, playlistId, itemIds, onRemoved) {
-        const removals = new Map<string, number[]>()
+        const remaining = new Map<string, number>()
         for (const itemId of itemIds) {
-            const parts = itemId.split(":")
-            const position = Number(parts.pop())
-            const uri = parts.join(":")
-            if (uri && Number.isInteger(position)) {
-                removals.set(uri, [...(removals.get(uri) || []), position])
+            const separator = itemId.lastIndexOf(":")
+            const uri = separator > 0 ? itemId.slice(0, separator) : ""
+            if (uri) {
+                remaining.set(uri, (remaining.get(uri) || 0) + 1)
             }
         }
-        const groups = [...removals].map(([uri, positions]) => ({
-            item: {uri, positions},
-            itemIds: positions.map((position) => `${uri}:${position}`)
-        }))
-        for (let index = 0; index < groups.length; index += 100) {
-            const batch = groups.slice(index, index + 100)
+        // Resolve positions and the snapshot afresh for every batch: each deletion changes the
+        // playlist snapshot and shifts the remaining positions, so results from an earlier
+        // listing go stale as soon as the first batch succeeds.
+        while ([...remaining.values()].some((count) => count > 0)) {
+            const items = await collectPages<{item: SpotifyTrack | null}>(account, `${apiBase}/playlists/${encodeURIComponent(playlistId)}/items?limit=50`)
+            const playlist = await providerFetch<{snapshot_id?: string}>(account, `${apiBase}/playlists/${encodeURIComponent(playlistId)}?fields=snapshot_id`)
+            const positionsByUri = new Map<string, number[]>()
+            items.forEach((entry, position) => {
+                const uri = entry.item?.uri
+                if (uri) {
+                    positionsByUri.set(uri, [...(positionsByUri.get(uri) || []), position])
+                }
+            })
+            const batch: {uri: string; positions: number[]}[] = []
+            for (const [uri, count] of remaining) {
+                if (batch.length >= 100) {
+                    break
+                }
+                if (count <= 0) {
+                    continue
+                }
+                const positions = (positionsByUri.get(uri) || []).slice(0, count)
+                if (!positions.length) {
+                    remaining.set(uri, 0)
+                    continue
+                }
+                batch.push({uri, positions})
+            }
+            if (!batch.length) {
+                break
+            }
             await providerFetch(account, `${apiBase}/playlists/${encodeURIComponent(playlistId)}/items`, {
                 method: "DELETE",
-                body: JSON.stringify({items: batch.map((group) => group.item)})
+                body: JSON.stringify({items: batch.map((group) => ({uri: group.uri, positions: group.positions})), ...(playlist.snapshot_id ? {snapshot_id: playlist.snapshot_id} : {})})
             })
-            await onRemoved?.(batch.flatMap((group) => group.itemIds))
+            for (const group of batch) {
+                remaining.set(group.uri, remaining.get(group.uri)! - group.positions.length)
+            }
+            await onRemoved?.(batch.flatMap((group) => group.positions.map((position) => `${group.uri}:${position}`)))
         }
     }
 }

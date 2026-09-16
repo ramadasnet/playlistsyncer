@@ -112,7 +112,7 @@ export interface OAuthTransactionDocument {
     _id?: ObjectId
     provider: Provider
     stateHash: string
-    codeVerifier: string
+    codeVerifier: EncryptedValue | string
     linkingUserId?: ObjectId
     redirectAfter: string
     expiresAt: Date
@@ -212,5 +212,6 @@ export interface WebhookEventDocument {
     _id?: ObjectId
     eventId: string
     type: string
+    status?: "processing" | "processed" | "failed"
     processedAt: Date
 }

@@ -6,7 +6,7 @@ import type {Provider, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
-import {encryptSecret} from "../../utils/secrets"
+import {decryptSecret, encryptSecret} from "../../utils/secrets"
 import {getOAuthProvider, type OAuthProfile} from "./providers"
 import {isProviderEnabled} from "../../utils/provider-availability"
 import {createSession, getCurrentUser, hashOpaqueToken} from "./session"
@@ -36,7 +36,8 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
     await db.oauthTransactions.insertOne({
         provider,
         stateHash: hashOpaqueToken(state),
-        codeVerifier,
+        // Store the PKCE verifier encrypted at rest alongside the challenge derived from its plaintext value.
+        codeVerifier: await encryptSecret(codeVerifier),
         linkingUserId: currentUser?._id,
         redirectAfter: normalizeRedirect(getQuery(event).redirect),
         createdAt: now,
@@ -187,7 +188,9 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         logger.warn("OAuth.finish", provider, "OAuth transaction is invalid or expired")
         throw createError({statusCode: 400, statusMessage: "OAuth transaction is invalid or expired"})
     }
-    const {token, definition} = await exchangeCode(provider, code, transaction.codeVerifier)
+    // Legacy transactions stored the verifier in plaintext before encryption was introduced.
+    const codeVerifier = typeof transaction.codeVerifier === "string" ? transaction.codeVerifier : await decryptSecret(transaction.codeVerifier)
+    const {token, definition} = await exchangeCode(provider, code, codeVerifier)
     const profile = await definition.fetchProfile(token.access_token)
     const conflictingAccount = await db.providerAccounts.findOne({provider, externalAccountId: profile.id})
     if (transaction.linkingUserId && conflictingAccount && !conflictingAccount.userId.equals(transaction.linkingUserId)) {
