@@ -29,7 +29,7 @@ async function confirm() {
     busy.value = true
     errorMessage.value = ""
     try {
-        const result = await $fetch<{ok: true; user: typeof auth.user}>("/api/auth/confirm-email", {
+        const result = await api<{ok: true; user: typeof auth.user}>("/api/auth/confirm-email", {
             method: "POST",
             body: {token: token.value}
         })

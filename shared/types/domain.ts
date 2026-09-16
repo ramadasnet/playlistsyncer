@@ -112,7 +112,7 @@ export interface OAuthTransactionDocument {
     _id?: ObjectId
     provider: Provider
     stateHash: string
-    codeVerifier: string
+    codeVerifier: EncryptedValue | string
     linkingUserId?: ObjectId
     redirectAfter: string
     expiresAt: Date

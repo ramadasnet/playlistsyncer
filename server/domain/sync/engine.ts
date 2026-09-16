@@ -244,34 +244,51 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     }
     let conflicts: string[] = []
     if (!currentSnapshot) {
-        const desired = reconcileOneWay(sourceItems).desired
-        if (destinationItems.length && isSafeModeEnabled()) {
-            for (const track of destinationItems) {
-                logger.info("Sync.safeMode", destinationAccount.provider, `Playlist ${task.destination.playlistId}`, "Would remove", formatSafeModeTrack(track))
-            }
-        } else if (destinationItems.length) {
-            const byItemId = new Map(destinationItems.map((track) => [track.itemId, track]))
-            await destinationAdapter.removePlaylistItems(
-                destinationAccount,
-                task.destination.playlistId,
-                destinationItems.map((track) => track.itemId),
-                async (removedItemIds) => {
-                    await recordChanges({
-                        removedTracks: trackReferences(
-                            destinationAccount,
-                            task.destination.playlistId,
-                            removedItemIds.flatMap((itemId) => {
-                                const track = byItemId.get(itemId)
-                                return track ? [track] : []
-                            }),
-                            task.destination.name
-                        )
-                    })
+        if (!oneWay) {
+            // First two-way runs baseline both sides so destination-only tracks survive the initial reconciliation.
+            const baseline = commonTracks(sourceItems, destinationItems)
+            const reconciliation = reconcileThreeWay(baseline, sourceItems, destinationItems)
+            conflicts = reconciliation.conflicts
+            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, [], reconciliation.desired, recordChanges, task.destination.name, {
+                account: sourceAccount,
+                playlistId: task.source.playlistId,
+                playlistName: task.source.name
+            })
+            sourceResult = await applyDesired(sourceAccount, task.source.playlistId, [], reconciliation.desired, recordChanges, task.source.name, {
+                account: destinationAccount,
+                playlistId: task.destination.playlistId,
+                playlistName: task.destination.name
+            })
+        } else {
+            const desired = reconcileOneWay(sourceItems).desired
+            if (destinationItems.length && isSafeModeEnabled()) {
+                for (const track of destinationItems) {
+                    logger.info("Sync.safeMode", destinationAccount.provider, `Playlist ${task.destination.playlistId}`, "Would remove", formatSafeModeTrack(track))
                 }
-            )
+            } else if (destinationItems.length) {
+                const byItemId = new Map(destinationItems.map((track) => [track.itemId, track]))
+                await destinationAdapter.removePlaylistItems(
+                    destinationAccount,
+                    task.destination.playlistId,
+                    destinationItems.map((track) => track.itemId),
+                    async (removedItemIds) => {
+                        await recordChanges({
+                            removedTracks: trackReferences(
+                                destinationAccount,
+                                task.destination.playlistId,
+                                removedItemIds.flatMap((itemId) => {
+                                    const track = byItemId.get(itemId)
+                                    return track ? [track] : []
+                                }),
+                                task.destination.name
+                            )
+                        })
+                    }
+                )
+            }
+            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, [], desired, recordChanges, task.destination.name, {account: sourceAccount, playlistId: task.source.playlistId, playlistName: task.source.name})
+            destinationResult.removals = destinationItems.length
         }
-        destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, [], desired, recordChanges, task.destination.name, {account: sourceAccount, playlistId: task.source.playlistId, playlistName: task.source.name})
-        destinationResult.removals = destinationItems.length
     } else {
         const sourceAliases = aliasMap(currentSnapshot.sourceItems)
         const destinationAliases = aliasMap(currentSnapshot.destinationItems)

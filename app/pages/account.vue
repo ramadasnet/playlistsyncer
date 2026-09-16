@@ -90,7 +90,7 @@ async function openBilling(path: "checkout" | "portal") {
     busy.value = true
     errorMessage.value = ""
     try {
-        const result = await $fetch<{url: string}>(`/api/billing/${path}`, {method: "POST"})
+        const result = await api<{url: string}>(`/api/billing/${path}`, {method: "POST"})
         await navigateTo(result.url, {external: true})
     } catch (error) {
         errorMessage.value = statusMessage(error, "Billing could not be opened")
@@ -106,7 +106,7 @@ async function setWeeklySyncSummary(enabled: boolean) {
     preferenceBusy.value = true
     errorMessage.value = ""
     try {
-        const result = await $fetch<{user: SessionUser}>("/api/me/preferences", {
+        const result = await api<{user: SessionUser}>("/api/me/preferences", {
             method: "PATCH",
             body: {weeklySyncSummaryEnabled: enabled}
         })
@@ -133,7 +133,7 @@ async function saveEmail() {
     successMessage.value = ""
     devConfirmationUrl.value = ""
     try {
-        const result = await $fetch<{
+        const result = await api<{
             user: SessionUser
             sent: boolean
             devConfirmationUrl?: string
@@ -168,7 +168,7 @@ async function cancelPendingEmailChange() {
     successMessage.value = ""
     devConfirmationUrl.value = ""
     try {
-        const result = await $fetch<{user: SessionUser}>("/api/me/email/pending", {method: "DELETE"})
+        const result = await api<{user: SessionUser}>("/api/me/email/pending", {method: "DELETE"})
         auth.setUser(result.user)
         emailInput.value = ""
         showEmailDialog.value = false

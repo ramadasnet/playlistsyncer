@@ -129,7 +129,7 @@ async function loadSuggestions(track: SyncRunTrack, index: number) {
         [key]: {loading: true, error: "", suggestions: suggestionState.value[key]?.suggestions}
     }
     try {
-        const result = await $fetch<{targetProvider: Provider; targetPlaylistName: string; suggestions: SimilarTrackSuggestion[]}>(`/api/tasks/${props.task.id}/matches/suggestions`, {
+        const result = await api<{targetProvider: Provider; targetPlaylistName: string; suggestions: SimilarTrackSuggestion[]}>(`/api/tasks/${props.task.id}/matches/suggestions`, {
             method: "POST",
             body: {
                 runId: selectedRunId.value || undefined,
@@ -156,7 +156,7 @@ async function chooseSuggestion(track: SyncRunTrack, index: number, suggestion: 
     const current = suggestionState.value[key]
     suggestionState.value = {...suggestionState.value, [key]: {...current, loading: false, matchingId: suggestion.trackId, error: ""}}
     try {
-        await $fetch(`/api/tasks/${props.task.id}/matches`, {
+        await api(`/api/tasks/${props.task.id}/matches`, {
             method: "POST",
             body: {
                 runId: selectedRunId.value || undefined,

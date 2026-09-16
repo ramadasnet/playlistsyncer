@@ -98,7 +98,7 @@ async function createTask() {
     submitting.value = true
     errorMessage.value = ""
     try {
-        await $fetch("/api/tasks", {
+        await api("/api/tasks", {
             method: "POST",
             body: {
                 mode: syncAllPlaylists.value ? "account" : "playlist",
@@ -133,10 +133,10 @@ async function taskAction(task: SyncTaskSummary, action: "run" | "pause" | "resu
     busyTask.value = task.id
     errorMessage.value = ""
     try {
-        if (action === "run") await $fetch(`/api/tasks/${task.id}/run`, {method: "POST"})
-        if (action === "delete") await $fetch(`/api/tasks/${task.id}`, {method: "DELETE"})
+        if (action === "run") await api(`/api/tasks/${task.id}/run`, {method: "POST"})
+        if (action === "delete") await api(`/api/tasks/${task.id}`, {method: "DELETE"})
         if (action === "pause" || action === "resume") {
-            await $fetch(`/api/tasks/${task.id}`, {
+            await api(`/api/tasks/${task.id}`, {
                 method: "PATCH",
                 body: {status: action === "pause" ? "paused" : "active"}
             })

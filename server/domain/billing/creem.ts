@@ -75,7 +75,7 @@ export async function processCreemEvent(event: WebhookEventEntity): Promise<void
         await applyCreemEvent(event)
         logger.info("Creem.processEvent", `Event ${event.id}`, "Processed")
     } catch (error) {
-        await db.webhookEvents.deleteOne({eventId: event.id})
+        // Keep the dedup row so a failed application stays recorded and retries cannot double-apply it.
         logger.error("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`, error)
         throw error
     }

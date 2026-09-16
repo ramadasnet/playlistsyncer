@@ -73,15 +73,64 @@ describe("Spotify provider", () => {
         const onRemoved = mock(async () => undefined)
 
         await spotifyAdapter.addTracks(account, "playlist-id", ["spotify:track:track-id"], onAdded)
+        providerFetch.mockResolvedValueOnce({
+            items: [{item: {uri: "spotify:track:track-id"}}],
+            next: null
+        })
+        providerFetch.mockResolvedValueOnce({snapshot_id: "snapshot-1"})
         await spotifyAdapter.removePlaylistItems(account, "playlist-id", ["spotify:track:track-id:0"], onRemoved)
 
         expect(providerFetch).toHaveBeenNthCalledWith(1, account, "https://api.spotify.com/v1/playlists/playlist-id/items", {method: "POST", body: JSON.stringify({uris: ["spotify:track:track-id"]})})
-        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://api.spotify.com/v1/playlists/playlist-id/items", {
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://api.spotify.com/v1/playlists/playlist-id/items?limit=50")
+        expect(providerFetch).toHaveBeenNthCalledWith(3, account, "https://api.spotify.com/v1/playlists/playlist-id?fields=snapshot_id")
+        expect(providerFetch).toHaveBeenNthCalledWith(4, account, "https://api.spotify.com/v1/playlists/playlist-id/items", {
             method: "DELETE",
-            body: JSON.stringify({items: [{uri: "spotify:track:track-id", positions: [0]}]})
+            body: JSON.stringify({
+                items: [{uri: "spotify:track:track-id", positions: [0]}],
+                snapshot_id: "snapshot-1"
+            })
         })
         expect(onAdded).toHaveBeenCalledWith([{providerTrackId: "spotify:track:track-id"}])
         expect(onRemoved).toHaveBeenCalledWith(["spotify:track:track-id:0"])
+    })
+
+    test("re-resolves removal positions against the current snapshot", async () => {
+        const onRemoved = mock(async () => undefined)
+
+        providerFetch.mockResolvedValueOnce({
+            items: [{item: {uri: "spotify:track:track-id"}}, {item: null}, {item: {uri: "spotify:track:track-id"}}],
+            next: null
+        })
+        providerFetch.mockResolvedValueOnce({snapshot_id: "snapshot-1"})
+        await spotifyAdapter.removePlaylistItems(account, "playlist-id", ["spotify:track:track-id:0"], onRemoved)
+
+        expect(providerFetch).toHaveBeenNthCalledWith(3, account, "https://api.spotify.com/v1/playlists/playlist-id/items", {
+            method: "DELETE",
+            body: JSON.stringify({items: [{uri: "spotify:track:track-id", positions: [0]}], snapshot_id: "snapshot-1"})
+        })
+        expect(onRemoved).toHaveBeenCalledWith(["spotify:track:track-id:0"])
+    })
+
+    test("re-resolves removal positions across all playlist pages", async () => {
+        const onRemoved = mock(async () => undefined)
+
+        providerFetch.mockResolvedValueOnce({
+            items: [{item: {uri: "spotify:track:track-id"}}],
+            next: "https://api.spotify.com/v1/playlists/playlist-id/items?limit=50&offset=50"
+        })
+        providerFetch.mockResolvedValueOnce({
+            items: [{item: {uri: "spotify:track:track-id"}}],
+            next: null
+        })
+        providerFetch.mockResolvedValueOnce({snapshot_id: "snapshot-1"})
+        await spotifyAdapter.removePlaylistItems(account, "playlist-id", ["spotify:track:track-id:0", "spotify:track:track-id:1"], onRemoved)
+
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://api.spotify.com/v1/playlists/playlist-id/items?limit=50&offset=50")
+        expect(providerFetch).toHaveBeenNthCalledWith(4, account, "https://api.spotify.com/v1/playlists/playlist-id/items", {
+            method: "DELETE",
+            body: JSON.stringify({items: [{uri: "spotify:track:track-id", positions: [0, 1]}], snapshot_id: "snapshot-1"})
+        })
+        expect(onRemoved).toHaveBeenCalledWith(["spotify:track:track-id:0", "spotify:track:track-id:1"])
     })
 
     test("captures YouTube track and playlist item IDs after additions", async () => {
