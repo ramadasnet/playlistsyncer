@@ -212,5 +212,6 @@ export interface WebhookEventDocument {
     _id?: ObjectId
     eventId: string
     type: string
+    status?: "processing" | "processed" | "failed"
     processedAt: Date
 }

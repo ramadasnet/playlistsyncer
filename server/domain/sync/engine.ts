@@ -249,12 +249,12 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
             const baseline = commonTracks(sourceItems, destinationItems)
             const reconciliation = reconcileThreeWay(baseline, sourceItems, destinationItems)
             conflicts = reconciliation.conflicts
-            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, [], reconciliation.desired, recordChanges, task.destination.name, {
+            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, destinationItems, reconciliation.desired, recordChanges, task.destination.name, {
                 account: sourceAccount,
                 playlistId: task.source.playlistId,
                 playlistName: task.source.name
             })
-            sourceResult = await applyDesired(sourceAccount, task.source.playlistId, [], reconciliation.desired, recordChanges, task.source.name, {
+            sourceResult = await applyDesired(sourceAccount, task.source.playlistId, sourceItems, reconciliation.desired, recordChanges, task.source.name, {
                 account: destinationAccount,
                 playlistId: task.destination.playlistId,
                 playlistName: task.destination.name

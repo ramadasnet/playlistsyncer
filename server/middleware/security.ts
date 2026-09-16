@@ -9,7 +9,7 @@ const csrfCookie = "ps_csrf"
 const csrfHeader = "x-csrf-token"
 
 // Strict default CSP; inline styles and scripts stay allowed because Nuxt ships them during hydration.
-function contentSecurityPolicy(): string {
+export function contentSecurityPolicy(): string {
     return [
         "default-src 'self'",
         "script-src 'self' 'unsafe-inline'",
@@ -17,6 +17,8 @@ function contentSecurityPolicy(): string {
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https://fonts.gstatic.com",
         process.env.NODE_ENV === "production" ? "connect-src 'self'" : "connect-src 'self' ws:",
+        // The support page embeds the Chatbase assistant in an iframe, which falls back to default-src without this allowlist.
+        "frame-src 'self' https://www.chatbase.co",
         "object-src 'none'",
         "base-uri 'self'",
         "form-action 'self'",

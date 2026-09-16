@@ -133,6 +133,37 @@ describe("Spotify provider", () => {
         expect(onRemoved).toHaveBeenCalledWith(["spotify:track:track-id:0", "spotify:track:track-id:1"])
     })
 
+    test("refreshes positions and the snapshot for every deletion batch", async () => {
+        const onRemoved = mock(async () => undefined)
+        const uris = Array.from({length: 101}, (_, index) => `spotify:track:track-${index}`)
+        const listing = {items: uris.map((uri) => ({item: {uri}})), next: null}
+
+        providerFetch.mockResolvedValueOnce(listing)
+        providerFetch.mockResolvedValueOnce({snapshot_id: "snapshot-1"})
+        providerFetch.mockResolvedValueOnce(undefined)
+        providerFetch.mockResolvedValueOnce(listing)
+        providerFetch.mockResolvedValueOnce({snapshot_id: "snapshot-2"})
+        providerFetch.mockResolvedValueOnce(undefined)
+        await spotifyAdapter.removePlaylistItems(
+            account,
+            "playlist-id",
+            uris.map((uri) => `${uri}:0`),
+            onRemoved
+        )
+
+        const deletes = providerFetch.mock.calls.filter((call) => typeof call[1] === "string" && (call[2] as {method?: string})?.method === "DELETE")
+        expect(deletes).toHaveLength(2)
+        expect(JSON.parse((deletes[0]![2] as {body: string}).body)).toEqual({
+            items: uris.slice(0, 100).map((uri, index) => ({uri, positions: [index]})),
+            snapshot_id: "snapshot-1"
+        })
+        expect(JSON.parse((deletes[1]![2] as {body: string}).body)).toEqual({
+            items: [{uri: uris[100], positions: [100]}],
+            snapshot_id: "snapshot-2"
+        })
+        expect(onRemoved).toHaveBeenCalledTimes(2)
+    })
+
     test("captures YouTube track and playlist item IDs after additions", async () => {
         const youtubeAccount = {provider: "youtube"} as ProviderAccountDocument
         const onAdded = mock(async () => undefined)

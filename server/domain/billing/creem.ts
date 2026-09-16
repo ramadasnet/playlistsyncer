@@ -60,22 +60,29 @@ export async function applySubscription(subscription: CreemSubscription, status:
 export async function processCreemEvent(event: WebhookEventEntity): Promise<void> {
     const db = await collections()
     try {
-        await db.webhookEvents.insertOne({eventId: event.id, type: event.eventType, processedAt: new Date()})
+        await db.webhookEvents.insertOne({eventId: event.id, type: event.eventType, status: "processing", processedAt: new Date()})
     } catch (error) {
         if (error && typeof error === "object" && "code" in error && error.code === 11000) {
-            logger.info("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`, "Duplicate ignored")
-            return
+            const existing = await db.webhookEvents.findOne({eventId: event.id})
+            if (!existing || existing.status === "processed" || !existing.status) {
+                logger.info("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`, "Duplicate ignored")
+                return
+            }
+            logger.info("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`, "Retrying after a failed attempt")
+        } else {
+            logger.error("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`, error)
+            throw error
         }
-        logger.error("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`, error)
-        throw error
     }
 
     logger.info("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`)
     try {
         await applyCreemEvent(event)
+        await db.webhookEvents.updateOne({eventId: event.id}, {$set: {status: "processed", processedAt: new Date()}})
         logger.info("Creem.processEvent", `Event ${event.id}`, "Processed")
     } catch (error) {
-        // Keep the dedup row so a failed application stays recorded and retries cannot double-apply it.
+        // Mark the attempt as failed so provider retries can re-apply instead of being mistaken for duplicates.
+        await db.webhookEvents.updateOne({eventId: event.id}, {$set: {status: "failed"}})
         logger.error("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`, error)
         throw error
     }
