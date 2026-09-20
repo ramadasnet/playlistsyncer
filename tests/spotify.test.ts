@@ -46,6 +46,43 @@ describe("Spotify provider", () => {
         })
     })
 
+    test("lists playlists with item and track totals", async () => {
+        providerFetch.mockResolvedValue({
+            items: [
+                {id: "playlist-items", name: "Items playlist", description: null, images: [], items: {total: 37}},
+                {id: "playlist-tracks", name: "Tracks playlist", description: "", images: [], tracks: {total: 12}},
+                {id: "playlist-empty", images: []}
+            ],
+            next: null
+        })
+
+        const playlists = await spotifyAdapter.listPlaylists(account)
+
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists?limit=50")
+        expect(playlists).toEqual([
+            {id: "playlist-items", name: "Items playlist", description: "", imageUrl: undefined, itemCount: 37},
+            {id: "playlist-tracks", name: "Tracks playlist", description: "", imageUrl: undefined, itemCount: 12},
+            {id: "playlist-empty", name: "Untitled playlist (playlist-empty)", description: "", imageUrl: undefined, itemCount: 0}
+        ])
+    })
+
+    test("gives unnamed YouTube playlists a unique fallback name", async () => {
+        const youtubeAccount = {provider: "youtube"} as ProviderAccountDocument
+        providerFetch.mockResolvedValue({
+            items: [
+                {id: "yt-named", snippet: {title: "Named playlist"}, contentDetails: {itemCount: 4}},
+                {id: "yt-empty", snippet: {}, contentDetails: {}}
+            ]
+        })
+
+        const playlists = await youtubeAdapter.listPlaylists(youtubeAccount)
+
+        expect(playlists).toEqual([
+            {id: "yt-named", name: "Named playlist", description: "", imageUrl: undefined, itemCount: 4},
+            {id: "yt-empty", name: "Untitled playlist (yt-empty)", description: "", imageUrl: undefined, itemCount: 0}
+        ])
+    })
+
     test("reads playlist items from the current endpoint", async () => {
         providerFetch.mockResolvedValue({
             items: [

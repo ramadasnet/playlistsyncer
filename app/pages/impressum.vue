@@ -10,7 +10,7 @@ useSeoMeta({
 
 <template>
     <div class="shell page-shell">
-        <PageHeading eyebrow="Legal notice" title="Impressum" description="Responsible according to §5 TMG." />
+        <PageHeading title="Impressum" description="Responsible according to §5 TMG." />
         <section class="legal-panel" aria-labelledby="impressum-responsible">
             <h2 id="impressum-responsible">Responsible according to §5 TMG</h2>
             <p>
