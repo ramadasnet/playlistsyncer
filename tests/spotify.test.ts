@@ -46,6 +46,26 @@ describe("Spotify provider", () => {
         })
     })
 
+    test("lists playlists with item and track totals", async () => {
+        providerFetch.mockResolvedValue({
+            items: [
+                {id: "playlist-items", name: "Items playlist", description: null, images: [], items: {total: 37}},
+                {id: "playlist-tracks", name: "Tracks playlist", description: "", images: [], tracks: {total: 12}},
+                {id: "playlist-empty", images: []}
+            ],
+            next: null
+        })
+
+        const playlists = await spotifyAdapter.listPlaylists(account)
+
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists?limit=50")
+        expect(playlists).toEqual([
+            {id: "playlist-items", name: "Items playlist", description: "", imageUrl: undefined, itemCount: 37},
+            {id: "playlist-tracks", name: "Tracks playlist", description: "", imageUrl: undefined, itemCount: 12},
+            {id: "playlist-empty", name: "Untitled playlist", description: "", imageUrl: undefined, itemCount: 0}
+        ])
+    })
+
     test("reads playlist items from the current endpoint", async () => {
         providerFetch.mockResolvedValue({
             items: [

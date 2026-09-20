@@ -1,12 +1,25 @@
 // List the authenticated user's connected provider accounts.
-import {providers} from "~~/shared/types/domain"
+import {providers, type ProviderAccountDocument} from "~~/shared/types/domain"
 import {collections} from "../data/collections"
 import {requireUser} from "../domain/auth/session"
 import {getProviderAdapter} from "../domain/providers"
 import {ensureFreshAccessTokens} from "../domain/providers/token"
 import {isProviderEnabled} from "../utils/provider-availability"
+import logger from "../utils/logger"
 
-// Optionally enrich accounts with live playlist counts.
+// Resolve a playlist count without letting one provider failure hide the other accounts.
+async function resolvePlaylistCount(account: ProviderAccountDocument): Promise<number | undefined> {
+    if (!isProviderEnabled(account.provider)) {
+        return 0
+    }
+    try {
+        return (await getProviderAdapter(account.provider).listPlaylists(account)).length
+    } catch (error) {
+        logger.warn("Accounts.playlistCount", account.provider, `Provider account ${account.externalAccountId}`, error)
+        return undefined
+    }
+}
+
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const db = await collections()
@@ -21,7 +34,7 @@ export default defineEventHandler(async (event) => {
                 provider: account.provider,
                 displayName: account.displayName,
                 email: account.email,
-                playlistCount: includePlaylistCount ? (isProviderEnabled(account.provider) ? (await getProviderAdapter(account.provider).listPlaylists(account)).length : 0) : undefined,
+                playlistCount: includePlaylistCount ? await resolvePlaylistCount(account) : undefined,
                 connectedAt: account.connectedAt,
                 tokenExpiresAt: account.tokenExpiresAt
             }))

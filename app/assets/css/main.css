@@ -146,6 +146,9 @@ main {
 .primary-nav > a.router-link-active:not(.button) {
     border-color: var(--green);
 }
+.primary-nav > a.button:hover:not(:disabled) {
+    transform: none;
+}
 .nav-toggle {
     display: none !important;
 }
@@ -1423,15 +1426,37 @@ select {
     border: 1px solid var(--line);
     background: var(--white);
 }
+.legal-stack {
+    max-width: 860px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
 .legal-panel {
     max-width: 640px;
     padding: 40px;
     border: 1px solid var(--line);
     background: var(--white);
 }
+.legal-stack .legal-panel {
+    max-width: none;
+}
 .legal-panel h2 {
     margin: 0 0 22px;
     font-size: 1.15rem;
+}
+.legal-panel h3 {
+    margin: 26px 0 12px;
+    font-size: 1rem;
+}
+.legal-panel ul {
+    margin: 0 0 22px;
+    padding-left: 22px;
+    color: var(--ink-soft);
+    line-height: 1.65;
+}
+.legal-panel li + li {
+    margin-top: 6px;
 }
 .legal-panel p {
     margin: 0 0 22px;
@@ -1507,6 +1532,9 @@ select {
     }
     .hero {
         min-height: 720px;
+    }
+    .hero > img {
+        object-position: 78% 40%;
     }
     .hero-scrim {
         background: linear-gradient(0deg, rgba(10, 13, 10, 0.94) 0%, rgba(10, 13, 10, 0.55) 75%, rgba(10, 13, 10, 0.22) 100%);

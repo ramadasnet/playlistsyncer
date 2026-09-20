@@ -15,10 +15,10 @@ definePageMeta({
 const {enabledProviders} = await useEnabledProviders()
 
 const providerDetails: Record<Provider, string> = {
-    spotify: "Spotify profile and playlists",
-    tidal: "TIDAL profile and playlists",
-    youtube: "Google profile and YouTube playlists",
-    amazon: "Amazon profile and approved Music access"
+    spotify: "Login with Spotify",
+    tidal: "Login with TIDAL",
+    youtube: "Login with Google",
+    amazon: "Login with Amazon"
 }
 </script>
 

@@ -49,15 +49,15 @@ export const youtubeAdapter: ProviderAdapter = {
         url.search = new URLSearchParams({part: "snippet,contentDetails", mine: "true", maxResults: "50"}).toString()
         const playlists = await collectPages<{
             id: string
-            snippet: {title: string; description?: string; thumbnails?: {high?: {url: string}; default?: {url: string}}}
-            contentDetails: {itemCount: number}
+            snippet?: {title?: string; description?: string; thumbnails?: {high?: {url: string}; default?: {url: string}}}
+            contentDetails?: {itemCount?: number}
         }>(account, url)
         return playlists.map((playlist): ProviderPlaylist => ({
             id: playlist.id,
-            name: playlist.snippet.title,
-            description: playlist.snippet.description ?? "",
-            imageUrl: playlist.snippet.thumbnails?.high?.url || playlist.snippet.thumbnails?.default?.url,
-            itemCount: playlist.contentDetails.itemCount
+            name: playlist.snippet?.title || "Untitled playlist",
+            description: playlist.snippet?.description ?? "",
+            imageUrl: playlist.snippet?.thumbnails?.high?.url || playlist.snippet?.thumbnails?.default?.url,
+            itemCount: playlist.contentDetails?.itemCount ?? 0
         }))
     },
     async createPlaylist(account, name, description) {

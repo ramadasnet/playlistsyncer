@@ -15,14 +15,14 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
     ["Automatic sync", "Weekly", everyTitleLabel.value],
     ["Two-way or one-way sync", true, true],
     ["Manual sync", true, true],
-    ["Past run history", false, true],
-    ["Weekly playlist summary and suggestions", false, true]
+    ["Sync history", false, true],
+    ["Weekly summary and suggestions", false, true]
 ])
 </script>
 
 <template>
     <div class="shell page-shell">
-        <PageHeading title="Get more with PRO" description="Start for free with one playlist pair. Go PRO when your library spans more services and moods." />
+        <PageHeading title="Features" description="Start for free with a single playlist synced once a week. Go PRO to get all the tidbits." />
 
         <div v-if="trialEndsAt" class="notice" role="status">
             <span>
@@ -36,38 +36,25 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
                 <p class="eyebrow">Free</p>
                 <h2>Sync one playlist</h2>
                 <p class="price">€0 <span>forever</span></p>
-                <p>Weekly background sync for the playlist you care about most.</p>
+                <p>Weekly background sync for the playlist you care about most from one service to another.</p>
                 <NuxtLink class="button button-secondary" :to="auth.user ? '/sync' : '/login'">Start free <ArrowRight :size="17" /></NuxtLink>
             </article>
             <article class="plan-panel featured">
                 <p class="eyebrow light">PRO</p>
                 <h2>Sync everything</h2>
                 <p class="price">{{ config.public.proPrice }} / year</p>
-                <p>Unlimited playlist pairs with synchronization {{ everyLabel }}.</p>
+                <p>Unlimited playlist with synchronization {{ everyLabel }}, sync history, weekly summaries, and more!</p>
                 <NuxtLink class="button button-light" :to="auth.user ? '/account' : '/login'">Get PRO <ArrowRight :size="17" /></NuxtLink>
-            </article>
-        </section>
-
-        <section class="mode-grid" aria-label="Sync directions">
-            <article class="mode-panel">
-                <RefreshCw :size="26" />
-                <h2>Two-way</h2>
-                <p>Both playlists stay equal. Additions and removals on either music provider are compared and copied to the other direction.</p>
-            </article>
-            <article class="mode-panel">
-                <ArrowRight :size="26" />
-                <h2>One-way</h2>
-                <p>The first playlist you select is the master. The second playlist mirrors it: master changes are copied over, but not the other way around.</p>
             </article>
         </section>
 
         <section class="comparison" aria-labelledby="comparison-title">
             <div class="section-intro compact">
                 <p class="eyebrow">Side by side</p>
-                <h2 id="comparison-title">What each plan includes</h2>
+                <h2 id="comparison-title">Free vs. PRO</h2>
             </div>
             <div class="comparison-table" role="table">
-                <div class="comparison-row comparison-head" role="row"><span>Capability</span><strong>Free</strong><strong>PRO</strong></div>
+                <div class="comparison-row comparison-head" role="row"><span></span><strong>Free</strong><strong>PRO</strong></div>
                 <div v-for="feature in features" :key="feature[0]" class="comparison-row" role="row">
                     <span>{{ feature[0] }}</span>
                     <span>
@@ -86,9 +73,8 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
 
         <section class="provider-support">
             <div>
-                <p class="eyebrow">Provider support</p>
                 <h2>Built on authorized connections</h2>
-                <p v-if="enabledProviders.length">{{ formatProviderNames(enabledProviders) }} are integrated using their official APIs No hacks, no workarounds needed.</p>
+                <p v-if="enabledProviders.length">{{ formatProviderNames(enabledProviders) }} are available now. Need something else? <a href="mailto:info@playlistsyncer.com">Let us know!</a>.</p>
             </div>
             <div v-if="enabledProviders.length" class="provider-stack">
                 <ProviderBadge v-for="provider in enabledProviders" :key="provider" :provider="provider" />

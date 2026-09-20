@@ -21,7 +21,7 @@ const auth = useAuthStore()
 
 <template>
     <section class="hero">
-        <img src="/music-studio.jpg" alt="Mixing desk and instruments in a working music studio" />
+        <img src="/music-studio.jpg" alt="Visualization of playlists syncing across music providers" />
         <div class="hero-scrim" />
         <div class="shell hero-content">
             <p class="eyebrow light">Cross-platform playlist sync</p>
@@ -42,7 +42,7 @@ const auth = useAuthStore()
             <div class="section-intro">
                 <p class="eyebrow">As simple as it sounds</p>
                 <h2>How it works</h2>
-                <p>You can create one or multiple playlist sync tasks. .</p>
+                <p>Start for free with a single playlist from one provider to another. Upgrade to PRO to unlock unlimited and improved syncing.</p>
             </div>
             <ol class="workflow-steps">
                 <li>
@@ -56,7 +56,7 @@ const auth = useAuthStore()
                     <span>02</span>
                     <div>
                         <strong>Pair</strong>
-                        <p>Select he playlists from the source and target providers, and whether they should sync one or two ways.</p>
+                        <p>Select the playlists from the source and target providers, and whether the sync should be one-way or two-way.</p>
                     </div>
                 </li>
                 <li>
@@ -85,7 +85,7 @@ const auth = useAuthStore()
             <aside class="pro-callout">
                 <p class="eyebrow light">And more!</p>
                 <strong>PRO features</strong>
-                <p>With a PRO account you can have unlimited playlist pairs getting synced {{ everyLabel }}, a full sync history, and a weekly summary with AI suggestions for new artists and tracks.</p>
+                <p>Unlimited playlist pairs, auto sync {{ everyLabel }}, sync history, and a weekly summary suggesting new artists and tracks.</p>
                 <NuxtLink to="/features">See plan details <ArrowRight :size="16" /></NuxtLink>
             </aside>
         </div>

@@ -10,6 +10,7 @@
                 <nav aria-label="Footer navigation">
                     <NuxtLink to="/features">Features</NuxtLink>
                     <NuxtLink to="/support">Support</NuxtLink>
+                    <NuxtLink to="/terms">Terms</NuxtLink>
                     <NuxtLink v-if="showImpressum" to="/impressum">Impressum</NuxtLink>
                     <span>© {{ new Date().getFullYear() }}</span>
                 </nav>

@@ -55,17 +55,18 @@ export const spotifyAdapter: ProviderAdapter = {
     async listPlaylists(account) {
         const playlists = await collectPages<{
             id: string
-            name: string
-            description?: string
+            name?: string
+            description?: string | null
             images?: {url: string}[]
-            tracks: {total: number}
+            tracks?: {total?: number}
+            items?: {total?: number}
         }>(account, `${apiBase}/me/playlists?limit=50`)
         return playlists.map((playlist): ProviderPlaylist => ({
             id: playlist.id,
-            name: playlist.name,
+            name: playlist.name || "Untitled playlist",
             description: playlist.description ?? "",
             imageUrl: playlist.images?.[0]?.url,
-            itemCount: playlist.tracks.total
+            itemCount: playlist.tracks?.total ?? playlist.items?.total ?? 0
         }))
     },
     async createPlaylist(account, name, description) {
