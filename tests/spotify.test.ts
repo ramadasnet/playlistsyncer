@@ -62,7 +62,24 @@ describe("Spotify provider", () => {
         expect(playlists).toEqual([
             {id: "playlist-items", name: "Items playlist", description: "", imageUrl: undefined, itemCount: 37},
             {id: "playlist-tracks", name: "Tracks playlist", description: "", imageUrl: undefined, itemCount: 12},
-            {id: "playlist-empty", name: "Untitled playlist", description: "", imageUrl: undefined, itemCount: 0}
+            {id: "playlist-empty", name: "Untitled playlist (playlist-empty)", description: "", imageUrl: undefined, itemCount: 0}
+        ])
+    })
+
+    test("gives unnamed YouTube playlists a unique fallback name", async () => {
+        const youtubeAccount = {provider: "youtube"} as ProviderAccountDocument
+        providerFetch.mockResolvedValue({
+            items: [
+                {id: "yt-named", snippet: {title: "Named playlist"}, contentDetails: {itemCount: 4}},
+                {id: "yt-empty", snippet: {}, contentDetails: {}}
+            ]
+        })
+
+        const playlists = await youtubeAdapter.listPlaylists(youtubeAccount)
+
+        expect(playlists).toEqual([
+            {id: "yt-named", name: "Named playlist", description: "", imageUrl: undefined, itemCount: 4},
+            {id: "yt-empty", name: "Untitled playlist (yt-empty)", description: "", imageUrl: undefined, itemCount: 0}
         ])
     })
 

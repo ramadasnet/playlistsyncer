@@ -63,7 +63,7 @@ export const spotifyAdapter: ProviderAdapter = {
         }>(account, `${apiBase}/me/playlists?limit=50`)
         return playlists.map((playlist): ProviderPlaylist => ({
             id: playlist.id,
-            name: playlist.name || "Untitled playlist",
+            name: playlist.name || `Untitled playlist (${playlist.id})`,
             description: playlist.description ?? "",
             imageUrl: playlist.images?.[0]?.url,
             itemCount: playlist.tracks?.total ?? playlist.items?.total ?? 0

@@ -54,7 +54,7 @@ export const youtubeAdapter: ProviderAdapter = {
         }>(account, url)
         return playlists.map((playlist): ProviderPlaylist => ({
             id: playlist.id,
-            name: playlist.snippet?.title || "Untitled playlist",
+            name: playlist.snippet?.title || `Untitled playlist (${playlist.id})`,
             description: playlist.snippet?.description ?? "",
             imageUrl: playlist.snippet?.thumbnails?.high?.url || playlist.snippet?.thumbnails?.default?.url,
             itemCount: playlist.contentDetails?.itemCount ?? 0
