@@ -1,5 +1,8 @@
 services:
+
   app:
+    container_name: playlistsyncer-app
+    restart: unless-stopped
     build: .
     env_file: .env
     environment:
@@ -20,14 +23,14 @@ services:
           "const response = await fetch('http://localhost:3007/api/health'); process.exit(response.ok ? 0 : 1)",
         ]
       interval: 10s
-      timeout: 3s
-      retries: 5
+      timeout: 4s
+      retries: 10
       start_period: 10s
-    restart: unless-stopped
 
   mongodb:
-    image: mongo:8.2.5
-    # 256MB WiredTiger cache: default is ~50% of host RAM and dwarfs this dataset.
+    container_name: playlistsyncer-db
+    restart: unless-stopped
+    image: mongo:latest
     command: ["mongod", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
     ports:
       - "27017:27017"
@@ -35,10 +38,9 @@ services:
       - mongodb-data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 5s
-      timeout: 3s
+      interval: 10s
+      timeout: 4s
       retries: 10
-    restart: unless-stopped
-
+    
 volumes:
   mongodb-data:
