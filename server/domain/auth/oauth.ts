@@ -2,9 +2,11 @@
 import {createHash, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
+import {truncateDisplayName} from "../../../shared/display-name"
 import type {Provider, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
+import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
 import {decryptSecret, encryptSecret} from "../../utils/secrets"
 import {getOAuthProvider, type OAuthProfile} from "./providers"
@@ -76,7 +78,8 @@ async function exchangeCode(provider: Provider, code: string, codeVerifier: stri
         body.set("client_id", definition.clientId)
         body.set("client_secret", definition.clientSecret)
     }
-    const response = await fetch(definition.tokenUrl, {method: "POST", headers, body})
+    // A repeated code exchange is rejected by the provider rather than duplicated, so transient failures can be retried.
+    const response = await fetchWithRetry(definition.tokenUrl, {method: "POST", headers, body}, {label: "OAuth.exchangeCode", retryUnsafe: true})
     if (!response.ok) {
         logger.error("OAuth.exchangeCode", provider, `Provider returned status ${response.status}`)
         throw createError({statusCode: 502, statusMessage: `OAuth token exchange failed (${response.status})`})
@@ -100,7 +103,7 @@ export function newUserFromOAuthProfile(profile: OAuthProfile, now: Date): UserD
     const email = hasVerifiedProviderEmail(profile) ? profile.email!.trim().toLowerCase() : undefined
     return {
         ...(email ? {email} : {}),
-        displayName: profile.displayName,
+        displayName: truncateDisplayName(profile.displayName),
         avatarUrl: profile.avatarUrl,
         tier: "free",
         createdAt: now,

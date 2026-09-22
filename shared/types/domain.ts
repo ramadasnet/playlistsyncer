@@ -53,6 +53,35 @@ export function resolvedTaskDirection(task: {mode?: SyncTaskMode; direction?: Sy
     return task.mode === "account" ? "one-way" : "two-way"
 }
 
+// Find an all-playlists task covering this provider pair in either direction, since the mirror account must not sync back to its master.
+export function findAccountSyncBetweenProviders<T extends {mode?: SyncTaskMode; sourceProvider: Provider; destinationProvider: Provider}>(tasks: readonly T[], sourceProvider: Provider, destinationProvider: Provider): T | undefined {
+    return tasks.find((task) => task.mode === "account" && ((task.sourceProvider === sourceProvider && task.destinationProvider === destinationProvider) || (task.sourceProvider === destinationProvider && task.destinationProvider === sourceProvider)))
+}
+
+// Explain why a new task conflicts with an existing all-playlists task.
+export function accountSyncConflictMessage(task: {sourceProvider: Provider; destinationProvider: Provider}) {
+    return `There's already a full sync from ${providerDisplayNames[task.sourceProvider]} to ${providerDisplayNames[task.destinationProvider]}. Delete it if you want to create another sync task between these providers.`
+}
+
+// Return the all-playlists tasks blocking every pair of connected accounts, or nothing when at least one pair can still be synced.
+export function accountSyncsBlockingAllPairs<T extends {mode?: SyncTaskMode; sourceProvider: Provider; destinationProvider: Provider}>(tasks: readonly T[], accountProviders: readonly Provider[]): T[] {
+    const blocking = new Set<T>()
+    for (let i = 0; i < accountProviders.length; i++) {
+        for (let j = i + 1; j < accountProviders.length; j++) {
+            const task = findAccountSyncBetweenProviders(tasks, accountProviders[i]!, accountProviders[j]!)
+            if (!task) return []
+            blocking.add(task)
+        }
+    }
+    return [...blocking]
+}
+
+// Explain that every connected provider pair is already covered by full syncs.
+export function allPairsBlockedMessage(tasks: readonly {sourceProvider: Provider; destinationProvider: Provider}[]) {
+    if (tasks.length === 1) return accountSyncConflictMessage(tasks[0]!)
+    return "All your connected providers are already covered by full syncs. Delete one of them if you want to create another sync task."
+}
+
 // Persisted user account and entitlement state.
 export interface UserDocument {
     _id?: ObjectId

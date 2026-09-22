@@ -1,9 +1,10 @@
 // Integrate Creem subscriptions with local entitlements and task locks.
-import {Creem} from "creem"
+import {Creem, HTTPClient} from "creem"
 import type {SubscriptionEntity, WebhookEventEntity} from "creem/models/components"
 import {ObjectId} from "mongodb"
 import {collections} from "../../data/collections"
 import {getServerConfig, requireConfig} from "../../utils/config"
+import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
 import {applyTaskEntitlement} from "./task-entitlement"
 
@@ -13,7 +14,9 @@ let creemClient: Creem | undefined
 export function getCreem(): Creem {
     if (!creemClient) {
         const server = getServerConfig().creemServer
-        creemClient = new Creem({apiKey: requireConfig("creemApiKey"), server})
+        // Route SDK requests through the shared retry policy; the SDK's own retries stay disabled.
+        const httpClient = new HTTPClient({fetcher: (input, init) => fetchWithRetry(input instanceof Request ? input : new Request(input, init), {}, {label: "Creem.request"})})
+        creemClient = new Creem({apiKey: requireConfig("creemApiKey"), server, httpClient})
         logger.info("Creem.init", `Server ${server}`)
     }
     return creemClient

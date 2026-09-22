@@ -32,6 +32,7 @@ export default defineNuxtConfig({
     runtimeConfig: {
         public: {
             appName: process.env.NUXT_PUBLIC_APP_NAME || "PlaylistSyncer",
+            // Fallback display price. Startup replaces this with the first Creem product when billing is configured.
             proPrice: process.env.NUXT_PUBLIC_PRO_PRICE || "9.99",
             supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || "info@playlistsyncer.com",
             chatbaseHelpUrl: process.env.NUXT_PUBLIC_CHATBASE_HELP_URL || "https://www.chatbase.co/taNwdeaQwZIYPfxthXqRu/help",

@@ -30,6 +30,8 @@ const booleanFlag = z.preprocess((value) => {
     const parsed = parseBooleanEnvFlag(value)
     return parsed === undefined ? value : parsed
 }, z.boolean().default(false))
+// Requests per minute allowed for a provider API; 0 disables pacing but keeps the rate limit cooldown.
+const requestsPerMinute = (fallback: number) => z.preprocess((value) => (value === "" || value === undefined || value === null ? fallback : value), z.coerce.number().int().min(0))
 const appUrl = z
     .string()
     .url()
@@ -55,6 +57,10 @@ const serverConfigSchema = z.object({
     amazonMusicApiBaseUrl: optionalCredential,
     tidalClientId: optionalCredential,
     tidalClientSecret: optionalCredential,
+    spotifyMaxRequestsPerMinute: requestsPerMinute(120),
+    youtubeMaxRequestsPerMinute: requestsPerMinute(300),
+    tidalMaxRequestsPerMinute: requestsPerMinute(60),
+    amazonMaxRequestsPerMinute: requestsPerMinute(60),
     creemApiKey: optionalCredential,
     creemWebhookSecret: optionalCredential,
     creemProProductId: optionalCredential,
@@ -103,6 +109,10 @@ export function getServerConfig(): ServerConfig {
             amazonMusicApiBaseUrl: process.env.AMAZON_MUSIC_API_BASE_URL,
             tidalClientId: process.env.TIDAL_CLIENT_ID,
             tidalClientSecret: process.env.TIDAL_CLIENT_SECRET,
+            spotifyMaxRequestsPerMinute: process.env.SPOTIFY_MAX_REQUESTS_PER_MINUTE,
+            youtubeMaxRequestsPerMinute: process.env.YOUTUBE_MAX_REQUESTS_PER_MINUTE,
+            tidalMaxRequestsPerMinute: process.env.TIDAL_MAX_REQUESTS_PER_MINUTE,
+            amazonMaxRequestsPerMinute: process.env.AMAZON_MAX_REQUESTS_PER_MINUTE,
             creemApiKey: process.env.CREEM_API_KEY,
             creemWebhookSecret: process.env.CREEM_WEBHOOK_SECRET,
             creemProProductId: process.env.CREEM_PRO_PRODUCT_ID,

@@ -64,7 +64,7 @@ Creem webhook events are the source of truth for paid entitlement. Downgrades an
 
 OAuth uses Authorization Code with PKCE, hashed single-use state, exact callback URLs, and ten-minute transaction expiry. Automatic registration matches a provider-verified email to an existing account. If the provider does not share a verified email, the user is signed in and sent to the account page to enter an address. That value is stored as a temporary email until the user confirms it from a mailed link; only then is it set on the profile. An already authenticated user may explicitly link another provider account. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies outside development.
 
-Provider tokens are encrypted at rest with versioned AES-GCM values. Access tokens are refreshed 15 minutes before expiry, concurrent refreshes for the same account are coalesced, and a provider 401 retries once after a forced refresh. Mutating application requests are restricted to the configured origin, scheduler routes require a constant-time-checked bearer secret, and Creem webhooks require valid signatures and unique event IDs. Secrets, authorization headers, OAuth codes and tokens, raw webhook payloads, and email addresses are excluded from logs.
+Provider tokens are encrypted at rest with versioned AES-GCM values. Access tokens are refreshed 15 minutes before expiry, concurrent refreshes for the same account are coalesced, and a provider 401 retries once after a forced refresh. All external HTTP requests (provider APIs, OAuth, and Creem) go through `server/utils/fetch-retry.ts`, which applies a per-attempt timeout and retries rate limits (429, plus YouTube `rateLimitExceeded` 403s), transient 408/5xx errors, and network failures with jittered exponential backoff, honoring `Retry-After` up to 30 seconds. Non-idempotent requests such as playlist additions are only retried on 429, so tracks are never added twice. Provider API requests additionally pass through a process-wide limiter per provider (`server/domain/providers/rate-limit.ts`) shared by every account: request starts are spaced to stay under the provider's configured requests per minute, and a rate limit hit by any account pauses and queues every pending request for that provider until `Retry-After` has passed (5 seconds when absent), then resumes at half pace and recovers each minute. Cooldowns longer than 5 minutes fail with 429 instead of queueing. The limiter coordinates a single app instance; multiple instances each pace independently. Mutating application requests are restricted to the configured origin, scheduler routes require a constant-time-checked bearer secret, and Creem webhooks require valid signatures and unique event IDs. Secrets, authorization headers, OAuth codes and tokens, raw webhook payloads, and email addresses are excluded from logs.
 
 ## Run locally
 
@@ -122,6 +122,8 @@ For local development, set `DEVELOPMENT_PRO_USER_EMAILS` to a comma-separated li
 
 Set `PRO_SUBSCRIPTION_REQUIRED_AT` to the ISO 8601 instant when PRO features start requiring a paid subscription, for example `2027-01-01T00:00:00.000Z`. Until that instant, every signed-in account receives complimentary PRO access so the service can be tested with the full feature set. Once the instant has passed, accounts without a paid subscription (or development override) drop to Free: extra sync tasks stay saved but locked, and only the first playlist pair remains enabled. Leave the variable empty to require a subscription immediately.
 
+Provider API pacing is configured with `SPOTIFY_MAX_REQUESTS_PER_MINUTE` (default 120), `YOUTUBE_MAX_REQUESTS_PER_MINUTE` (default 300), `TIDAL_MAX_REQUESTS_PER_MINUTE` (default 60), and `AMAZON_MAX_REQUESTS_PER_MINUTE` (default 60). Each limit is shared by all accounts of that provider; `0` disables pacing while keeping the rate limit cooldown.
+
 Changing `TOKEN_ENCRYPTION_KEY` without a key-rotation migration makes stored OAuth tokens unreadable. Provider client secrets, database credentials, and webhook signing secrets are externally issued credentials and must still be configured exactly as provided.
 
 ### Spotify
@@ -178,7 +180,7 @@ Create a recurring PRO Product and supply:
 - `CREEM_PRO_PRODUCT_ID`
 - `CREEM_WEBHOOK_SECRET`
 - `CREEM_SERVER`: `test` for sandbox billing or `prod` for live billing
-- `NUXT_PUBLIC_PRO_PRICE`, the display label such as `€5 / month`
+- `NUXT_PUBLIC_PRO_PRICE`, fallback display label such as `€5`. When `CREEM_API_KEY` is set, startup loads the price from the first Creem product and uses this value only if that lookup fails.
 
 Register the HTTPS webhook endpoint:
 

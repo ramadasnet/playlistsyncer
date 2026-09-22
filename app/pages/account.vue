@@ -3,6 +3,7 @@ import {ArrowUpRight, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus} 
 import type {ConnectedAccount, SessionUser} from "~/types/api"
 import type {Provider} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
+import {maxDisplayNameLength, normalizeDisplayName} from "~~/shared/display-name"
 
 definePageMeta({middleware: "auth"})
 
@@ -18,14 +19,20 @@ const busy = ref(false)
 const emailBusy = ref(false)
 const emailCancelBusy = ref(false)
 const preferenceBusy = ref(false)
+const displayNameBusy = ref(false)
 const showEmailDialog = ref(false)
+const editingDisplayName = ref(false)
 const errorMessage = ref("")
 const emailError = ref("")
+const displayNameError = ref("")
 const successMessage = ref(route.query.email === "confirmed" ? "Your email address is confirmed." : "")
 const emailInput = ref(auth.user?.tempEmail || "")
 const devConfirmationUrl = ref("")
 const emailDialogTitle = computed(() => (auth.user?.email ? "Change email address" : "Add email address"))
 const emailDialogAction = computed(() => (auth.user?.email ? "Change email" : "Add email"))
+const displayNameInput = ref("")
+const displayNameField = useTemplateRef<HTMLInputElement>("displayNameField")
+const normalizedDisplayName = computed(() => normalizeDisplayName(displayNameInput.value))
 
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
 const pendingEmail = computed(() => Boolean(auth.user?.tempEmail))
@@ -116,6 +123,73 @@ async function setWeeklySyncSummary(enabled: boolean) {
         errorMessage.value = statusMessage(error, "The weekly summary preference could not be saved")
     } finally {
         preferenceBusy.value = false
+    }
+}
+
+// Swap the name for a focused text field with the current value selected.
+async function startDisplayNameEdit() {
+    if (editingDisplayName.value || displayNameBusy.value) {
+        return
+    }
+    displayNameInput.value = auth.user?.displayName || ""
+    displayNameError.value = ""
+    editingDisplayName.value = true
+    await nextTick()
+    displayNameField.value?.focus()
+    displayNameField.value?.select()
+}
+
+function cancelDisplayNameEdit() {
+    editingDisplayName.value = false
+    displayNameError.value = ""
+}
+
+// Leaving the field saves the change, except for an empty value which restores the name.
+function onDisplayNameBlur() {
+    if (!normalizedDisplayName.value) {
+        cancelDisplayNameEdit()
+        return
+    }
+    saveDisplayName()
+}
+
+async function saveDisplayName() {
+    if (!editingDisplayName.value || displayNameBusy.value) {
+        return
+    }
+    if (normalizedDisplayName.value === auth.user?.displayName) {
+        cancelDisplayNameEdit()
+        return
+    }
+    if (!normalizedDisplayName.value) {
+        displayNameError.value = "Display name is required"
+        return
+    }
+    if (normalizedDisplayName.value.length > maxDisplayNameLength) {
+        displayNameError.value = `Display name must be ${maxDisplayNameLength} characters or fewer`
+        return
+    }
+    displayNameBusy.value = true
+    displayNameError.value = ""
+    errorMessage.value = ""
+    successMessage.value = ""
+    devConfirmationUrl.value = ""
+    try {
+        const result = await api<{user: SessionUser}>("/api/me/profile", {
+            method: "PATCH",
+            body: {displayName: normalizedDisplayName.value}
+        })
+        auth.setUser(result.user)
+        editingDisplayName.value = false
+        successMessage.value = "Your display name was updated."
+    } catch (error) {
+        displayNameError.value = statusMessage(error, "The display name could not be saved")
+    } finally {
+        displayNameBusy.value = false
+    }
+    if (editingDisplayName.value) {
+        await nextTick()
+        displayNameField.value?.focus()
     }
 }
 
@@ -216,7 +290,29 @@ onMounted(() => refresh())
                 <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="" />
                 <span v-else class="avatar-fallback">{{ auth.user?.displayName.slice(0, 1).toUpperCase() }}</span>
                 <div>
-                    <strong>{{ auth.user?.displayName }}</strong>
+                    <form v-if="editingDisplayName" class="display-name-form" @submit.prevent="saveDisplayName">
+                        <input
+                            ref="displayNameField"
+                            v-model="displayNameInput"
+                            class="display-name-input"
+                            type="text"
+                            name="displayName"
+                            autocomplete="nickname"
+                            aria-label="Display name"
+                            required
+                            :maxlength="maxDisplayNameLength"
+                            :aria-invalid="Boolean(displayNameError)"
+                            :aria-describedby="displayNameError ? 'display-name-error' : undefined"
+                            :readonly="displayNameBusy"
+                            @keydown.esc.prevent="cancelDisplayNameEdit"
+                            @blur="onDisplayNameBlur"
+                        />
+                        <LoaderCircle v-if="displayNameBusy" class="spin" :size="16" />
+                    </form>
+                    <button v-else class="display-name-trigger" type="button" :title="`Click to edit (max ${maxDisplayNameLength} characters)`" :aria-label="`Edit display name ${auth.user?.displayName || ''}`" @click="startDisplayNameEdit">
+                        {{ auth.user?.displayName }}
+                    </button>
+                    <span v-if="displayNameError" id="display-name-error" class="display-name-error" role="alert">{{ displayNameError }}</span>
                     <span v-if="auth.user?.email">{{ auth.user.email }}</span>
                     <span v-else-if="!auth.user?.tempEmail">No email address yet</span>
                     <span v-if="auth.user?.tempEmail" class="pending-email">

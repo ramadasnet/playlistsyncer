@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {AlertTriangle, ArrowLeftRight, ArrowRight, CirclePause, ListMusic, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
 import type {ConnectedAccount, PlaylistSummary, SyncTaskSummary} from "~/types/api"
-import type {SyncTaskDirection} from "~~/shared/types/domain"
+import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders, type Provider, type SyncTaskDirection} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
 
@@ -14,7 +14,7 @@ const sourceAccountId = ref("")
 const destinationAccountId = ref("")
 const sourcePlaylistId = ref("")
 const destinationPlaylistId = ref("")
-const syncDirection = ref<SyncTaskDirection>("two-way")
+const syncDirection = ref<SyncTaskDirection>("one-way")
 const sourcePlaylists = ref<PlaylistSummary[]>([])
 const destinationPlaylists = ref<PlaylistSummary[]>([])
 const taskBuilder = useTemplateRef<HTMLElement>("taskBuilder")
@@ -24,6 +24,9 @@ const submitting = ref(false)
 const errorMessage = ref("")
 const showDetails = ref(false)
 const detailsTask = ref<SyncTaskSummary | null>(null)
+const showDeleteConfirm = ref(false)
+const taskPendingDelete = ref<SyncTaskSummary | null>(null)
+const deleteError = ref("")
 const allPlaylistsId = "__all__"
 const createPlaylistId = "__create__"
 
@@ -35,6 +38,21 @@ const tasks = computed(() =>
         const destination = allAccounts.value.find((account) => account.id === String(task.destination.providerAccountId))
         return (!source || isProviderEnabled(source.provider)) && (!destination || isProviderEnabled(destination.provider))
     })
+)
+const taskProviderPairs = computed(() =>
+    tasks.value.flatMap((task) => {
+        const taskSource = accountProvider(String(task.source.providerAccountId))
+        const taskDestination = accountProvider(String(task.destination.providerAccountId))
+        if (!taskSource || !taskDestination) return []
+        return [{mode: task.mode, sourceProvider: taskSource, destinationProvider: taskDestination}]
+    })
+)
+// With every account pair covered by full syncs, no new task could pass validation, so the builder shows a warning instead.
+const blockingFullSyncs = computed(() =>
+    accountSyncsBlockingAllPairs(
+        taskProviderPairs.value,
+        accounts.value.map((account) => account.provider)
+    )
 )
 const canCreate = computed(() => accounts.value.length >= 2 && (auth.user?.tier === "pro" || tasks.value.length === 0))
 const syncAllPlaylists = computed(() => sourcePlaylistId.value === allPlaylistsId)
@@ -48,7 +66,22 @@ const sourcePlaylist = computed(() => sourcePlaylists.value.find((playlist) => p
 const destinationPlaylist = computed(() => destinationPlaylists.value.find((playlist) => playlist.id === destinationPlaylistId.value))
 const createDestinationPlaylist = computed(() => destinationPlaylistId.value === createPlaylistId)
 const oneWayLabels = computed(() => effectiveDirection.value === "one-way")
-const canSubmit = computed(() => !!sourceAccountId.value && !!destinationAccountId.value && (syncAllPlaylists.value ? auth.user?.tier === "pro" : !!sourcePlaylist.value && (!!destinationPlaylist.value || createDestinationPlaylist.value)))
+const selectedSourceProvider = computed(() => accountProvider(sourceAccountId.value))
+const selectedDestinationProvider = computed(() => accountProvider(destinationAccountId.value))
+const conflictingFullSync = computed(() => {
+    const sourceProvider = selectedSourceProvider.value
+    const destinationProvider = selectedDestinationProvider.value
+    if (!sourceProvider || !destinationProvider) return undefined
+    return findAccountSyncBetweenProviders(taskProviderPairs.value, sourceProvider, destinationProvider)
+})
+const fullSyncConflictMessage = computed(() => (conflictingFullSync.value ? accountSyncConflictMessage(conflictingFullSync.value) : ""))
+const canSubmit = computed(
+    () => !conflictingFullSync.value && !!sourceAccountId.value && !!destinationAccountId.value && (syncAllPlaylists.value ? auth.user?.tier === "pro" : !!sourcePlaylist.value && (!!destinationPlaylist.value || createDestinationPlaylist.value))
+)
+
+function accountProvider(accountId: string): Provider | undefined {
+    return allAccounts.value.find((account) => account.id === String(accountId))?.provider
+}
 
 function selectMatchingDestination() {
     if (!sourcePlaylist.value || !destinationAccountId.value) return
@@ -106,13 +139,13 @@ async function createTask() {
                 source: {
                     accountId: sourceAccountId.value,
                     playlistId: syncAllPlaylists.value ? allPlaylistsId : sourcePlaylist.value!.id,
-                    name: syncAllPlaylists.value ? "ALL playlists" : sourcePlaylist.value!.name,
+                    name: syncAllPlaylists.value ? "ALL Playlists" : sourcePlaylist.value!.name,
                     description: sourcePlaylist.value?.description
                 },
                 destination: {
                     accountId: destinationAccountId.value,
                     playlistId: syncAllPlaylists.value ? allPlaylistsId : createDestinationPlaylist.value ? createPlaylistId : destinationPlaylist.value!.id,
-                    name: syncAllPlaylists.value ? "ALL playlists" : createDestinationPlaylist.value ? sourcePlaylist.value!.name : destinationPlaylist.value!.name,
+                    name: syncAllPlaylists.value ? "ALL Playlists" : createDestinationPlaylist.value ? sourcePlaylist.value!.name : destinationPlaylist.value!.name,
                     createNew: createDestinationPlaylist.value
                 }
             }
@@ -120,7 +153,7 @@ async function createTask() {
         showCreate.value = false
         sourceAccountId.value = ""
         destinationAccountId.value = ""
-        syncDirection.value = "two-way"
+        syncDirection.value = "one-way"
         await refreshTasks()
     } catch (error) {
         errorMessage.value = error instanceof Error ? error.message : "The sync task could not be created"
@@ -129,12 +162,11 @@ async function createTask() {
     }
 }
 
-async function taskAction(task: SyncTaskSummary, action: "run" | "pause" | "resume" | "delete") {
+async function taskAction(task: SyncTaskSummary, action: "run" | "pause" | "resume") {
     busyTask.value = task.id
     errorMessage.value = ""
     try {
         if (action === "run") await api(`/api/tasks/${task.id}/run`, {method: "POST"})
-        if (action === "delete") await api(`/api/tasks/${task.id}`, {method: "DELETE"})
         if (action === "pause" || action === "resume") {
             await api(`/api/tasks/${task.id}`, {
                 method: "PATCH",
@@ -172,6 +204,11 @@ function isOneWay(task: SyncTaskSummary) {
     return task.direction === "one-way"
 }
 
+// Active tasks that never finished a run are still processing their first sync.
+function isInitialSyncPending(task: SyncTaskSummary) {
+    return task.status === "active" && !task.lastRunAt
+}
+
 function hasSharedName(task: SyncTaskSummary) {
     return task.source.name === task.destination.name
 }
@@ -185,6 +222,52 @@ function openDetails(task: SyncTaskSummary) {
     showDetails.value = true
 }
 
+function taskPairLabel(task: SyncTaskSummary) {
+    return hasSharedName(task) ? task.source.name : `${task.source.name} and ${task.destination.name}`
+}
+
+const deletingTask = computed(() => Boolean(taskPendingDelete.value && busyTask.value === taskPendingDelete.value.id))
+
+// Ask before removing a sync task and its run history.
+function openDeleteConfirm(task: SyncTaskSummary) {
+    taskPendingDelete.value = task
+    deleteError.value = ""
+    showDeleteConfirm.value = true
+}
+
+function closeDeleteConfirm() {
+    if (deletingTask.value) return
+    showDeleteConfirm.value = false
+}
+
+// Remove the task only after the confirmation dialog is accepted.
+async function confirmDelete() {
+    const task = taskPendingDelete.value
+    if (!task || deletingTask.value) return
+    busyTask.value = task.id
+    deleteError.value = ""
+    try {
+        await api(`/api/tasks/${task.id}`, {method: "DELETE"})
+        if (detailsTask.value?.id === task.id) {
+            showDetails.value = false
+            detailsTask.value = null
+        }
+        showDeleteConfirm.value = false
+        await refreshTasks()
+    } catch (error) {
+        deleteError.value = error instanceof Error ? error.message : "The sync task could not be deleted"
+    } finally {
+        busyTask.value = ""
+        if (!showDeleteConfirm.value) taskPendingDelete.value = null
+    }
+}
+
+watch(showDeleteConfirm, (open) => {
+    if (open || deletingTask.value) return
+    deleteError.value = ""
+    taskPendingDelete.value = null
+})
+
 async function onManualMatch() {
     await refreshTasks()
     const currentId = detailsTask.value?.id
@@ -192,6 +275,19 @@ async function onManualMatch() {
         detailsTask.value = tasks.value.find((task) => task.id === currentId) || detailsTask.value
     }
 }
+
+// Refresh the list while initial syncs are processing, so their results appear without a reload.
+let initialSyncPoll: ReturnType<typeof setInterval> | undefined
+watch(
+    () => tasks.value.some(isInitialSyncPending),
+    (pending) => {
+        if (import.meta.server) return
+        clearInterval(initialSyncPoll)
+        initialSyncPoll = pending ? setInterval(() => refreshTasks(), 10_000) : undefined
+    },
+    {immediate: true}
+)
+onBeforeUnmount(() => clearInterval(initialSyncPoll))
 </script>
 
 <template>
@@ -209,8 +305,9 @@ async function onManualMatch() {
         <div v-else-if="!canCreate && auth.user?.tier === 'free'" class="notice">
             <span>Your Free plan includes one active playlist pair.</span><NuxtLink to="/account">See PRO <ArrowRight :size="16" /></NuxtLink>
         </div>
+        <div v-else-if="showCreate && canCreate && blockingFullSyncs.length" class="notice notice-warning" role="alert"><AlertTriangle :size="18" />{{ allPairsBlockedMessage(blockingFullSyncs) }}</div>
 
-        <section v-if="showCreate && canCreate" id="task-builder" ref="taskBuilder" class="task-builder" aria-labelledby="builder-heading">
+        <section v-if="showCreate && canCreate && !blockingFullSyncs.length" id="task-builder" ref="taskBuilder" class="task-builder" aria-labelledby="builder-heading">
             <div class="builder-heading">
                 <div>
                     <p class="eyebrow light">New sync task</p>
@@ -230,7 +327,7 @@ async function onManualMatch() {
                     ><span>{{ oneWayLabels ? "Master playlist" : "Source playlist" }}</span
                     ><select v-model="sourcePlaylistId" :disabled="!sourceAccountId || loadingPlaylists">
                         <option value="">Choose playlist</option>
-                        <option :value="allPlaylistsId" :disabled="auth.user?.tier !== 'pro'">ALL playlists{{ auth.user?.tier === "pro" ? "" : " (PRO)" }}</option>
+                        <option :value="allPlaylistsId" :disabled="auth.user?.tier !== 'pro'">ALL Playlists{{ auth.user?.tier === "pro" ? "" : " (PRO)" }}</option>
                         <option v-for="playlist in sourcePlaylists" :key="playlist.id" :value="playlist.id">{{ playlist.name }} ({{ playlist.itemCount }})</option>
                     </select></label
                 >
@@ -255,6 +352,7 @@ async function onManualMatch() {
                     </select></label
                 >
             </div>
+            <div v-if="fullSyncConflictMessage" class="notice notice-warning" role="alert"><AlertTriangle :size="18" />{{ fullSyncConflictMessage }}</div>
             <fieldset class="direction-picker">
                 <legend class="sr-only">Sync direction</legend>
                 <label class="direction-option" :class="{selected: effectiveDirection === 'one-way'}">
@@ -265,14 +363,15 @@ async function onManualMatch() {
                 <label class="direction-option" :class="{selected: effectiveDirection === 'two-way', disabled: syncAllPlaylists}">
                     <input v-model="effectiveDirection" type="radio" name="sync-direction" value="two-way" :disabled="syncAllPlaylists" />
                     <strong><RefreshCw :size="16" /> Two-way</strong>
-                    <span>Both playlists stay equal. Additions and removals travel in either direction.</span>
+                    <span v-if="syncAllPlaylists">Two-way is not supported when syncing all playlists from a provider.</span>
+                    <span v-else>Both playlists stay equal. Additions and removals travel in either direction.</span>
                 </label>
             </fieldset>
             <div class="builder-footer">
                 <p v-if="syncAllPlaylists">Playlists are matched by name. Missing playlists are created and removed master playlists are deleted from the mirrored account.</p>
                 <p v-else-if="effectiveDirection === 'one-way'">Later runs copy the master's additions and removals onto the mirror playlist only.</p>
                 <p v-else>The first run copies missing source tracks. Later runs reconcile changes in both directions.</p>
-                <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create pair</button>
+                <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create sync task</button>
             </div>
         </section>
 
@@ -329,7 +428,15 @@ async function onManualMatch() {
                         >
                             <Play v-if="task.status === 'paused'" :size="18" /><CirclePause v-else :size="18" />
                         </button>
-                        <button class="icon-button danger" type="button" title="Delete task" :disabled="busyTask === task.id" @click="taskAction(task, 'delete')">
+                        <button
+                            class="icon-button danger"
+                            type="button"
+                            title="Delete task"
+                            aria-haspopup="dialog"
+                            :aria-expanded="showDeleteConfirm && taskPendingDelete?.id === task.id"
+                            :disabled="busyTask === task.id"
+                            @click="openDeleteConfirm(task)"
+                        >
                             <Trash2 :size="18" />
                         </button>
                     </div>
@@ -338,10 +445,13 @@ async function onManualMatch() {
                     <span class="status-label" :class="`status-${task.status}`"><span />{{ task.status.replace("_", " ") }}</span>
                     <span>{{ isOneWay(task) ? "One-way" : "Two-way" }}</span>
                     <span>{{ task.status === "paused" ? "Paused" : `Next ${formatDate(task.nextRunAt)}` }}</span>
-                    <span>Last {{ formatDate(task.lastSuccessAt) }}</span>
-                    <span v-if="task.latestRun"
-                        >Changes +{{ task.latestRun.additions }} / −{{ task.latestRun.removals }}<template v-if="task.latestRun.conflicts"> · {{ task.latestRun.conflicts }} conflict</template></span
-                    >
+                    <span v-if="isInitialSyncPending(task)">Processing initial sync...</span>
+                    <template v-else>
+                        <span>Last {{ formatDate(task.lastSuccessAt) }}</span>
+                        <span v-if="task.latestRun"
+                            >Changes +{{ task.latestRun.additions }} / −{{ task.latestRun.removals }}<template v-if="task.latestRun.conflicts"> · {{ task.latestRun.conflicts }} conflict</template></span
+                        >
+                    </template>
                     <span v-if="task.latestRun?.skipped" class="task-unmatched">{{ task.latestRun.skipped }} unmatched</span>
                 </div>
                 <p v-if="isEntitlementLocked(task)" class="task-entitlement-note">
@@ -353,9 +463,9 @@ async function onManualMatch() {
         </section>
         <section v-else-if="!showCreate" class="empty-state">
             <RefreshCw :size="34" />
-            <h2>No playlist pairs yet</h2>
-            <p>Connect two providers, then choose the playlists that should stay aligned.</p>
-            <button v-if="canCreate" class="button button-primary" type="button" @click="openCreate"><Plus :size="17" />Create your first task</button>
+            <h2>You have no sync tasks yet</h2>
+            <p>Ready to start?</p>
+            <button v-if="canCreate" class="button button-primary" type="button" @click="openCreate"><Plus :size="17" />Create your first sync task</button>
             <NuxtLink v-else class="button button-secondary" to="/account">Manage connections</NuxtLink>
         </section>
         <SyncTaskRunDialog
@@ -365,5 +475,19 @@ async function onManualMatch() {
             :destination-provider="providerFor(detailsTask?.destination.providerAccountId || '')"
             @matched="onManualMatch"
         />
+        <OverlayDialog v-model="showDeleteConfirm" title="Delete sync task" :busy="deletingTask">
+            <p v-if="taskPendingDelete" class="confirm-dialog-copy">
+                Delete <strong>{{ taskPairLabel(taskPendingDelete) }}</strong
+                >? This removes the sync task and its run history. Playlists on your music services stay as they are.
+            </p>
+            <p v-if="deleteError" class="dialog-error" role="alert">{{ deleteError }}</p>
+            <div class="dialog-actions">
+                <button class="button button-secondary" type="button" :disabled="deletingTask" @click="closeDeleteConfirm">Cancel</button>
+                <button class="button button-danger" type="button" :disabled="deletingTask" @click="confirmDelete">
+                    <LoaderCircle v-if="deletingTask" class="spin" :size="17" />
+                    Delete task
+                </button>
+            </div>
+        </OverlayDialog>
     </div>
 </template>

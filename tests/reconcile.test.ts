@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey} from "../server/domain/sync/reconcile"
 import type {ProviderTrack} from "../server/domain/providers"
-import {resolvedTaskDirection} from "../shared/types/domain"
+import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders, resolvedTaskDirection} from "../shared/types/domain"
 
 function track(title: string, itemId = title): ProviderTrack {
     return {itemId, trackId: title, title, artists: ["Artist"], durationMs: 180_000}
@@ -40,6 +40,44 @@ describe("task direction defaults", () => {
     test("preserves an explicit direction", () => {
         expect(resolvedTaskDirection({mode: "playlist", direction: "one-way"})).toBe("one-way")
         expect(resolvedTaskDirection({mode: "account", direction: "two-way"})).toBe("two-way")
+    })
+})
+
+describe("account sync provider pairs", () => {
+    const tasks = [{mode: "account" as const, sourceProvider: "youtube" as const, destinationProvider: "spotify" as const}]
+
+    test("matches an existing all-playlists sync in the same direction", () => {
+        expect(findAccountSyncBetweenProviders(tasks, "youtube", "spotify")).toBe(tasks[0])
+    })
+
+    test("matches the reverse provider pair so the mirror cannot sync back to its master", () => {
+        expect(findAccountSyncBetweenProviders(tasks, "spotify", "youtube")).toBe(tasks[0])
+    })
+
+    test("ignores unrelated provider pairs and playlist tasks", () => {
+        expect(findAccountSyncBetweenProviders(tasks, "spotify", "tidal")).toBeUndefined()
+        expect(findAccountSyncBetweenProviders([{mode: "playlist", sourceProvider: "youtube", destinationProvider: "spotify"}], "youtube", "spotify")).toBeUndefined()
+    })
+
+    test("names the existing sync direction in the conflict message", () => {
+        expect(accountSyncConflictMessage(tasks[0]!)).toBe("There's already a full sync from YouTube Music to Spotify. Delete it if you want to create another sync task between these providers.")
+    })
+
+    test("blocks all new tasks when a full sync covers the only connected provider pair", () => {
+        expect(accountSyncsBlockingAllPairs(tasks, ["spotify", "youtube"])).toEqual([tasks[0]!])
+        expect(allPairsBlockedMessage(accountSyncsBlockingAllPairs(tasks, ["spotify", "youtube"]))).toBe(accountSyncConflictMessage(tasks[0]!))
+    })
+
+    test("keeps task creation open while another provider pair is available", () => {
+        expect(accountSyncsBlockingAllPairs(tasks, ["spotify", "youtube", "tidal"])).toEqual([])
+        expect(accountSyncsBlockingAllPairs([{mode: "playlist", sourceProvider: "youtube", destinationProvider: "spotify"}], ["spotify", "youtube"])).toEqual([])
+    })
+
+    test("blocks all new tasks when full syncs cover every connected provider pair", () => {
+        const fullSyncs = [...tasks, {mode: "account" as const, sourceProvider: "spotify" as const, destinationProvider: "tidal" as const}, {mode: "account" as const, sourceProvider: "tidal" as const, destinationProvider: "youtube" as const}]
+
+        expect(accountSyncsBlockingAllPairs(fullSyncs, ["spotify", "youtube", "tidal"])).toHaveLength(3)
+        expect(allPairsBlockedMessage(fullSyncs)).toBe("All your connected providers are already covered by full syncs. Delete one of them if you want to create another sync task.")
     })
 })
 

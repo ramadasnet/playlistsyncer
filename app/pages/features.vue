@@ -13,10 +13,11 @@ type PlanValue = string | boolean
 const features = computed<[string, PlanValue, PlanValue][]>(() => [
     ["Playlist pairs", "1", "Unlimited"],
     ["Automatic sync", "Weekly", everyTitleLabel.value],
-    ["Two-way or one-way sync", true, true],
+    ["One-way sync", true, true],
+    ["Two-way sync", true, true],
     ["Manual sync", true, true],
     ["Sync history", false, true],
-    ["Weekly summary and suggestions", false, true]
+    ["Weekly summaries", false, true]
 ])
 </script>
 
@@ -25,24 +26,21 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
         <PageHeading title="Features" description="Start for free with a single playlist synced once a week. Go PRO to get all the tidbits." />
 
         <div v-if="trialEndsAt" class="notice" role="status">
-            <span>
-                Until {{ formatTrialDate(trialEndsAt) }}, every account includes complimentary PRO features while PlaylistSyncer is being tested. After that date, accounts without a subscription keep one playlist pair and extra sync tasks stay saved
-                but disabled.
-            </span>
+            <span> Until {{ formatTrialDate(trialEndsAt) }}, every account includes complimentary PRO features. After that date, accounts without a valid subscription will revert to Free. </span>
         </div>
 
         <section class="plan-grid" aria-label="Account plans">
             <article class="plan-panel">
                 <p class="eyebrow">Free</p>
                 <h2>Sync one playlist</h2>
-                <p class="price">€0 <span>forever</span></p>
+                <p class="price">0 EUR</p>
                 <p>Weekly background sync for the playlist you care about most from one service to another.</p>
                 <NuxtLink class="button button-secondary" :to="auth.user ? '/sync' : '/login'">Start free <ArrowRight :size="17" /></NuxtLink>
             </article>
             <article class="plan-panel featured">
                 <p class="eyebrow light">PRO</p>
                 <h2>Sync everything</h2>
-                <p class="price">{{ config.public.proPrice }} / year</p>
+                <p class="price">{{ config.public.proPrice }} EUR / year</p>
                 <p>Unlimited playlist with synchronization {{ everyLabel }}, sync history, weekly summaries, and more!</p>
                 <NuxtLink class="button button-light" :to="auth.user ? '/account' : '/login'">Get PRO <ArrowRight :size="17" /></NuxtLink>
             </article>
@@ -74,7 +72,7 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
         <section class="provider-support">
             <div>
                 <h2>Built on authorized connections</h2>
-                <p v-if="enabledProviders.length">{{ formatProviderNames(enabledProviders) }} are available now. Need something else? <a href="mailto:info@playlistsyncer.com">Let us know!</a>.</p>
+                <p v-if="enabledProviders.length">{{ formatProviderNames(enabledProviders) }} are integrated using their official APIs.<br />Need something else? <a href="mailto:info@playlistsyncer.com">Let us know!</a></p>
             </div>
             <div v-if="enabledProviders.length" class="provider-stack">
                 <ProviderBadge v-for="provider in enabledProviders" :key="provider" :provider="provider" />

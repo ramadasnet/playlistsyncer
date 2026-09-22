@@ -1,6 +1,7 @@
 // Describe OAuth endpoints and profile mapping for each provider.
 import type {Provider} from "~~/shared/types/domain"
 import {getServerConfig, requireConfig, type ServerConfig} from "../../utils/config"
+import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
 
 interface OAuthProfile {
@@ -25,7 +26,7 @@ interface OAuthProvider {
 async function fetchJson<T>(url: string, accessToken: string, extraHeaders?: HeadersInit): Promise<T> {
     const headers = new Headers(extraHeaders)
     headers.set("Authorization", `Bearer ${accessToken}`)
-    const response = await fetch(url, {headers})
+    const response = await fetchWithRetry(url, {headers}, {label: "OAuth.fetchProfile"})
     if (!response.ok) {
         const requestUrl = new URL(url)
         logger.error("OAuth.fetchProfile", requestUrl.hostname, requestUrl.pathname, `Status ${response.status}`)

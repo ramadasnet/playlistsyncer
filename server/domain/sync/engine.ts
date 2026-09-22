@@ -138,7 +138,7 @@ async function applyDesired(
     const skipped = unmatched.length
     const removals = removedTracks.map((track) => track.itemId)
     if (additions.length || removals.length || skipped) {
-        logger.info("Sync.applyDesired", account.provider, `Playlist ${playlistId}`, `Additions ${additions.length}`, `Removals ${removals.length}`, `Unmatched ${skipped}`)
+        logger.info("Sync.applyDesired", account.provider, `Playlist ${playlistId}`, playlistName, `Additions ${additions.length}`, `Removals ${removals.length}`, `Unmatched ${skipped}`)
     }
     // SAFE_MODE logs the planned membership and leaves music providers untouched.
     if (isSafeModeEnabled()) {
@@ -211,6 +211,16 @@ async function loadAccount(id: ObjectId, userId: ObjectId): Promise<ProviderAcco
         throw createError({statusCode: 409, statusMessage: "A connected provider account is missing"})
     }
     return account
+}
+
+// Describe a task's source and destination provider and playlist for log lines.
+async function describeTask(task: SyncTaskDocument): Promise<string> {
+    const db = await collections()
+    const [sourceAccount, destinationAccount] = await Promise.all([
+        db.providerAccounts.findOne({_id: task.source.providerAccountId}, {projection: {provider: 1}}),
+        db.providerAccounts.findOne({_id: task.destination.providerAccountId}, {projection: {provider: 1}})
+    ])
+    return `${sourceAccount?.provider ?? "?"} "${task.source.name}" -> ${destinationAccount?.provider ?? "?"} "${task.destination.name}"`
 }
 
 // Reconcile one playlist pair and refresh its matching snapshot.
@@ -467,10 +477,11 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     }
     const leaseId = randomUUID()
     const now = new Date()
+    const taskLabel = current ? await describeTask(current) : ""
     if (isSafeModeEnabled()) {
         logger.warn("Sync.safeMode", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "SAFE_MODE is enabled; music providers will not be written")
     }
-    logger.info("Sync.run", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "Acquiring lease")
+    logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Trigger ${trigger}`, "Acquiring lease")
     const task = await db.syncTasks.findOneAndUpdate(
         {
             _id: taskId,
@@ -481,7 +492,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         {returnDocument: "after"}
     )
     if (!task) {
-        logger.warn("Sync.run", `Task ${taskId.toHexString()}`, "Task is paused, missing, or already leased")
+        logger.warn("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, "Task is paused, missing, or already leased")
         throw createError({statusCode: 409, statusMessage: "Task is paused or already running"})
     }
     const run = await db.syncRuns.insertOne({
@@ -497,7 +508,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         unmatchedTracks: [],
         startedAt: now
     })
-    logger.info("Sync.run", `Task ${taskId.toHexString()}`, `Run ${run.insertedId.toHexString()}`, "Started")
+    logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Run ${run.insertedId.toHexString()}`, "Started")
     const recordChanges: RecordTrackChanges = async ({addedTracks = [], removedTracks = [], unmatchedTracks = []}) => {
         if (addedTracks.length) {
             await db.syncRuns.updateOne({_id: run.insertedId}, {$push: {addedTracks: {$each: addedTracks}}, $inc: {additions: addedTracks.length}})
@@ -542,6 +553,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         log(
             "Sync.run",
             `Task ${taskId.toHexString()}`,
+            taskLabel,
             `Run ${run.insertedId.toHexString()}`,
             `Additions ${result.additions}`,
             `Removals ${result.removals}`,
@@ -564,7 +576,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         if (!failed.matchedCount) {
             await db.syncTasks.updateOne({_id: taskId}, {$set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt}})
         }
-        logger.error("Sync.run", `Task ${taskId.toHexString()}`, `Run ${run.insertedId.toHexString()}`, `Duration ${finishedAt.getTime() - now.getTime()}ms`, error)
+        logger.error("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Run ${run.insertedId.toHexString()}`, `Duration ${finishedAt.getTime() - now.getTime()}ms`, error)
         throw error
     }
 }
