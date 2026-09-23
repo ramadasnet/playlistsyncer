@@ -86,6 +86,11 @@ function fakeCollection<T>(docs: T[] = []): Collection<T> {
             store.push(doc)
             return {acknowledged: true, insertedId: new ObjectId()}
         },
+        deleteOne: async (filter: Record<string, unknown>) => {
+            const index = store.findIndex((doc) => matches(doc, filter))
+            if (index >= 0) store.splice(index, 1)
+            return {acknowledged: true, deletedCount: index >= 0 ? 1 : 0}
+        },
         updateOne: async (filter: Record<string, unknown>, update: Record<string, Record<string, unknown>>) => {
             const doc = store.find((item) => matches(item, filter))
             if (doc) {
@@ -193,5 +198,80 @@ describe("initial two-way playlist sync", () => {
             {playlistId: "dest-playlist", trackIds: ["spotify:track:A:0"]},
             {playlistId: "source-playlist", trackIds: ["spotify:track:C:1"]}
         ])
+    })
+})
+
+describe("whole-account playlist mappings", () => {
+    test("retains the destination and mapping when a source disappears, even if another source has the same name", async () => {
+        const accountTaskId = new ObjectId()
+        const orphanMapping = {sourcePlaylistId: "old-source", destinationPlaylistId: "orphan", name: "Road trip"}
+        const accountTask: SyncTaskDocument = {
+            _id: accountTaskId,
+            userId,
+            mode: "account",
+            direction: "one-way",
+            source: {providerAccountId: sourceAccountId, playlistId: "__all__", name: "All playlists"},
+            destination: {providerAccountId: destAccountId, playlistId: "__all__", name: "All playlists"},
+            playlistMappings: [orphanMapping],
+            status: "active",
+            nextRunAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+        }
+        const user = (await db.users.findOne({_id: userId}))!
+        const originalTier = user.tier
+        const originalListPlaylists = adapter.listPlaylists
+        const originalCreatePlaylist = adapter.createPlaylist
+        const originalDeletePlaylist = adapter.deletePlaylist
+        const originalGetPlaylistItems = adapter.getPlaylistItems
+        const destinations = [{id: "orphan", name: "Road trip", itemCount: 1}]
+        let sources: typeof destinations = []
+        const deleted: string[] = []
+        const readItems: string[] = []
+        let created = 0
+
+        user.tier = "pro"
+        adapter.listPlaylists = async (account) => (account._id?.equals(sourceAccountId) ? [...sources] : [...destinations])
+        adapter.createPlaylist = async (_account, name) => {
+            const destination = {id: `created-${++created}`, name, itemCount: 0}
+            destinations.push(destination)
+            return destination
+        }
+        adapter.deletePlaylist = async (_account, playlistId) => {
+            deleted.push(playlistId)
+        }
+        adapter.getPlaylistItems = async (account, playlistId) => {
+            readItems.push(playlistId)
+            return originalGetPlaylistItems(account, playlistId)
+        }
+        await db.syncTasks.insertOne(accountTask)
+
+        try {
+            const firstRun = await runSyncTask(accountTaskId, "manual")
+            expect(firstRun.removals).toBe(0)
+            expect(deleted).toEqual([])
+            expect(readItems).not.toContain("orphan")
+            expect(accountTask.playlistMappings).toEqual([orphanMapping])
+
+            sources = [{id: "new-source", name: "Road trip", itemCount: 0}]
+            await runSyncTask(accountTaskId, "manual")
+            expect(created).toBe(1)
+            expect(deleted).toEqual([])
+            expect(readItems).not.toContain("orphan")
+            expect(accountTask.playlistMappings).toEqual([orphanMapping, {sourcePlaylistId: "new-source", destinationPlaylistId: "created-1", name: "Road trip"}])
+
+            sources = [{id: "old-source", name: "Road trip", itemCount: 0}, ...sources]
+            await runSyncTask(accountTaskId, "manual")
+            expect(created).toBe(1)
+            expect(readItems).toContain("orphan")
+            expect(accountTask.playlistMappings?.[0]).toEqual(orphanMapping)
+        } finally {
+            user.tier = originalTier
+            adapter.listPlaylists = originalListPlaylists
+            adapter.createPlaylist = originalCreatePlaylist
+            adapter.deletePlaylist = originalDeletePlaylist
+            adapter.getPlaylistItems = originalGetPlaylistItems
+            await db.syncTasks.deleteOne({_id: accountTaskId})
+        }
     })
 })

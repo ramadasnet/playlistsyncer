@@ -50,7 +50,7 @@ Sync runs are retained for 180 days and webhook event records for 90 days.
 
 - If the user selects `ALL Playlists` as the source, a full sync will consider the first provider the master and the second provider the mirror.
 - Each source playlist is matched to its durable destination mapping, then by an unclaimed playlist with the same name, or created as a new playlist if it doesn't exist.
-- When a previously mapped source playlist disappears, its mapped destination playlist is not deleted.
+- When a previously mapped source playlist disappears, its destination and mapping are retained. That destination is not reused for another source playlist with the same name, and synchronization resumes if the original source returns.
 - Every execution acquires a 15-minute database lease and records additions, removals, conflicts, skipped tracks, and failures. This prevents overlapping manual and scheduled runs of the same task.
 
 ## Plans and scheduling

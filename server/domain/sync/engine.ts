@@ -9,7 +9,7 @@ import {applyTaskEntitlement} from "../billing/task-entitlement"
 import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
 import {getServerConfig} from "../../utils/config"
-import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModeDeletePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges} from "./safe-mode"
+import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges} from "./safe-mode"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
 
 const leaseDurationMs = 15 * 60 * 1000
@@ -381,10 +381,9 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
     const destinationAdapter = getProviderAdapter(destinationAccount.provider)
     const [sourcePlaylists, destinationPlaylists] = await Promise.all([sourceAdapter.listPlaylists(sourceAccount), destinationAdapter.listPlaylists(destinationAccount)])
-    const sourceIds = new Set(sourcePlaylists.map((playlist) => playlist.id))
     const destinationById = new Map(destinationPlaylists.map((playlist) => [playlist.id, playlist]))
     const mappings: PlaylistMapping[] = [...(task.playlistMappings || [])]
-    const claimedDestinationIds = new Set(mappings.filter((mapping) => sourceIds.has(mapping.sourcePlaylistId)).map((mapping) => mapping.destinationPlaylistId))
+    const claimedDestinationIds = new Set(mappings.map((mapping) => mapping.destinationPlaylistId))
     const persistMappings = () => db.syncTasks.updateOne({_id: task._id!}, {$set: {playlistMappings: mappings, updatedAt: new Date()}})
     let additions = 0
     let removals = 0
@@ -432,27 +431,6 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
         additions += result.additions
         removals += result.removals
         skipped += result.skipped
-    }
-
-    for (let index = mappings.length - 1; index >= 0; index--) {
-        const mapping = mappings[index]!
-        if (sourceIds.has(mapping.sourcePlaylistId)) continue
-        const destinationPlaylist = destinationById.get(mapping.destinationPlaylistId)
-        if (destinationPlaylist) {
-            const removedItems = await destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylist.id)
-            if (isSafeModeEnabled()) {
-                logSafeModeDeletePlaylist(destinationAccount.provider, destinationPlaylist.id, mapping.name || destinationPlaylist.name, removedItems)
-                removals += destinationPlaylist.itemCount
-                continue
-            }
-            await destinationAdapter.deletePlaylist(destinationAccount, destinationPlaylist.id)
-            await recordChanges({
-                removedTracks: trackReferences(destinationAccount, destinationPlaylist.id, removedItems, mapping.name || destinationPlaylist.name)
-            })
-            removals += destinationPlaylist.itemCount
-        }
-        mappings.splice(index, 1)
-        await persistMappings()
     }
 
     logger.info("Sync.executeAccount", `Task ${task._id!.toHexString()}`, `Playlists ${sourcePlaylists.length}`, `Additions ${additions}`, `Removals ${removals}`, `Unmatched ${skipped}`)
