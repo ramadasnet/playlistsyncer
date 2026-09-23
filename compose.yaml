@@ -1,5 +1,4 @@
 services:
-
   app:
     container_name: playlistsyncer-app
     restart: unless-stopped
@@ -23,7 +22,7 @@ services:
           "const response = await fetch('http://localhost:3007/api/health'); process.exit(response.ok ? 0 : 1)",
         ]
       interval: 10s
-      timeout: 4s
+      timeout: 10s
       retries: 10
       start_period: 10s
 
@@ -41,6 +40,6 @@ services:
       interval: 10s
       timeout: 4s
       retries: 10
-    
+
 volumes:
   mongodb-data:
