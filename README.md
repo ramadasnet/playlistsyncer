@@ -56,18 +56,157 @@ Sync runs are retained for 180 days and webhook event records for 90 days.
 ## Plans and scheduling
 
 - Free: one playlist-pair task, weekly scheduled runs, and a 24-hour cooldown between successful manual runs.
-- PRO: unlimited playlist-pair and whole-account tasks, scheduled every 12 hours, with no manual-run cooldown. Every account can open the latest run's added, removed, and unmatched tracks. Browsing past runs is a PRO feature. An optional weekly email lists playlists and tracks added or removed, and is sent only when there were changes.
-- Complimentary trial: set `PRO_SUBSCRIPTION_REQUIRED_AT` to an ISO 8601 instant. Until that moment, every account has effective PRO access without a subscription and can still start checkout to keep PRO afterward.
+- PRO: unlimited playlist-pair and whole-account tasks, scheduled every 720 minutes (12 hours) by default, with no manual-run cooldown. Every account can open the latest run's added, removed, and unmatched tracks. Browsing past runs is a PRO feature. An optional weekly email lists playlists and tracks added or removed, and is sent only when there were changes.
+- Complimentary trial: set `PLS_PRO_SUBSCRIPTION_REQUIRED_AT` to an ISO 8601 instant. Until that moment, every account has effective PRO access without a subscription and can still start checkout to keep PRO afterward.
 
-Creem webhook events are the source of truth for paid entitlement. Downgrades and the end of the complimentary trial retain tasks and history. Extra playlist-pair tasks and every whole-account task are paused with an entitlement lock: they cannot run or be edited, and the UI explains that a PRO subscription is needed. The earliest playlist-pair task stays enabled on Free. In local development, `DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
-
-On startup, legacy whole-account tasks are assigned a provider-pair key to prevent concurrent creation of duplicate full syncs. If existing tasks already share a provider pair, the oldest claims the key and the other tasks are retained but paused with a conflict notice. Delete the duplicate tasks to clear the conflict; they cannot be resumed.
+Creem webhook events are the source of truth for paid entitlement. Downgrades and the end of the complimentary trial retain tasks and history. Extra playlist-pair tasks and every whole-account task are paused with an entitlement lock: they cannot run or be edited, and the UI explains that a PRO subscription is needed. The earliest playlist-pair task stays enabled on Free. In local development, `PLS_DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
 
 ## Authentication and security
 
-OAuth uses Authorization Code with PKCE, hashed single-use state, exact callback URLs, and ten-minute transaction expiry. Automatic registration matches a provider-verified email to an existing account. If the provider does not share a verified email, the user is signed in and sent to the account page to enter an address. That value is stored as a temporary email until the user confirms it from a mailed link; only then is it set on the profile. An already authenticated user may explicitly link another provider account, but only one account per provider. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies outside development.
+The service has no manual registration process. Instead, users are registered as soon as they login with an account from any of the available music providers. If the provider does not share a verified email, the user is signed in and sent to the account page to enter (and then confirm) an email address.
 
-Provider tokens are encrypted at rest with versioned AES-GCM values. Access tokens are refreshed 15 minutes before expiry, concurrent refreshes for the same account are coalesced, and a provider 401 retries once after a forced refresh. External HTTP requests (provider APIs and OAuth) go through `server/utils/fetch-retry.ts`, which applies a per-attempt timeout and retries rate limits (429, plus YouTube `rateLimitExceeded` 403s for provider API requests), transient 408/5xx errors, and network failures with jittered exponential backoff when safe to repeat, honoring `Retry-After` up to 30 seconds by default. Non-idempotent requests, including playlist additions, OAuth code exchanges, and token refreshes, retry only rate-limit responses. Creem uses its SDK's own timeout and retry settings. Provider API requests and OAuth profile requests pass through a process-wide limiter per provider (`server/domain/providers/rate-limit.ts`) shared by every account: request starts are spaced to stay under the provider's configured requests per minute, and a rate limit hit by any account pauses and queues every pending request for that provider until `Retry-After` has passed (5 seconds when absent, growing with each consecutive slowdown), then resumes at half pace and recovers one step per idle minute. Provider API requests retry rate limits up to 5 times and honor cooldowns up to 5 minutes; longer cooldowns fail with 429 instead of queueing. The limiter coordinates a single app instance; multiple instances each pace independently. Mutating application requests are restricted to the configured origin, scheduler routes require a constant-time-checked bearer secret, and Creem webhooks require valid signatures and unique event IDs. Secrets, authorization headers, OAuth codes and tokens, raw webhook payloads, and email addresses are excluded from logs.
+An already authenticated user may explicitly link another provider account, but only one account per provider. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies.
+
+## Rate limits
+
+The music providers have strict rate limits, and these are set via environment variables per provider.
+
+Provider API requests retry rate limits up to 5 times and honor cooldowns up to 5 minutes; longer cooldowns fail with 429 instead of queueing. The limiter coordinates a single app instance, so running the service in multiple instances might trigger 429 more often.
+
+## Logging
+
+Development logging output is timestamped and includes `INFO`, `WARN`, or `ERROR` plus a component name / reference such as `OAuth.finish`, `Sync.run`, or `Creem.processEvent`.
+
+Production containers set `PLS_JSON_LOGGING=true` and emit one JSON object per line with GCP-compatible severity names, for example `{"severity":"INFO","message":"..."}`. This format is also ingested by AWS CloudWatch and other container log collectors. Set `PLS_JSON_LOGGING=false` to retain human-readable output in a production process.
+
+Secrets will be masked automatically, except for `DEBUG` which might contain the full response or request trail.
+
+## Environment variables
+
+Application settings use the `PLS_` prefix.
+
+| Variable                              | Description                                                                                                                                  | Default when unset                                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                            | Runtime mode; production enables secure cookies and production logging.                                                                      | Runtime-dependent; Docker sets `production`                                                             |
+| `HOST`                                | Address the production HTTP server binds to.                                                                                                 | Runtime-dependent; Docker sets `0.0.0.0`                                                                |
+| `PORT`                                | Port the production HTTP server listens on.                                                                                                  | Runtime-dependent; Docker sets `3007`                                                                   |
+| `NITRO_PRESET`                        | Nuxt build output target.                                                                                                                    | `bun` (also set by the build script)                                                                    |
+| `PLS_APP_URL`                         | Base app URL including http(s); used for OAuth callbacks and origin checks.                                                                 | `http://localhost:3007`                                                                                 |
+| `PLS_APP_NAME`                        | Public application name.                                                                                                                     | `PlaylistSyncer`                                                                                        |
+| `PLS_DEVTOOLS`                        | Enable Nuxt DevTools only when set to `true`.                                                                                                | `false`                                                                                                 |
+| `PLS_SUPPORT_EMAIL`                   | Public support address and fallback SMTP sender address.                                                                                     | Unset; `.env.example` uses `info@playlistsyncer.com`                                                    |
+| `PLS_CHATBASE_HELP_URL`               | Public help-chat URL.                                                                                                                        | Unset; `.env.example` supplies the chat URL                                                             |
+| `PLS_JSON_LOGGING`                    | Emit JSON severity logs when `true` in production.                                                                                           | `false`; Docker sets `true`                                                                             |
+| `PLS_SAFE_MODE`                       | Block writes to music providers and log the intended changes.                                                                                | `false`                                                                                                 |
+| `PLS_SESSION_SECRET`                  | Secret used for server-side session and email-confirmation tokens.                                                                           | Unset; required for sessions                                                                            |
+| `PLS_TOKEN_ENCRYPTION_KEY`            | Key material for encrypting provider tokens and OAuth verifiers.                                                                             | Unset; required for OAuth                                                                               |
+| `PLS_SCHEDULER_SECRET`                | Bearer secret protecting scheduled job endpoints.                                                                                            | Unset; required for jobs                                                                                |
+| `PLS_MONGODB_URI`                     | MongoDB connection URI.                                                                                                                      | Unset; `.env.example` uses `mongodb://localhost:27017/playlistsync`, Compose uses the `mongodb` service |
+| `PLS_MONGODB_DATABASE`                | Database name within MongoDB.                                                                                                                | `playlistsync`                                                                                          |
+| `PLS_SMTP_HOST`                       | SMTP server for confirmation and summary emails; omitting it disables delivery.                                                              | Unset                                                                                                   |
+| `PLS_SMTP_PORT`                       | SMTP server port (465 uses implicit TLS; other ports require STARTTLS).                                                                      | `587`                                                                                                   |
+| `PLS_SMTP_USER`                       | SMTP authentication username.                                                                                                                | Unset                                                                                                   |
+| `PLS_SMTP_PASSWORD`                   | SMTP authentication password.                                                                                                                | Unset                                                                                                   |
+| `PLS_SMTP_FROM`                       | Sender name and address for outgoing mail.                                                                                                   | `PlaylistSyncer <PLS_SUPPORT_EMAIL>`                                                                    |
+| `PLS_DEVELOPMENT_PRO_USER_EMAILS`     | Comma-separated email addresses with a PRO override in development only.                                                                     | Empty list                                                                                              |
+| `PLS_PRO_SUBSCRIPTION_REQUIRED_AT`    | ISO 8601 cutoff for complimentary PRO access in both scheduling and public plan copy; absent means a subscription is required immediately.   | Unset                                                                                                   |
+| `PLS_TASKSYNC_INTERVAL`               | Minutes after a successful PRO sync until the next automatic run is due; also controls the public cadence label. Must be a positive integer. | `720` (12 hours)                                                                                        |
+| `PLS_SPOTIFY_CLIENT_ID`               | Spotify OAuth client ID.                                                                                                                     | Unset                                                                                                   |
+| `PLS_SPOTIFY_CLIENT_SECRET`           | Spotify OAuth client secret.                                                                                                                 | Unset                                                                                                   |
+| `PLS_GOOGLE_CLIENT_ID`                | Google OAuth client ID for YouTube.                                                                                                          | Unset                                                                                                   |
+| `PLS_GOOGLE_CLIENT_SECRET`            | Google OAuth client secret for YouTube.                                                                                                      | Unset                                                                                                   |
+| `PLS_TIDAL_CLIENT_ID`                 | TIDAL OAuth client ID.                                                                                                                       | Unset                                                                                                   |
+| `PLS_TIDAL_CLIENT_SECRET`             | TIDAL OAuth client secret.                                                                                                                   | Unset                                                                                                   |
+| `PLS_AMAZON_CLIENT_ID`                | Login with Amazon client ID.                                                                                                                 | Unset                                                                                                   |
+| `PLS_AMAZON_CLIENT_SECRET`            | Login with Amazon client secret.                                                                                                             | Unset                                                                                                   |
+| `PLS_AMAZON_MUSIC_API_BASE_URL`       | Reserved endpoint for an approved Amazon Music partner API.                                                                                  | Unset                                                                                                   |
+| `PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE` | Shared Spotify request pacing; `0` disables pacing.                                                                                          | `120`                                                                                                   |
+| `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE` | Shared YouTube request pacing; `0` disables pacing.                                                                                          | `300`                                                                                                   |
+| `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE`   | Shared TIDAL request pacing; `0` disables pacing.                                                                                            | `60`                                                                                                    |
+| `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE`  | Shared Amazon request pacing; `0` disables pacing.                                                                                           | `60`                                                                                                    |
+| `PLS_CREEM_API_KEY`                   | Creem API credential for checkout and price lookup.                                                                                          | Unset                                                                                                   |
+| `PLS_CREEM_PRO_PRODUCT_ID`            | Creem product charged at PRO checkout and used for the displayed price.                                                                      | Unset                                                                                                   |
+| `PLS_CREEM_WEBHOOK_SECRET`            | Secret used to verify Creem webhook signatures.                                                                                              | Unset                                                                                                   |
+| `PLS_CREEM_SERVER`                    | Creem environment: `test` or `prod`.                                                                                                         | `test`                                                                                                  |
+
+## Setup guide
+
+Some of the environment variables are optional, and will dictate which features are enabled or disabled in the service.
+
+- Changing `PLS_TOKEN_ENCRYPTION_KEY` after deployment makes previously encrypted OAuth tokens and credentials unreadable; keep the key stable.
+- To send emails, these must be set: `PLS_SMTP_HOST`, `PLS_SMTP_PORT` (587 by default), `PLS_SMTP_USER`, `PLS_SMTP_PASSWORD`, and `PLS_SMTP_FROM`.
+- When SMTP is not configured, confirmation emails are skipped. In non-production the account page can expose a development confirmation link.
+- For local development, set `PLS_DEVELOPMENT_PRO_USER_EMAILS` to a comma-separated list of account email addresses that should receive effective PRO access without a subscription. The override is ignored whenever `NODE_ENV=production`, and affected accounts are labeled as development overrides in the UI.
+- Set `PLS_PRO_SUBSCRIPTION_REQUIRED_AT` to the ISO 8601 instant when PRO features start requiring a paid subscription, for example `2027-01-01T00:00:00.000Z`. Until that instant, every signed-in account receives complimentary PRO access so the service can be tested with the full feature set. Once the instant has passed, accounts without a paid subscription (or development override) drop back to the Free edition.
+- Provider API rate limits are configured individually, set to `0` to disable:
+    - `PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE` (default 120)
+    - `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE` (default 300)
+    - `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE` (default 60)
+    - `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE` (default 60)
+
+### Spotify
+
+Create a Spotify Web API app and supply `PLS_SPOTIFY_CLIENT_ID` and `PLS_SPOTIFY_CLIENT_SECRET`.
+
+Register this redirect URI exactly:
+
+```text
+${PLS_APP_URL}/api/auth/spotify/callback
+```
+
+Scopes requested: `user-read-email`, `playlist-read-private`, `playlist-read-collaborative`, `playlist-modify-private`, and `playlist-modify-public`. Current Spotify policy may require Premium and development-mode user allowlisting during testing.
+
+### Google / YouTube Music
+
+Enable YouTube Data API v3, configure the OAuth consent screen, create a Web application OAuth client, and supply `PLS_GOOGLE_CLIENT_ID` and `PLS_GOOGLE_CLIENT_SECRET`.
+
+Register this redirect URI exactly:
+
+```text
+${PLS_APP_URL}/api/auth/youtube/callback
+```
+
+Scopes requested: `openid`, `email`, `profile`, and `https://www.googleapis.com/auth/youtube`. Add test users while the consent screen is in testing mode.
+
+### TIDAL
+
+Create a TIDAL Developer Platform app and supply `PLS_TIDAL_CLIENT_ID` and `PLS_TIDAL_CLIENT_SECRET`.
+
+Register this redirect URI exactly:
+
+```text
+${PLS_APP_URL}/api/auth/tidal/callback
+```
+
+Scopes requested: `user.read`, `playlists.read`, `playlists.write`, and `search.read`.
+
+### Amazon
+
+**Amazon Music is currently not approving new integrations via the API, so this has NOT been tested with PlaylistSyncer yet!**
+
+Supply Login with Amazon values in `PLS_AMAZON_CLIENT_ID` and `PLS_AMAZON_CLIENT_SECRET`, with this exact return URL:
+
+```text
+${PLS_APP_URL}/api/auth/amazon/callback
+```
+
+### Creem
+
+Create a recurring PRO Product in your Creem account and supply:
+
+- `PLS_CREEM_API_KEY`
+- `PLS_CREEM_PRO_PRODUCT_ID`
+- `PLS_CREEM_WEBHOOK_SECRET`
+- `PLS_CREEM_SERVER`: `test` for sandbox billing or `prod` for live billing
+When `PLS_CREEM_API_KEY` is set, startup loads the price of the `PLS_CREEM_PRO_PRODUCT_ID` product. The public display falls back to `9.99 EUR` if that lookup fails.
+
+Register the HTTPS webhook endpoint:
+
+```text
+${PLS_APP_URL}/api/webhooks/creem
+```
+
+Subscribe to Creem checkout and subscription events. At minimum, enable `checkout.completed`, `subscription.paid`, `subscription.active`, `subscription.trialing`, `subscription.update`, `subscription.scheduled_cancel`, `subscription.canceled`, `subscription.expired`, `subscription.past_due`, `subscription.unpaid`, and `subscription.paused`. Configure the endpoint and copy its signing secret from the Creem dashboard's Developers section.
 
 ## Running locally
 
@@ -80,9 +219,9 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Open the origin configured in `APP_URL` (`http://localhost:3007` by default). The app can render public pages without credentials; authentication, readiness, billing, and playlist APIs require their respective environment values.
+Open the origin configured in `PLS_APP_URL` (`http://localhost:3007` by default). The app can render public pages without credentials; authentication, billing, and playlist APIs require their respective environment values.
 
-`nuxt dev` does not run a persistent TypeScript checker (that watcher is what pushed idle memory over 1GB). Use `bun run typecheck` or `bun run check` instead. Nuxt DevTools stays off unless you start the app with `NUXT_DEVTOOLS=true`. Local MongoDB is started with a 256MB WiredTiger cache so it does not reserve half of system RAM while idle.
+Please note that `nuxt dev` does not run a persistent TypeScript checker and has the DevTools disabled to minimize memory usage. Use `bun run typecheck` or `bun run check`, and the `PLS_DEVTOOLS=true` env variable setting if you want to enable those. Local MongoDB is started with a 256MB WiredTiger cache, also to minimize memory usage.
 
 Run checks:
 
@@ -98,125 +237,31 @@ Run the complete container stack:
 docker compose up --build
 ```
 
-## Logging
-
-Server logging follows the Strautomator standard through `anyhow`. Development output is timestamped and includes `INFO`, `WARN`, or `ERROR` plus a component name such as `OAuth.finish`, `Sync.run`, or `Creem.processEvent`.
-
-Production containers set `JSON_LOGGING=true` and emit one JSON object per line with GCP-compatible severity names, for example `{"severity":"INFO","message":"..."}`. This format is also ingested by AWS CloudWatch and other container log collectors. Set `JSON_LOGGING=false` to retain human-readable output in a production process.
-
-Logged paths include server/database lifecycle, OAuth and sessions, provider requests and token refresh, sync runs and reconciliation counts, scheduled batches, task changes, and Creem billing/webhooks. OAuth codes, tokens, raw webhook payloads, authorization headers, secrets, and email addresses are not logged; `maskSecrets` is also enabled as a second line of defense.
-
-## Credentials needed for testing
-
-### Shared application values
-
-- `APP_URL`: exact externally visible origin, without a path, such as `http://localhost:3007` or `https://dev.playlistsyncer.com`. OAuth callbacks, billing redirects, webhook documentation, and same-origin request checks derive from this value. `NUXT_PUBLIC_SITE_URL` remains supported as a legacy fallback.
-- `SESSION_SECRET`: any non-empty string; use a unique, high-entropy value in production
-- `TOKEN_ENCRYPTION_KEY`: any non-empty string; the service derives a 256-bit AES key from it
-- `SCHEDULER_SECRET`: any non-empty string; callers send this exact value as the bearer token
-- `MONGODB_URI` and `MONGODB_DATABASE`
-
-Optional SMTP values for email confirmation after social registration without a provider email:
-
-- `SMTP_HOST`, `SMTP_PORT` (587 by default), `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`
-- When SMTP is not configured, confirmation emails are skipped. In non-production the account page can expose a development confirmation link.
-
-For local development, set `DEVELOPMENT_PRO_USER_EMAILS` to a comma-separated list of account email addresses that should receive effective PRO access without a subscription. The override is ignored whenever `NODE_ENV=production`, and affected accounts are labeled as development overrides in the UI.
-
-Set `PRO_SUBSCRIPTION_REQUIRED_AT` to the ISO 8601 instant when PRO features start requiring a paid subscription, for example `2027-01-01T00:00:00.000Z`. Until that instant, every signed-in account receives complimentary PRO access so the service can be tested with the full feature set. Once the instant has passed, accounts without a paid subscription (or development override) drop to Free: extra sync tasks stay saved but locked, and only the first playlist pair remains enabled. Leave the variable empty to require a subscription immediately.
-
-Provider API pacing is configured with `SPOTIFY_MAX_REQUESTS_PER_MINUTE` (default 120), `YOUTUBE_MAX_REQUESTS_PER_MINUTE` (default 300), `TIDAL_MAX_REQUESTS_PER_MINUTE` (default 60), and `AMAZON_MAX_REQUESTS_PER_MINUTE` (default 60). Each limit is shared by all accounts of that provider; `0` disables pacing while keeping the rate limit cooldown.
-
-Changing `TOKEN_ENCRYPTION_KEY` without a key-rotation migration makes stored OAuth tokens unreadable. Provider client secrets, database credentials, and webhook signing secrets are externally issued credentials and must still be configured exactly as provided.
-
-### Spotify
-
-Create a Spotify Web API app and supply `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`.
-
-Register this redirect URI exactly:
-
-```text
-${APP_URL}/api/auth/spotify/callback
-```
-
-Scopes requested: `user-read-email`, `playlist-read-private`, `playlist-read-collaborative`, `playlist-modify-private`, and `playlist-modify-public`. Current Spotify policy may require Premium and development-mode user allowlisting during testing.
-
-### Google / YouTube Music
-
-Enable YouTube Data API v3, configure the OAuth consent screen, create a Web application OAuth client, and supply `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-
-Register this redirect URI exactly:
-
-```text
-${APP_URL}/api/auth/youtube/callback
-```
-
-Scopes requested: `openid`, `email`, `profile`, and `https://www.googleapis.com/auth/youtube`. Add test users while the consent screen is in testing mode. Playlist synchronization uses official YouTube video playlists visible in YouTube Music, not an unofficial YouTube Music API.
-
-### TIDAL
-
-Create a TIDAL Developer Platform app and supply `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET`.
-
-Register this redirect URI exactly:
-
-```text
-${APP_URL}/api/auth/tidal/callback
-```
-
-Scopes requested: `user.read`, `playlists.read`, `playlists.write`, and `search.read`. Playlist synchronization uses the official TIDAL JSON:API at `https://openapi.tidal.com/v2`. User-owned playlists are listed, created as unlisted, and matched by ISRC when available.
-
-### Amazon
-
-Supply Login with Amazon values in `AMAZON_CLIENT_ID` and `AMAZON_CLIENT_SECRET`, with this exact return URL:
-
-```text
-${APP_URL}/api/auth/amazon/callback
-```
-
-The approved Amazon Music partner API documentation is still needed to implement its playlist adapter. Specifically provide the API base URL, authorization/scopes, playlist list/items schemas, catalog search contract, add/remove/reorder operations, pagination, quotas, and sandbox details. `AMAZON_MUSIC_API_BASE_URL` is reserved for that approved endpoint. Login works independently; playlist calls intentionally return `501` until the contract is implemented.
-
-### Creem
-
-Create a recurring PRO Product and supply:
-
-- `CREEM_API_KEY`
-- `CREEM_PRO_PRODUCT_ID`
-- `CREEM_WEBHOOK_SECRET`
-- `CREEM_SERVER`: `test` for sandbox billing or `prod` for live billing
-- `NUXT_PUBLIC_PRO_PRICE`, fallback display label such as `9.99 EUR`. When `CREEM_API_KEY` is set, startup loads the price of the `CREEM_PRO_PRODUCT_ID` product and uses this value only if that lookup fails.
-
-Register the HTTPS webhook endpoint:
-
-```text
-${APP_URL}/api/webhooks/creem
-```
-
-Subscribe to Creem checkout and subscription events. At minimum, enable `checkout.completed`, `subscription.paid`, `subscription.active`, `subscription.trialing`, `subscription.update`, `subscription.scheduled_cancel`, `subscription.canceled`, `subscription.expired`, `subscription.past_due`, `subscription.unpaid`, and `subscription.paused`. Configure the endpoint and copy its signing secret from the Creem dashboard's Developers section.
-
 ## Scheduled jobs
+
+### Triggering sync tasks
 
 Invoke the portable due-task endpoint from Cloud Scheduler, EventBridge Scheduler, cron, or any HTTPS scheduler:
 
 ```bash
-curl -X POST "$APP_URL/api/jobs/sync-due" \
-	-H "Authorization: Bearer $SCHEDULER_SECRET"
+curl -X POST "$PLS_APP_URL/api/jobs/sync-due" \
+	-H "Authorization: Bearer $PLS_SCHEDULER_SECRET"
 ```
 
-Call it at least every 12 hours; hourly is recommended because the endpoint selects only tasks whose own `nextRunAt` is due. It processes at most ten tasks per call, with MongoDB leases preventing concurrent runs. A targeted retry is available at `POST /api/jobs/sync-task/:id` with the same bearer token.
+Schedule the endpoint independently from `PLS_TASKSYNC_INTERVAL`, which sets each PRO task's due time, not the scheduler's polling frequency. Call it at least as often as the configured interval (hourly is suitable for the default 720 minutes). The endpoint selects only tasks whose own `nextRunAt` is due. It processes at most ten tasks per call, with MongoDB leases preventing concurrent runs. A targeted retry is available at `POST /api/jobs/sync-task/:id` with the same bearer token.
 
 Send weekly PRO playlist summaries with the same bearer token:
 
 ```bash
-curl -X POST "$APP_URL/api/jobs/weekly-sync-summary" \
-	-H "Authorization: Bearer $SCHEDULER_SECRET"
+curl -X POST "$PLS_APP_URL/api/jobs/weekly-sync-summary" \
+	-H "Authorization: Bearer $PLS_SCHEDULER_SECRET"
 ```
 
 Call it at least once a week; hourly is safe because each opted-in PRO account is due only every seven days. The job emails a playlist-by-playlist list of added and removed tracks, and skips the send when nothing changed. It processes at most 25 accounts per call.
 
 ## Runtime endpoints
 
-- `GET /api/health`: process liveness, no dependencies
-- `GET /api/ready`: MongoDB connectivity
+- `GET /api/health`: HTTP 200 with `status: "ok"` only when MongoDB responds to a ping; HTTP 503 with `status: "unhealthy"` otherwise
 - `POST /api/jobs/sync-due`: authenticated scheduled batch
 - `POST /api/jobs/weekly-sync-summary`: authenticated weekly PRO sync summary emails
 - `POST /api/webhooks/creem`: Creem-signed subscription events
