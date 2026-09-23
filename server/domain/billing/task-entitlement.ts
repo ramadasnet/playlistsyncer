@@ -39,7 +39,7 @@ export function planTaskEntitlement(tasks: TaskEntitlementFields[], isPro: boole
     }
     const retainedId = retainedFreeTierTask(withIds)?._id
     return {
-        pauseIds: withIds.filter((task) => !task._id.equals(retainedId) && task.pauseReason !== "user" && task.pauseReason !== "entitlement" && task.pauseReason !== "conflict").map((task) => task._id),
+        pauseIds: withIds.filter((task) => !task._id.equals(retainedId) && task.pauseReason !== "user" && task.pauseReason !== "entitlement").map((task) => task._id),
         resumeIds: withIds.filter((task) => task._id.equals(retainedId) && task.pauseReason === "entitlement").map((task) => task._id)
     }
 }
@@ -59,7 +59,7 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
         return
     }
     const retainedTask = await db.syncTasks
-        .find({userId: user._id, mode: {$ne: "account"}})
+        .find({userId: user._id, mode: "playlist"})
         .sort({createdAt: 1})
         .limit(1)
         .next()
@@ -67,7 +67,7 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
         {
             userId: user._id,
             ...(retainedTask?._id ? {_id: {$ne: retainedTask._id}} : {}),
-            pauseReason: {$nin: ["user", "entitlement", "conflict"]}
+            pauseReason: {$nin: ["user", "entitlement"]}
         },
         {
             $set: {status: "paused", pauseReason: "entitlement", updatedAt: new Date()},

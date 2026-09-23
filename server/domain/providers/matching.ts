@@ -2,7 +2,6 @@
 import type {ProviderTrack} from "./types"
 
 // Increment when matching semantics change so existing snapshots can be rebuilt.
-export const trackMatchingVersion = 2
 
 const bracketedTitleNoise = /\s*[([][^\])]*(?:official|video|audio|lyrics?|visuali[sz]er|remaster(?:ed)?|hd|hq)[^\])]*[\])]\s*$/i
 const trailingTitleNoise = /\s*[-–—]\s*(?:(?:official\s+)?(?:music\s+)?(?:video|audio|lyrics?|visuali[sz]er)|(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?|hd|hq)\s*$/i

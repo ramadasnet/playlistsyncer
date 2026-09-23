@@ -47,14 +47,8 @@ export type SyncTaskDirection = "two-way" | "one-way"
 export type SyncTaskStatus = "active" | "paused" | "needs_attention"
 export type SyncRunStatus = "running" | "succeeded" | "partial" | "failed"
 
-// Resolve legacy task records that omitted their explicit direction.
-export function resolvedTaskDirection(task: {mode?: SyncTaskMode; direction?: SyncTaskDirection}): SyncTaskDirection {
-    if (task.direction) return task.direction
-    return task.mode === "account" ? "one-way" : "two-way"
-}
-
 // Find an all-playlists task covering this provider pair in either direction, since the mirror account must not sync back to its master.
-export function findAccountSyncBetweenProviders<T extends {mode?: SyncTaskMode; sourceProvider: Provider; destinationProvider: Provider}>(tasks: readonly T[], sourceProvider: Provider, destinationProvider: Provider): T | undefined {
+export function findAccountSyncBetweenProviders<T extends {mode: SyncTaskMode; sourceProvider: Provider; destinationProvider: Provider}>(tasks: readonly T[], sourceProvider: Provider, destinationProvider: Provider): T | undefined {
     return tasks.find((task) => task.mode === "account" && ((task.sourceProvider === sourceProvider && task.destinationProvider === destinationProvider) || (task.sourceProvider === destinationProvider && task.destinationProvider === sourceProvider)))
 }
 
@@ -69,7 +63,7 @@ export function accountSyncConflictMessage(task: {sourceProvider: Provider; dest
 }
 
 // Return the all-playlists tasks blocking every pair of connected accounts, or nothing when at least one pair can still be synced.
-export function accountSyncsBlockingAllPairs<T extends {mode?: SyncTaskMode; sourceProvider: Provider; destinationProvider: Provider}>(tasks: readonly T[], accountProviders: readonly Provider[]): T[] {
+export function accountSyncsBlockingAllPairs<T extends {mode: SyncTaskMode; sourceProvider: Provider; destinationProvider: Provider}>(tasks: readonly T[], accountProviders: readonly Provider[]): T[] {
     const blocking = new Set<T>()
     for (let i = 0; i < accountProviders.length; i++) {
         for (let j = i + 1; j < accountProviders.length; j++) {
@@ -146,7 +140,7 @@ export interface OAuthTransactionDocument {
     _id?: ObjectId
     provider: Provider
     stateHash: string
-    codeVerifier: EncryptedValue | string
+    codeVerifier: EncryptedValue
     linkingUserId?: ObjectId
     redirectAfter: string
     expiresAt: Date
@@ -171,14 +165,14 @@ export interface PlaylistMapping {
 export interface SyncTaskDocument {
     _id?: ObjectId
     userId: ObjectId
-    mode?: SyncTaskMode
-    direction?: SyncTaskDirection
+    mode: SyncTaskMode
+    direction: SyncTaskDirection
     accountSyncPairKey?: string
     source: PlaylistReference
     destination: PlaylistReference
     playlistMappings?: PlaylistMapping[]
     status: SyncTaskStatus
-    pauseReason?: "user" | "entitlement" | "conflict"
+    pauseReason?: "user" | "entitlement"
     nextRunAt: Date
     lastRunAt?: Date
     lastSuccessAt?: Date
@@ -206,7 +200,6 @@ export interface CanonicalTrack {
 export interface SyncSnapshotDocument {
     _id?: ObjectId
     taskId: ObjectId
-    matchingVersion?: number
     sourceItems: CanonicalTrack[]
     destinationItems: CanonicalTrack[]
     createdAt: Date
@@ -218,8 +211,8 @@ export interface SyncRunTrackReference {
     playlistId: string
     providerTrackId: string
     providerItemId?: string
-    title?: string
-    artists?: string[]
+    title: string
+    artists: string[]
     durationMs?: number
     playlistName?: string
 }
@@ -236,7 +229,7 @@ export interface SyncRunDocument {
     skipped: number
     addedTracks: SyncRunTrackReference[]
     removedTracks: SyncRunTrackReference[]
-    unmatchedTracks?: SyncRunTrackReference[]
+    unmatchedTracks: SyncRunTrackReference[]
     error?: string
     startedAt: Date
     finishedAt?: Date

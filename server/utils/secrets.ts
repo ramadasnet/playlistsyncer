@@ -1,4 +1,4 @@
-// Encrypt provider credentials with AES-GCM and support legacy key material.
+// Encrypt provider credentials with AES-GCM.
 import type {EncryptedValue} from "~~/shared/types/domain"
 import {requireConfig} from "./config"
 
@@ -11,14 +11,6 @@ function encodeBase64(value: Uint8Array): string {
 
 function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
     return new Uint8Array(Buffer.from(value, "base64url"))
-}
-
-async function importLegacyKey(encodedKey: string): Promise<CryptoKey> {
-    const key = decodeBase64(encodedKey)
-    if (key.byteLength !== 32) {
-        throw new Error("TOKEN_ENCRYPTION_KEY must be a base64url-encoded 32-byte key")
-    }
-    return crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt", "decrypt"])
 }
 
 async function deriveKey(value: string): Promise<CryptoKey> {
@@ -44,22 +36,17 @@ export async function encryptSecret(
     }
 }
 
-// Decrypt both current and legacy encrypted secret representations.
+// Decrypt credentials encrypted with the current key derivation scheme.
 export async function decryptSecret(
     value: EncryptedValue,
     encodedKey = requireConfig("tokenEncryptionKey")
 ): Promise<string> {
-    let key: CryptoKey
-    if (value.version === 1) {
-        key = await importLegacyKey(encodedKey)
-    } else if (value.version === 2) {
-        key = await deriveKey(encodedKey)
-    } else {
+    if (value.version !== 2) {
         throw new Error(`Unsupported encrypted value version: ${value.version}`)
     }
     const plaintext = await crypto.subtle.decrypt(
         {name: "AES-GCM", iv: decodeBase64(value.iv)},
-        key,
+        await deriveKey(encodedKey),
         decodeBase64(value.ciphertext)
     )
     return decoder.decode(plaintext)

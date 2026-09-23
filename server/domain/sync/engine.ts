@@ -2,13 +2,11 @@
 import {randomUUID} from "node:crypto"
 import {ObjectId} from "mongodb"
 import type {CanonicalTrack, PlaylistMapping, ProviderAccountDocument, SyncRunTrackReference, SyncTaskDocument} from "~~/shared/types/domain"
-import {resolvedTaskDirection} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {resolveEntitlement} from "../billing/entitlement"
 import {applyTaskEntitlement} from "../billing/task-entitlement"
 import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
-import {trackMatchingVersion} from "../providers/matching"
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
 import {getServerConfig} from "../../utils/config"
 import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModeDeletePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges} from "./safe-mode"
@@ -180,13 +178,16 @@ async function applyDesired(
                 await recordChanges({
                     addedTracks: addedTracks.map((track) => {
                         const match = known.get(track.providerTrackId)
+                        if (!match) {
+                            logger.warn("Sync.execute", account.provider, `Track ${track.providerTrackId}`, "Added track metadata was not found")
+                        }
                         return {
                             providerAccountId: account._id!,
                             playlistId,
                             providerTrackId: track.providerTrackId,
                             providerItemId: track.providerItemId,
-                            title: match?.title,
-                            artists: match?.artists,
+                            title: match?.title || "Unknown track",
+                            artists: match?.artists || [],
                             durationMs: match?.durationMs,
                             playlistName
                         }
@@ -235,14 +236,13 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         destinationAdapter.getPlaylistItems(destinationAccount, task.destination.playlistId),
         db.syncSnapshots.findOne({taskId: task._id!})
     ])
-    const currentSnapshot = snapshot?.matchingVersion === trackMatchingVersion ? snapshot : null
-    const oneWay = resolvedTaskDirection(task) === "one-way"
+    const oneWay = task.direction === "one-way"
     logger.info(
         "Sync.execute",
         `Task ${task._id!.toHexString()}`,
         `${sourceAccount.provider} items ${sourceItems.length}`,
         `${destinationAccount.provider} items ${destinationItems.length}`,
-        currentSnapshot ? (oneWay ? "Mirror run" : "Reconciliation run") : snapshot ? "Matching upgrade run" : "Initial run"
+        snapshot ? (oneWay ? "Mirror run" : "Reconciliation run") : "Initial run"
     )
 
     let sourceResult = {additions: 0, removals: 0, skipped: 0, aliases: [] as {trackId: string; canonicalKey: string}[]}
@@ -253,7 +253,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         aliases: [] as {trackId: string; canonicalKey: string}[]
     }
     let conflicts: string[] = []
-    if (!currentSnapshot) {
+    if (!snapshot) {
         if (!oneWay) {
             // First two-way runs baseline both sides so destination-only tracks survive the initial reconciliation.
             const baseline = commonTracks(sourceItems, destinationItems)
@@ -300,8 +300,8 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
             destinationResult.removals = destinationItems.length
         }
     } else {
-        const sourceAliases = aliasMap(currentSnapshot.sourceItems)
-        const destinationAliases = aliasMap(currentSnapshot.destinationItems)
+        const sourceAliases = aliasMap(snapshot.sourceItems)
+        const destinationAliases = aliasMap(snapshot.destinationItems)
         const aliasedSource = applyAliases(sourceItems, sourceAliases)
         const aliasedDestination = applyAliases(destinationItems, destinationAliases)
         if (oneWay) {
@@ -311,7 +311,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
                 playlistName: task.source.name
             })
         } else {
-            const baseline = commonTracks(currentSnapshot.sourceItems.map(fromCanonical), currentSnapshot.destinationItems.map(fromCanonical))
+            const baseline = commonTracks(snapshot.sourceItems.map(fromCanonical), snapshot.destinationItems.map(fromCanonical))
             const reconciliation = reconcileThreeWay(baseline, aliasedSource, aliasedDestination)
             conflicts = reconciliation.conflicts
             if (conflicts.length) {
@@ -335,7 +335,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     } else {
         const [verifiedSource, verifiedDestination] = await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, task.source.playlistId), destinationAdapter.getPlaylistItems(destinationAccount, task.destination.playlistId)])
         const desiredAliases = new Map<string, string>([
-            ...(currentSnapshot ? [...aliasMap(currentSnapshot.sourceItems), ...aliasMap(currentSnapshot.destinationItems)] : []),
+            ...(snapshot ? [...aliasMap(snapshot.sourceItems), ...aliasMap(snapshot.destinationItems)] : []),
             ...sourceResult.aliases.map((item) => [item.trackId, item.canonicalKey] as const),
             ...destinationResult.aliases.map((item) => [item.trackId, item.canonicalKey] as const)
         ])
@@ -349,7 +349,6 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
             {taskId: task._id!},
             {
                 $set: {
-                    matchingVersion: trackMatchingVersion,
                     sourceItems: canonicalize(verifiedSource).map(toCanonical),
                     destinationItems: canonicalize(verifiedDestination).map(toCanonical),
                     createdAt: new Date()
@@ -479,7 +478,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     const now = new Date()
     const taskLabel = current ? await describeTask(current) : ""
     if (isSafeModeEnabled()) {
-        logger.warn("Sync.safeMode", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "SAFE_MODE is enabled; music providers will not be written")
+        logger.warn("Sync.safeMode", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "PLS_SAFE_MODE is enabled; music providers will not be written")
     }
     logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Trigger ${trigger}`, "Acquiring lease")
     const task = await db.syncTasks.findOneAndUpdate(
@@ -527,7 +526,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? proIntervalMs : 7 * 24 * 60 * 60 * 1000
         const finishedAt = new Date()
         const completed = await db.syncTasks.updateOne(
-            {_id: taskId, leaseId, pauseReason: {$nin: ["entitlement", "conflict"]}},
+            {_id: taskId, leaseId, pauseReason: {$ne: "entitlement"}},
             {
                 $set: {
                     status: result.conflicts ? "needs_attention" : "active",

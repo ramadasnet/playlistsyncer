@@ -24,10 +24,6 @@ export default defineEventHandler(async (event) => {
         logger.warn("Tasks.update", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`, "Entitlement lock")
         throw createError({statusCode: 403, statusMessage: entitlementEditBlockedMessage})
     }
-    if (task.pauseReason === "conflict") {
-        logger.warn("Tasks.update", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`, "Duplicate provider pair")
-        throw createError({statusCode: 409, statusMessage: "This task duplicates another full sync. Delete it before resuming syncs between these providers."})
-    }
     if (body.status === "active" && resolveEntitlement(user).tier === "free") {
         const tasks = await db.syncTasks.find({userId: user._id!}).toArray()
         const retained = retainedFreeTierTask(tasks)

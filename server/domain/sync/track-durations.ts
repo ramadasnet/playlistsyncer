@@ -8,7 +8,7 @@ import {trackIdsForProvider} from "../providers/track-ids"
 import {withTrackDurations} from "./history-visibility"
 
 function runTracks(run: SyncRunDocument): SyncRunTrackReference[] {
-    return [...(run.addedTracks || []), ...(run.removedTracks || []), ...(run.unmatchedTracks || [])]
+    return [...run.addedTracks, ...run.removedTracks, ...run.unmatchedTracks]
 }
 
 function attachedNewDurations(before: SyncRunTrackReference[], after: SyncRunTrackReference[]) {
@@ -45,10 +45,10 @@ export async function fillMissingRunTrackDurations(userId: ObjectId, runs: SyncR
     }
     return Promise.all(
         runs.map(async (run) => {
-            const addedTracks = withTrackDurations(run.addedTracks || [], durations)
-            const removedTracks = withTrackDurations(run.removedTracks || [], durations)
-            const unmatchedTracks = withTrackDurations(run.unmatchedTracks || [], durations)
-            if (!attachedNewDurations(run.addedTracks || [], addedTracks) && !attachedNewDurations(run.removedTracks || [], removedTracks) && !attachedNewDurations(run.unmatchedTracks || [], unmatchedTracks)) {
+            const addedTracks = withTrackDurations(run.addedTracks, durations)
+            const removedTracks = withTrackDurations(run.removedTracks, durations)
+            const unmatchedTracks = withTrackDurations(run.unmatchedTracks, durations)
+            if (!attachedNewDurations(run.addedTracks, addedTracks) && !attachedNewDurations(run.removedTracks, removedTracks) && !attachedNewDurations(run.unmatchedTracks, unmatchedTracks)) {
                 return run
             }
             const next = {...run, addedTracks, removedTracks, unmatchedTracks}

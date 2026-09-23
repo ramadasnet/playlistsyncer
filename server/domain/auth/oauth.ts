@@ -190,8 +190,7 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         logger.warn("OAuth.finish", provider, "OAuth transaction is invalid or expired")
         throw createError({statusCode: 400, statusMessage: "OAuth transaction is invalid or expired"})
     }
-    // Legacy transactions stored the verifier in plaintext before encryption was introduced.
-    const codeVerifier = typeof transaction.codeVerifier === "string" ? transaction.codeVerifier : await decryptSecret(transaction.codeVerifier)
+    const codeVerifier = await decryptSecret(transaction.codeVerifier)
     const {token, definition} = await exchangeCode(provider, code, codeVerifier)
     const profile = await definition.fetchProfile(token.access_token)
     const conflictingAccount = await db.providerAccounts.findOne({provider, externalAccountId: profile.id})

@@ -1,5 +1,5 @@
 import type {ObjectId} from "mongodb"
-import type {AccountTier, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
+import type {AccountTier, SyncRunDocument, SyncRunTrackReference, SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import type {OutboundEmail} from "./send"
 
@@ -26,7 +26,6 @@ export interface WeeklySummaryStore {
     claimDueUser(dueBefore: Date, now: Date): Promise<UserDocument | null>
     findTasks(userId: ObjectId): Promise<SyncTaskDocument[]>
     findRuns(taskIds: ObjectId[], since: Date, until: Date, exclusiveStart: boolean): Promise<SyncRunDocument[]>
-    findSnapshots(taskIds: ObjectId[]): Promise<SyncSnapshotDocument[]>
     markProcessed(userId: ObjectId, processedAt: Date): Promise<void>
     disablePreference(userId: ObjectId, processedAt: Date): Promise<void>
     releaseClaim(userId: ObjectId): Promise<void>
@@ -91,32 +90,16 @@ function trackIdentity(ref: SyncRunTrackReference): string {
     return `${ref.providerAccountId.toHexString()}:${ref.playlistId}:${ref.providerTrackId}:${ref.providerItemId ?? ""}`
 }
 
-function titleFromSnapshot(snapshot: SyncSnapshotDocument | undefined, ref: SyncRunTrackReference): Pick<WeeklySummaryTrack, "title" | "artists"> | undefined {
-    if (!snapshot) {
-        return undefined
-    }
-    const match = [...snapshot.sourceItems, ...snapshot.destinationItems].find((item) => item.providerTrackId === ref.providerTrackId || (ref.providerItemId !== undefined && item.providerItemId === ref.providerItemId))
-    return match ? {title: match.title, artists: match.artists} : undefined
-}
-
-function resolveTrack(ref: SyncRunTrackReference, snapshot: SyncSnapshotDocument | undefined): WeeklySummaryTrack {
-    if (ref.title?.trim()) {
-        return {title: ref.title, artists: ref.artists || []}
-    }
-    const fromSnapshot = titleFromSnapshot(snapshot, ref)
-    return {
-        title: fromSnapshot?.title?.trim() || "Unknown track",
-        artists: fromSnapshot?.artists || []
-    }
+function resolveTrack(ref: SyncRunTrackReference): WeeklySummaryTrack {
+    return {title: ref.title.trim() || "Unknown track", artists: ref.artists}
 }
 
 function sortTracks(tracks: WeeklySummaryTrack[]): WeeklySummaryTrack[] {
     return [...tracks].sort((left, right) => formatTrackLabel(left).localeCompare(formatTrackLabel(right)))
 }
 
-export function summarizeSyncChanges(runs: SyncRunDocument[], tasks: SyncTaskDocument[], snapshots: SyncSnapshotDocument[] = []): WeeklySyncSummary {
+export function summarizeSyncChanges(runs: SyncRunDocument[], tasks: SyncTaskDocument[]): WeeklySyncSummary {
     const tasksById = new Map(tasks.flatMap((task) => (task._id ? [[task._id.toHexString(), task] as const] : [])))
-    const snapshotsByTask = new Map(snapshots.map((snapshot) => [snapshot.taskId.toHexString(), snapshot]))
     const playlists = new Map<string, {playlistName: string; added: Map<string, WeeklySummaryTrack>; removed: Map<string, WeeklySummaryTrack>}>()
 
     for (const run of runs) {
@@ -124,7 +107,6 @@ export function summarizeSyncChanges(runs: SyncRunDocument[], tasks: SyncTaskDoc
             continue
         }
         const task = tasksById.get(run.taskId.toHexString())
-        const snapshot = snapshotsByTask.get(run.taskId.toHexString())
         const record = (refs: SyncRunTrackReference[], kind: "added" | "removed") => {
             for (const ref of refs) {
                 const playlistKey = `${ref.providerAccountId.toHexString()}:${ref.playlistId}`
@@ -137,11 +119,11 @@ export function summarizeSyncChanges(runs: SyncRunDocument[], tasks: SyncTaskDoc
                     }
                     playlists.set(playlistKey, playlist)
                 }
-                playlist[kind].set(trackIdentity(ref), resolveTrack(ref, snapshot))
+                playlist[kind].set(trackIdentity(ref), resolveTrack(ref))
             }
         }
-        record(run.addedTracks || [], "added")
-        record(run.removedTracks || [], "removed")
+        record(run.addedTracks, "added")
+        record(run.removedTracks, "removed")
     }
 
     return {
@@ -237,9 +219,6 @@ export function createWeeklySummaryStore(db: Awaited<ReturnType<typeof collectio
                 })
                 .toArray()
         },
-        findSnapshots(taskIds) {
-            return db.syncSnapshots.find({taskId: {$in: taskIds}}).toArray()
-        },
         async markProcessed(userId, processedAt) {
             await db.users.updateOne(
                 {_id: userId},
@@ -308,8 +287,7 @@ export async function sendDueWeeklySyncSummaries(input: {
         const tasks = await input.store.findTasks(user._id)
         const taskIds = tasks.flatMap((task) => (task._id ? [task._id] : []))
         const runs = taskIds.length ? await input.store.findRuns(taskIds, since, now, Boolean(user.weeklySyncSummarySentAt)) : []
-        const snapshots = taskIds.length ? await input.store.findSnapshots(taskIds) : []
-        const summary = summarizeSyncChanges(runs, tasks, snapshots)
+        const summary = summarizeSyncChanges(runs, tasks)
         if (!weeklySyncSummaryHasChanges(summary)) {
             await input.store.markProcessed(user._id, now)
             skipped++

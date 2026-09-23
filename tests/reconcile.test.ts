@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey} from "../server/domain/sync/reconcile"
 import type {ProviderTrack} from "../server/domain/providers"
-import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders, resolvedTaskDirection} from "../shared/types/domain"
+import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders} from "../shared/types/domain"
 
 function track(title: string, itemId = title): ProviderTrack {
     return {itemId, trackId: title, title, artists: ["Artist"], durationMs: 180_000}
@@ -24,22 +24,6 @@ describe("one-way playlist mirroring", () => {
 
         expect(result.desired).toHaveLength(1)
         expect(result.desired[0]?.key).toBe(trackKey(master))
-    })
-})
-
-describe("task direction defaults", () => {
-    test("treats missing playlist tasks as two-way", () => {
-        expect(resolvedTaskDirection({})).toBe("two-way")
-        expect(resolvedTaskDirection({mode: "playlist"})).toBe("two-way")
-    })
-
-    test("treats missing account tasks as one-way", () => {
-        expect(resolvedTaskDirection({mode: "account"})).toBe("one-way")
-    })
-
-    test("preserves an explicit direction", () => {
-        expect(resolvedTaskDirection({mode: "playlist", direction: "one-way"})).toBe("one-way")
-        expect(resolvedTaskDirection({mode: "account", direction: "two-way"})).toBe("two-way")
     })
 })
 

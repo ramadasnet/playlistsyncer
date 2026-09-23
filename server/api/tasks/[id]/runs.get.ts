@@ -2,7 +2,7 @@
 import {collections} from "../../../data/collections"
 import {requireUser} from "../../../domain/auth/session"
 import {resolveEntitlement} from "../../../domain/billing/entitlement"
-import {canViewRunHistory, runHistoryLimitFor, runNeedsUnmatchedBackfill, serializeSyncRun, unmatchedTracksFromSnapshot} from "../../../domain/sync/history-visibility"
+import {canViewRunHistory, runHistoryLimitFor, serializeSyncRun} from "../../../domain/sync/history-visibility"
 import {fillMissingRunTrackDurations} from "../../../domain/sync/track-durations"
 import {parseObjectId} from "../../../utils/object-id"
 
@@ -17,14 +17,6 @@ export default defineEventHandler(async (event) => {
     }
     const tier = resolveEntitlement(user).tier
     const [runs, snapshot] = await Promise.all([db.syncRuns.find({taskId}).sort({startedAt: -1}).limit(runHistoryLimitFor(tier)).toArray(), db.syncSnapshots.findOne({taskId})])
-    const latest = runs[0]
-    if (latest && snapshot && runNeedsUnmatchedBackfill(latest) && latest.status !== "running" && latest.status !== "failed") {
-        const unmatchedTracks = unmatchedTracksFromSnapshot(snapshot, task)
-        if (unmatchedTracks.length) {
-            latest.unmatchedTracks = unmatchedTracks
-            await db.syncRuns.updateOne({_id: latest._id, $or: [{unmatchedTracks: {$exists: false}}, {unmatchedTracks: {$size: 0}}]}, {$set: {unmatchedTracks}})
-        }
-    }
     const runsWithDurations = await fillMissingRunTrackDurations(user._id!, runs, [task.source.providerAccountId, task.destination.providerAccountId])
     return {
         canBrowseHistory: canViewRunHistory(tier),

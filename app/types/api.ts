@@ -39,12 +39,12 @@ export interface PlaylistSummary {
 // Serialized synchronization task and its latest visible run.
 export interface SyncTaskSummary {
     id: string
-    mode?: SyncTaskMode
+    mode: SyncTaskMode
     direction: SyncTaskDirection
     source: {providerAccountId: string; playlistId: string; name: string}
     destination: {providerAccountId: string; playlistId: string; name: string}
     status: SyncTaskStatus
-    pauseReason?: "user" | "entitlement" | "conflict"
+    pauseReason?: "user" | "entitlement"
     entitlementLocked?: boolean
     nextRunAt: string
     lastRunAt?: string

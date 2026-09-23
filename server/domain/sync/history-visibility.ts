@@ -1,5 +1,5 @@
 // Control which synchronization history is visible at each account tier.
-import {resolvedTaskDirection, type AccountTier, type CanonicalTrack, type SyncRunDocument, type SyncRunTrackReference, type SyncSnapshotDocument, type SyncTaskDocument} from "../../../shared/types/domain"
+import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
 
 export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt">
 
@@ -67,8 +67,8 @@ export function withTrackDurations(tracks: SyncRunTrackReference[], durations: M
 
 // Public label for a stored run track.
 export function serializeRunTrack(track: SyncRunTrackReference, task?: Pick<SyncTaskDocument, "source" | "destination">, snapshot?: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">): SerializedRunTrack {
-    const title = track.title?.trim() || "Unknown track"
-    const artists = (track.artists || []).map((artist) => artist.trim()).filter(Boolean)
+    const title = track.title.trim() || "Unknown track"
+    const artists = track.artists.map((artist) => artist.trim()).filter(Boolean)
     const playlistName = track.playlistName?.trim()
     const side = trackSide(track, task)
     const durationMs = track.durationMs || snapshotDuration(track, snapshot)
@@ -98,9 +98,9 @@ export function serializeSyncRun(run: SyncRunDocument, task?: Pick<SyncTaskDocum
         startedAt: run.startedAt,
         finishedAt: run.finishedAt,
         error: run.error,
-        addedTracks: (run.addedTracks || []).map((track) => serializeRunTrack(track, task, snapshot)),
-        removedTracks: (run.removedTracks || []).map((track) => serializeRunTrack(track, task, snapshot)),
-        unmatchedTracks: (run.unmatchedTracks || []).map((track) => serializeRunTrack(track, task, snapshot))
+        addedTracks: run.addedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
+        removedTracks: run.removedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
+        unmatchedTracks: run.unmatchedTracks.map((track) => serializeRunTrack(track, task, snapshot))
     }
 }
 
@@ -125,9 +125,9 @@ function trackReferenceFromSnapshot(item: CanonicalTrack, side: SyncTaskDocument
     }
 }
 
-// Recover unmatched songs from the post-run snapshot when a run did not store titles.
+// Identify currently unmatched songs from the playlist snapshot for manual matching.
 export function unmatchedTracksFromSnapshot(snapshot: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">, task: Pick<SyncTaskDocument, "source" | "destination" | "direction" | "mode">): SyncRunTrackReference[] {
-    const oneWay = resolvedTaskDirection(task) === "one-way"
+    const oneWay = task.direction === "one-way"
     const sourceByKey = tracksByKey(snapshot.sourceItems)
     const destinationByKey = tracksByKey(snapshot.destinationItems)
     const unmatched: SyncRunTrackReference[] = []
@@ -144,16 +144,12 @@ export function unmatchedTracksFromSnapshot(snapshot: Pick<SyncSnapshotDocument,
     return unmatched
 }
 
-export function runNeedsUnmatchedBackfill(run: Pick<SyncRunDocument, "unmatchedTracks">) {
-    return !(run.unmatchedTracks && run.unmatchedTracks.length)
-}
-
 // Serialize a sync task. Latest-run counts are visible to every account.
 export function serializeSyncTask(task: SyncTaskDocument, latestRun: LatestRunSummary | undefined, _tier: AccountTier, entitlementLocked = false) {
     return {
         id: task._id?.toHexString(),
-        mode: task.mode || "playlist",
-        direction: resolvedTaskDirection(task),
+        mode: task.mode,
+        direction: task.direction,
         source: task.source,
         destination: task.destination,
         status: task.status,
