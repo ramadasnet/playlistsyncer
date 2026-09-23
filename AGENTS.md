@@ -1,6 +1,7 @@
 # Project Overview
 
-If you have no context about this project yet, make sure to get the details from the `README.md` file.
+- If you have no context about this project yet, make sure to get the details from the main `README.md` file.
+- If a task involves complex changes that affect multiple features or parts of the app, prefer splitting it into smaller tasks and delegate those to sub agents.
 
 # Code Style
 
@@ -18,7 +19,7 @@ Prefer the following Prettier rules:
 }
 ```
 
-- When creating new files that are NOT formatted with Prettier, keep the same style and patterns as the existing source code.
+- When creating new files that cannot be formatted with Prettier, keep the same style and patterns as the existing source code.
 
 # GIT
 
