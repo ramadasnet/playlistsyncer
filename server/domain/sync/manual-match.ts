@@ -4,7 +4,7 @@ import type {CanonicalTrack, ProviderAccountDocument, SyncRunDocument, SyncRunTr
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {getProviderAdapter, type ProviderTrack} from "../providers"
-import {rankSimilarTracks, trackMatchingVersion} from "../providers/matching"
+import {rankSimilarTracks} from "../providers/matching"
 import {unmatchedTracksFromSnapshot} from "./history-visibility"
 import {isSafeModeEnabled, safeModeWriteBlockedMessage} from "./safe-mode"
 import {trackKey} from "./reconcile"
@@ -147,7 +147,7 @@ function asSearchTrack(track: SyncRunTrackReference, snapshotItem?: CanonicalTra
         itemId: track.providerItemId || track.providerTrackId,
         trackId: track.providerTrackId,
         title: snapshotItem?.title || track.title || "",
-        artists: snapshotItem?.artists || track.artists || [],
+        artists: snapshotItem?.artists || track.artists,
         album: snapshotItem?.album,
         durationMs: snapshotItem?.durationMs || track.durationMs,
         isrc: snapshotItem?.isrc
@@ -210,7 +210,7 @@ async function resolveUnmatchedReference(task: SyncTaskDocument, identity: Unmat
     const db = await collections()
     const runId = identity.runId && ObjectId.isValid(identity.runId) ? new ObjectId(identity.runId) : undefined
     const run: SyncRunDocument | null = runId ? await db.syncRuns.findOne({_id: runId, taskId: task._id}) : await db.syncRuns.findOne({taskId: task._id, status: {$ne: "running"}}, {sort: {startedAt: -1}})
-    const fromRun = (run?.unmatchedTracks || []).find((track) => unmatchedTrackMatches(track, identity)) || (run?.unmatchedTracks || []).find((track) => identityByTrack(track, identity))
+    const fromRun = run?.unmatchedTracks.find((track) => unmatchedTrackMatches(track, identity)) || run?.unmatchedTracks.find((track) => identityByTrack(track, identity))
     const snapshot = await db.syncSnapshots.findOne({taskId: task._id})
     const fromSnapshot = snapshot ? unmatchedTracksFromSnapshot(snapshot, task).find((track) => identityByTrack(track, identity)) : undefined
     const unmatched = fromSnapshot || fromRun
@@ -278,7 +278,7 @@ async function clearUnmatchedFromRuns(taskId: ObjectId, identity: UnmatchedTrack
     const db = await collections()
     const runs = await db.syncRuns.find({taskId, "unmatchedTracks.providerTrackId": identity.providerTrackId}).toArray()
     for (const run of runs) {
-        const unmatchedTracks = [...(run.unmatchedTracks || [])]
+        const unmatchedTracks = [...run.unmatchedTracks]
         const index = unmatchedTracks.findIndex((track) => unmatchedTrackMatches(track, identity) || identityByTrack(track, identity))
         if (index < 0) {
             continue
@@ -342,7 +342,6 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
         {taskId: task._id!},
         {
             $set: {
-                matchingVersion: trackMatchingVersion,
                 sourceItems,
                 destinationItems,
                 createdAt: new Date()

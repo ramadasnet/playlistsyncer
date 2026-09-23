@@ -16,7 +16,7 @@ export default defineNitroPlugin(async (nitroApp) => {
             throw error
         }
     } else {
-        logger.warn("Database.init", "MONGODB_URI is not configured, database-backed routes are unavailable")
+        logger.warn("Database.init", "PLS_MONGODB_URI is not configured, database-backed routes are unavailable")
     }
     nitroApp.hooks.hook("close", closeDatabase)
 })

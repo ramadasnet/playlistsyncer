@@ -1,6 +1,7 @@
 // Resolve encrypted provider tokens and refresh them when they are near expiry.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
+import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
 import {decryptSecret, encryptSecret} from "../../utils/secrets"
 import {getOAuthProvider} from "../auth/providers"
@@ -32,7 +33,7 @@ async function refreshAccessToken(account: ProviderAccountDocument): Promise<str
         body.set("client_id", definition.clientId)
         body.set("client_secret", definition.clientSecret)
     }
-    const response = await fetch(definition.tokenUrl, {method: "POST", headers, body})
+    const response = await fetchWithRetry(definition.tokenUrl, {method: "POST", headers, body}, {label: "Provider.refreshToken"})
     if (!response.ok) {
         logger.error("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`, `Status ${response.status}`)
         throw createError({

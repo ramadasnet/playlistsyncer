@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
-import type {CanonicalTrack, SyncRunDocument, SyncSnapshotDocument, SyncTaskDocument, UserDocument} from "../shared/types/domain"
+import type {SyncRunDocument, SyncTaskDocument, UserDocument} from "../shared/types/domain"
 import type {OutboundEmail} from "../server/domain/mail/send"
 import {
     buildWeeklySyncSummaryEmail,
@@ -47,8 +47,8 @@ function track(playlistId: string, providerTrackId: string, extras: {title?: str
         playlistId,
         providerTrackId,
         providerItemId: extras.providerItemId ?? `${providerTrackId}-item`,
-        title: extras.title,
-        artists: extras.artists,
+        title: extras.title ?? providerTrackId,
+        artists: extras.artists ?? [],
         playlistName: extras.playlistName
     }
 }
@@ -65,30 +65,10 @@ function run(overrides: Partial<SyncRunDocument> = {}): SyncRunDocument {
         skipped: 0,
         addedTracks: [],
         removedTracks: [],
+        unmatchedTracks: [],
         startedAt: now,
         finishedAt: now,
         ...overrides
-    }
-}
-
-function canonical(providerTrackId: string, title: string, artists: string[]): CanonicalTrack {
-    return {
-        occurrenceId: `${providerTrackId}-item`,
-        canonicalKey: `isrc:${providerTrackId}`,
-        title,
-        artists,
-        providerItemId: `${providerTrackId}-item`,
-        providerTrackId
-    }
-}
-
-function snapshot(items: CanonicalTrack[]): SyncSnapshotDocument {
-    return {
-        _id: new ObjectId(),
-        taskId,
-        sourceItems: items,
-        destinationItems: items,
-        createdAt: now
     }
 }
 
@@ -105,7 +85,7 @@ function user(overrides: Partial<UserDocument> = {}): UserDocument {
     }
 }
 
-function memoryStore(input: {users?: UserDocument[]; tasks?: SyncTaskDocument[]; runs?: SyncRunDocument[]; snapshots?: SyncSnapshotDocument[]}): WeeklySummaryStore & {processedAt?: Date; disabled: ObjectId[]; released: ObjectId[]} {
+function memoryStore(input: {users?: UserDocument[]; tasks?: SyncTaskDocument[]; runs?: SyncRunDocument[]}): WeeklySummaryStore & {processedAt?: Date; disabled: ObjectId[]; released: ObjectId[]} {
     const queue = [...(input.users || [])]
     const store: WeeklySummaryStore & {processedAt?: Date; disabled: ObjectId[]; released: ObjectId[]} = {
         disabled: [],
@@ -118,9 +98,6 @@ function memoryStore(input: {users?: UserDocument[]; tasks?: SyncTaskDocument[];
         },
         async findRuns() {
             return input.runs || []
-        },
-        async findSnapshots() {
-            return input.snapshots || []
         },
         async markProcessed(_userId, processedAt) {
             store.processedAt = processedAt
@@ -221,12 +198,6 @@ describe("weekly sync summary contents", () => {
                 removedTracks: []
             }
         ])
-    })
-
-    test("falls back to snapshot titles when run records omit them", () => {
-        const summary = summarizeSyncChanges([run({addedTracks: [track("dst-1", "snap-1")]})], [task()], [snapshot([canonical("snap-1", "Snapshot Song", ["Cara"])])])
-
-        expect(summary.playlists[0]?.addedTracks).toEqual([{title: "Snapshot Song", artists: ["Cara"]}])
     })
 
     test("uses account mappings for playlist names", () => {

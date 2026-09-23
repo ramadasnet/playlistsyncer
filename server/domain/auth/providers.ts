@@ -1,7 +1,9 @@
 // Describe OAuth endpoints and profile mapping for each provider.
 import type {Provider} from "~~/shared/types/domain"
 import {getServerConfig, requireConfig, type ServerConfig} from "../../utils/config"
+import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
+import {getProviderRateLimiter, maxQueueWaitMs} from "../providers/rate-limit"
 
 interface OAuthProfile {
     id: string
@@ -22,16 +24,33 @@ interface OAuthProvider {
 }
 
 // Fetch a provider profile with a bearer token and normalized error handling.
-async function fetchJson<T>(url: string, accessToken: string, extraHeaders?: HeadersInit): Promise<T> {
+async function fetchJson<T>(provider: Provider, url: string, accessToken: string, extraHeaders?: HeadersInit): Promise<T> {
     const headers = new Headers(extraHeaders)
     headers.set("Authorization", `Bearer ${accessToken}`)
-    const response = await fetch(url, {headers})
+    const limiter = getProviderRateLimiter(provider)
+    const response = await fetchWithRetry(
+        url,
+        {headers},
+        {
+            label: "OAuth.fetchProfile",
+            maxRetryAfterMs: maxQueueWaitMs,
+            beforeAttempt: (signal) => limiter.acquire(signal),
+            onRateLimited: (retryAfterMs) => limiter.onRateLimited(retryAfterMs)
+        }
+    )
     if (!response.ok) {
         const requestUrl = new URL(url)
-        logger.error("OAuth.fetchProfile", requestUrl.hostname, requestUrl.pathname, `Status ${response.status}`)
-        throw createError({statusCode: 502, statusMessage: `Provider profile request failed (${response.status})`})
+        const rateLimited = response.status === 429
+        const log = rateLimited ? logger.warn : logger.error
+        log("OAuth.fetchProfile", requestUrl.hostname, requestUrl.pathname, `Status ${response.status}`)
+        throw createError({statusCode: rateLimited ? 429 : 502, statusMessage: `Provider profile request failed (${response.status})`})
     }
     return response.json() as Promise<T>
+}
+
+// Use the first provider-supplied name that is not blank, so a whitespace-only name never becomes an empty display name.
+function profileDisplayName(fallback: string, ...names: (string | undefined)[]): string {
+    return names.map((name) => name?.trim()).find(Boolean) || fallback
 }
 
 const oauthProviders: Record<Provider, OAuthProvider> = {
@@ -48,12 +67,12 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 email?: string
                 display_name?: string
                 images?: {url: string}[]
-            }>("https://api.spotify.com/v1/me", accessToken)
+            }>("spotify", "https://api.spotify.com/v1/me", accessToken)
             return {
                 id: profile.id,
                 email: profile.email,
                 emailVerified: Boolean(profile.email),
-                displayName: profile.display_name || profile.email || "Spotify user",
+                displayName: profileDisplayName("Spotify user", profile.display_name, profile.email),
                 avatarUrl: profile.images?.[0]?.url
             }
         }
@@ -72,12 +91,12 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 email_verified?: boolean
                 name?: string
                 picture?: string
-            }>("https://openidconnect.googleapis.com/v1/userinfo", accessToken)
+            }>("youtube", "https://openidconnect.googleapis.com/v1/userinfo", accessToken)
             return {
                 id: profile.sub,
                 email: profile.email,
                 emailVerified: profile.email_verified === true,
-                displayName: profile.name || profile.email || "Google user",
+                displayName: profileDisplayName("Google user", profile.name, profile.email),
                 avatarUrl: profile.picture
             }
         }
@@ -90,12 +109,12 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
         clientSecretKey: "amazonClientSecret",
         tokenAuth: "body",
         async fetchProfile(accessToken) {
-            const profile = await fetchJson<{user_id: string; email?: string; name?: string}>("https://api.amazon.com/user/profile", accessToken)
+            const profile = await fetchJson<{user_id: string; email?: string; name?: string}>("amazon", "https://api.amazon.com/user/profile", accessToken)
             return {
                 id: profile.user_id,
                 email: profile.email,
                 emailVerified: Boolean(profile.email),
-                displayName: profile.name || profile.email || "Amazon user"
+                displayName: profileDisplayName("Amazon user", profile.name, profile.email)
             }
         }
     },
@@ -118,9 +137,9 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                         username?: string
                     }
                 }
-            }>("https://openapi.tidal.com/v2/users/me", accessToken, {Accept: "application/vnd.api+json"})
+            }>("tidal", "https://openapi.tidal.com/v2/users/me", accessToken, {Accept: "application/vnd.api+json"})
             const attributes = document.data.attributes || {}
-            const displayName = [attributes.firstName, attributes.lastName].filter(Boolean).join(" ") || attributes.username || attributes.email || "TIDAL user"
+            const displayName = profileDisplayName("TIDAL user", [attributes.firstName, attributes.lastName].filter(Boolean).join(" "), attributes.username, attributes.email)
             return {
                 id: document.data.id,
                 email: attributes.email,

@@ -26,11 +26,10 @@ describe("complimentary trial window", () => {
         expect(isComplimentaryTrialActive(undefined, new Date("2026-09-12T00:00:00.000Z"))).toBe(false)
     })
 
-    test("prefers the runtime PRO_SUBSCRIPTION_REQUIRED_AT env var over a baked public value", () => {
-        expect(resolvePublicTrialCutoff({PRO_SUBSCRIPTION_REQUIRED_AT: "2027-01-01T00:00:00.000Z"}, "2026-01-01T00:00:00.000Z")).toBe("2027-01-01T00:00:00.000Z")
-        expect(resolvePublicTrialCutoff({NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT: "2028-06-01T00:00:00.000Z"}, "")).toBe("2028-06-01T00:00:00.000Z")
+    test("prefers the runtime PLS_PRO_SUBSCRIPTION_REQUIRED_AT env var over a baked public value", () => {
+        expect(resolvePublicTrialCutoff({PLS_PRO_SUBSCRIPTION_REQUIRED_AT: "2027-01-01T00:00:00.000Z"}, "2026-01-01T00:00:00.000Z")).toBe("2027-01-01T00:00:00.000Z")
         expect(resolvePublicTrialCutoff({}, "2026-01-01T00:00:00.000Z")).toBe("2026-01-01T00:00:00.000Z")
-        expect(resolvePublicTrialCutoff({PRO_SUBSCRIPTION_REQUIRED_AT: "  "}, "")).toBe("")
+        expect(resolvePublicTrialCutoff({PLS_PRO_SUBSCRIPTION_REQUIRED_AT: "  "}, "")).toBe("")
     })
 })
 

@@ -7,7 +7,7 @@ import {tidalAdapter} from "./tidal"
 import type {ProviderAdapter} from "./types"
 import {youtubeAdapter} from "./youtube"
 
-// Replace mutating adapter methods with logs so SAFE_MODE cannot write to music providers.
+// Replace mutating adapter methods with logs so PLS_SAFE_MODE cannot write to music providers.
 export function withoutProviderWrites(adapter: ProviderAdapter): ProviderAdapter {
     return {
         provider: adapter.provider,

@@ -29,7 +29,6 @@ const auth = useAuthStore()
             <p class="hero-copy">Keep your favorite tracks in sync, no matter which music provider you use! PlaylistSyncer allows you to automagically sync playlists across multiple platforms.</p>
             <div class="hero-actions">
                 <NuxtLink class="button button-primary" :to="auth.user ? '/sync' : '/login'"> {{ auth.user ? "Open sync tasks" : "Register or login" }} <ArrowRight :size="18" /> </NuxtLink>
-                <NuxtLink class="button button-ghost-light" to="/features">Compare plans</NuxtLink>
             </div>
             <div v-if="enabledProviders.length" class="provider-row" aria-label="Supported providers">
                 <ProviderBadge v-for="provider in enabledProviders" :key="provider" :provider="provider" />
@@ -67,27 +66,6 @@ const auth = useAuthStore()
                     </div>
                 </li>
             </ol>
-        </div>
-    </section>
-
-    <section class="proof-band">
-        <div class="shell proof-grid">
-            <article>
-                <RefreshCw :size="26" />
-                <h3>One-way or two-way</h3>
-                <p>Choose whether each playlist pair should sync in one direction or both directions.</p>
-            </article>
-            <article>
-                <Check :size="26" />
-                <h3>No silent guesses</h3>
-                <p>Ambiguous track matches and two-way conflicts are flagged for review, so you can decide what to do with them.</p>
-            </article>
-            <aside class="pro-callout">
-                <p class="eyebrow light">And more!</p>
-                <strong>PRO features</strong>
-                <p>Unlimited playlist pairs, auto sync {{ everyLabel }}, sync history, and a weekly summary suggesting new artists and tracks.</p>
-                <NuxtLink to="/features">See plan details <ArrowRight :size="16" /></NuxtLink>
-            </aside>
         </div>
     </section>
 </template>

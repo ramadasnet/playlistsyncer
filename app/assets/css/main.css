@@ -146,9 +146,6 @@ main {
 .primary-nav > a.router-link-active:not(.button) {
     border-color: var(--green);
 }
-.primary-nav > a.button:hover:not(:disabled) {
-    transform: none;
-}
 .nav-toggle {
     display: none !important;
 }
@@ -165,12 +162,8 @@ main {
     cursor: pointer;
     font-weight: 750;
     transition:
-        transform 160ms ease,
         background 160ms ease,
         border-color 160ms ease;
-}
-.button:hover:not(:disabled) {
-    transform: translateY(-2px);
 }
 .button:disabled {
     cursor: not-allowed;
@@ -191,6 +184,13 @@ main {
 .button-secondary {
     border-color: var(--ink);
     background: transparent;
+}
+.button-danger {
+    color: var(--white);
+    background: var(--danger);
+}
+.button-danger:hover:not(:disabled) {
+    background: #8a2424;
 }
 .button-light {
     color: var(--ink);
@@ -293,7 +293,7 @@ main {
 
 .hero {
     position: relative;
-    min-height: min(760px, calc(100vh - 120px));
+    min-height: min(560px, calc(100vh - 120px));
     display: flex;
     align-items: flex-end;
     overflow: hidden;
@@ -695,6 +695,16 @@ main {
     border-color: var(--green);
     background: #eef8e8;
 }
+.notice-warning {
+    justify-content: flex-start;
+    color: #5c4300;
+    border-color: var(--yellow);
+    background: #fff8de;
+    font-weight: 700;
+}
+.task-builder .notice {
+    margin: 0 30px 24px;
+}
 .settings-section {
     margin-top: 24px;
     border: 1px solid var(--line);
@@ -747,6 +757,52 @@ main {
 }
 .warning-icon {
     color: var(--coral);
+}
+.profile-line .display-name-form {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+.display-name-trigger,
+.display-name-input {
+    width: 100%;
+    max-width: 22rem;
+    margin: -3px -7px;
+    padding: 2px 6px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 800;
+    text-align: left;
+    background: transparent;
+}
+.display-name-trigger {
+    width: fit-content;
+    max-width: 100%;
+    cursor: text;
+    overflow-wrap: anywhere;
+}
+.display-name-trigger:hover,
+.display-name-trigger:focus-visible {
+    border-color: var(--line);
+    background: var(--white);
+}
+.display-name-trigger:focus-visible,
+.display-name-input:focus {
+    outline: 2px solid var(--green);
+    outline-offset: 1px;
+}
+.display-name-input {
+    border-color: var(--line);
+    background: var(--white);
+}
+.display-name-input[aria-invalid="true"] {
+    border-color: var(--danger);
+}
+.profile-line div .display-name-error {
+    color: #762121;
 }
 .profile-actions {
     display: flex;
@@ -822,9 +878,24 @@ main {
     margin-top: 0;
     color: var(--ink-soft);
 }
-.dialog-error {
+.dialog-error,
+.overlay-dialog-body .dialog-error {
     color: #762121;
     font-size: 0.86rem;
+}
+.confirm-dialog-copy strong {
+    color: var(--ink);
+}
+.dialog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+@media (max-width: 640px) {
+    .dialog-actions .button {
+        flex: 1 1 auto;
+    }
 }
 .run-dialog {
     display: flex;
@@ -1211,6 +1282,8 @@ select {
 }
 .direction-option.disabled {
     cursor: not-allowed;
+}
+.direction-option.disabled strong {
     opacity: 0.55;
 }
 .direction-option input {
@@ -1531,7 +1604,11 @@ select {
         width: max-content;
     }
     .hero {
-        min-height: 720px;
+        min-height: 0;
+        align-items: flex-start;
+    }
+    .hero-content {
+        padding-block: 36px 48px;
     }
     .hero > img {
         object-position: 78% 40%;
@@ -1576,14 +1653,18 @@ select {
         width: min(100% - 28px, 1180px);
     }
     .hero {
-        min-height: 670px;
+        min-height: 0;
         max-height: none;
     }
     .hero-content {
-        padding-block: 60px 36px;
+        padding-block: 68px 36px;
+    }
+    h1,
+    .page-heading h1 {
+        font-size: clamp(1.6rem, 8.2vw, 2.25rem);
     }
     .hero h1 {
-        font-size: clamp(2.7rem, 16vw, 4.6rem);
+        font-size: clamp(2.15rem, 12vw, 3.25rem);
     }
     .hero-copy {
         font-size: 0.96rem;
@@ -1592,6 +1673,7 @@ select {
         width: 100%;
     }
     .provider-row {
+        justify-content: center;
         margin-top: 28px;
     }
     .workflow-band,
@@ -1647,7 +1729,7 @@ select {
         border-top: 1px solid var(--line);
     }
     .comparison-row {
-        grid-template-columns: 1.65fr 0.7fr 0.7fr;
+        grid-template-columns: 1.65fr 0.8fr 0.8fr;
         gap: 10px;
         font-size: 0.78rem;
     }
@@ -1714,6 +1796,9 @@ select {
     }
     .direction-picker {
         padding-inline: 20px;
+    }
+    .task-builder .notice {
+        margin-inline: 20px;
     }
     .builder-footer {
         align-items: stretch;

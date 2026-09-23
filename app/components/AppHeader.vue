@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {LogOut, Menu, SlidersHorizontal, X} from "lucide-vue-next"
+import {LogIn, LogOut, Menu, X} from "lucide-vue-next"
 import {planBadgeClass, planBadgeLabel} from "~/utils/plan"
 
 const auth = useAuthStore()
@@ -39,7 +39,7 @@ watch(
                         <LogOut :size="18" />
                     </button>
                 </template>
-                <NuxtLink v-else class="button button-small" to="/login"><SlidersHorizontal :size="17" /> Dashboard</NuxtLink>
+                <NuxtLink v-else class="button button-small" to="/login"><LogIn :size="17" /> Login</NuxtLink>
             </nav>
         </div>
     </header>

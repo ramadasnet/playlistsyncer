@@ -39,7 +39,7 @@ export interface PlaylistSummary {
 // Serialized synchronization task and its latest visible run.
 export interface SyncTaskSummary {
     id: string
-    mode?: SyncTaskMode
+    mode: SyncTaskMode
     direction: SyncTaskDirection
     source: {providerAccountId: string; playlistId: string; name: string}
     destination: {providerAccountId: string; playlistId: string; name: string}

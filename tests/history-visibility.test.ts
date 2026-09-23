@@ -118,26 +118,7 @@ describe("run history visibility", () => {
         ).toEqual([{title: "Added Song", artists: ["Ada"], playlistId: "dst", providerTrackId: "sp-1", providerAccountId: accountId.toHexString(), durationMs: 201_000}])
     })
 
-    test("treats missing unmatched track lists as empty", () => {
-        const run: SyncRunDocument = {
-            _id: new ObjectId(),
-            taskId: task._id!,
-            trigger: "scheduled",
-            status: "succeeded",
-            additions: 0,
-            removals: 0,
-            conflicts: 0,
-            skipped: 5,
-            addedTracks: [],
-            removedTracks: [],
-            startedAt: now
-        }
-
-        expect(serializeSyncRun(run).unmatchedTracks).toEqual([])
-        expect(serializeSyncRun(run).skipped).toBe(5)
-    })
-
-    test("recovers unmatched titles from the post-run snapshot", () => {
+    test("identifies unmatched tracks from the playlist snapshot", () => {
         const matched: CanonicalTrack = {
             occurrenceId: "src-1",
             canonicalKey: "canonical:matched",

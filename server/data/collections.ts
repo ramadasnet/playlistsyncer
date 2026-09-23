@@ -41,17 +41,6 @@ export async function collections(): Promise<{
 // Ensure uniqueness, lookup, TTL, and scheduling indexes exist.
 export async function ensureIndexes(): Promise<void> {
     const db = await collections()
-    let emailIndex: {name?: string; sparse?: boolean} | undefined
-    try {
-        emailIndex = (await db.users.indexes()).find((index) => index.name === "email_1")
-    } catch (error) {
-        if (!(error && typeof error === "object" && "code" in error && error.code === 26)) {
-            throw error
-        }
-    }
-    if (emailIndex && emailIndex.sparse !== true) {
-        await db.users.dropIndex("email_1")
-    }
     await Promise.all([
         db.users.createIndex({email: 1}, {unique: true, sparse: true}),
         db.users.createIndex({tempEmail: 1}, {unique: true, sparse: true}),
@@ -65,6 +54,7 @@ export async function ensureIndexes(): Promise<void> {
         db.oauthTransactions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.syncTasks.createIndex({userId: 1, status: 1}),
         db.syncTasks.createIndex({nextRunAt: 1, status: 1}),
+        db.syncTasks.createIndex({userId: 1, accountSyncPairKey: 1}, {unique: true, partialFilterExpression: {mode: "account", accountSyncPairKey: {$type: "string"}}}),
         db.syncSnapshots.createIndex({taskId: 1}, {unique: true}),
         db.syncRuns.createIndex({taskId: 1, startedAt: -1}),
         db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: 60 * 60 * 24 * 180}),

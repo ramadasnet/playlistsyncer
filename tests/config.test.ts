@@ -12,12 +12,23 @@ describe("server configuration", () => {
         expect(config.creemServer).toBe("test")
         expect(config.smtpHost).toBeUndefined()
         expect(config.smtpPort).toBe(587)
-        expect(config.proSyncIntervalHours).toBe(12)
+        expect(config.proSyncIntervalMinutes).toBe(720)
     })
 
-    test("parses the PRO automatic sync interval in hours", () => {
-        expect(parseServerConfig({proSyncIntervalHours: "6"}).proSyncIntervalHours).toBe(6)
-        expect(() => parseServerConfig({proSyncIntervalHours: 0})).toThrow()
+    test("parses the PRO automatic sync interval in minutes", () => {
+        expect(parseServerConfig({proSyncIntervalMinutes: "90"}).proSyncIntervalMinutes).toBe(90)
+        expect(() => parseServerConfig({proSyncIntervalMinutes: 0})).toThrow()
+        expect(() => parseServerConfig({proSyncIntervalMinutes: 1.5})).toThrow()
+    })
+
+    test("parses provider request limits per minute with defaults", () => {
+        const defaults = parseServerConfig({spotifyMaxRequestsPerMinute: ""})
+        const config = parseServerConfig({spotifyMaxRequestsPerMinute: "90", tidalMaxRequestsPerMinute: "0"})
+
+        expect([defaults.spotifyMaxRequestsPerMinute, defaults.youtubeMaxRequestsPerMinute, defaults.tidalMaxRequestsPerMinute, defaults.amazonMaxRequestsPerMinute]).toEqual([120, 300, 60, 60])
+        expect(config.spotifyMaxRequestsPerMinute).toBe(90)
+        expect(config.tidalMaxRequestsPerMinute).toBe(0)
+        expect(() => parseServerConfig({youtubeMaxRequestsPerMinute: "-1"})).toThrow()
     })
 
     test("accepts Creem production configuration", () => {
@@ -47,13 +58,12 @@ describe("server configuration", () => {
     })
 
     test("uses the configured application origin", () => {
-        expect(resolveAppUrl({APP_URL: "https://dev.playlistsyncer.com", NUXT_PUBLIC_SITE_URL: "http://legacy"})).toBe("https://dev.playlistsyncer.com")
-        expect(resolveAppUrl({NUXT_PUBLIC_SITE_URL: "http://localhost:3007"})).toBe("http://localhost:3007")
+        expect(resolveAppUrl({PLS_APP_URL: "https://dev.playlistsyncer.com"})).toBe("https://dev.playlistsyncer.com")
         expect(parseServerConfig({appUrl: "https://dev.playlistsyncer.com/"}).appUrl).toBe("https://dev.playlistsyncer.com")
         expect(() => parseServerConfig({appUrl: "https://dev.playlistsyncer.com/base"})).toThrow()
     })
 
-    test("parses SAFE_MODE as a boolean flag", () => {
+    test("parses PLS_SAFE_MODE as a boolean flag", () => {
         expect(parseServerConfig({}).safeMode).toBe(false)
         expect(parseServerConfig({safeMode: ""}).safeMode).toBe(false)
         expect(parseServerConfig({safeMode: "false"}).safeMode).toBe(false)
@@ -65,10 +75,10 @@ describe("server configuration", () => {
         expect(() => parseServerConfig({safeMode: "maybe"})).toThrow()
     })
 
-    test("resolves SAFE_MODE for the public header flag", () => {
+    test("resolves PLS_SAFE_MODE for the public header flag", () => {
         expect(resolvePublicSafeMode({})).toBe(false)
-        expect(resolvePublicSafeMode({SAFE_MODE: "true"})).toBe(true)
-        expect(resolvePublicSafeMode({SAFE_MODE: "false"}, true)).toBe(false)
+        expect(resolvePublicSafeMode({PLS_SAFE_MODE: "true"})).toBe(true)
+        expect(resolvePublicSafeMode({PLS_SAFE_MODE: "false"}, true)).toBe(false)
         expect(isPublicSafeMode(true)).toBe(true)
         expect(isPublicSafeMode("true")).toBe(true)
         expect(isPublicSafeMode("false")).toBe(false)

@@ -18,5 +18,5 @@ export function isComplimentaryTrialActive(requiredAt: string | Date | undefined
 
 // Resolve the trial cutoff exposed to the public application.
 export function resolvePublicTrialCutoff(environment: Record<string, string | undefined>, baked = ""): string {
-    return environment.PRO_SUBSCRIPTION_REQUIRED_AT?.trim() || environment.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT?.trim() || baked.trim()
+    return environment.PLS_PRO_SUBSCRIPTION_REQUIRED_AT?.trim() || baked.trim()
 }

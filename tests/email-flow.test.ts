@@ -5,7 +5,7 @@ import {newUserFromOAuthProfile} from "../server/domain/auth/oauth"
 import type {OutboundEmail} from "../server/domain/mail/send"
 import {closeDatabase} from "../server/utils/database"
 
-const mongoUri = process.env.MONGODB_URI
+const mongoUri = process.env.PLS_MONGODB_URI
 const secret = "email-flow-test-secret"
 
 describe.skipIf(!mongoUri)("email confirmation against MongoDB", () => {

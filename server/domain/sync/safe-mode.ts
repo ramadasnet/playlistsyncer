@@ -1,6 +1,6 @@
-// Dry-run playlist mutations when SAFE_MODE is enabled.
+// Dry-run playlist mutations when PLS_SAFE_MODE is enabled.
 
-export const safeModeWriteBlockedMessage = "SAFE_MODE is enabled; music providers will not be written"
+export const safeModeWriteBlockedMessage = "PLS_SAFE_MODE is enabled; music providers will not be written"
 
 import {getServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
