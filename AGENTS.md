@@ -1,6 +1,10 @@
+# Project Overview
+
+If you have no context about this project yet, make sure to get the details from the `README.md` file.
+
 # Code Style
 
-Use the following Prettier rules:
+Prefer the following Prettier rules:
 
 ```
 {
@@ -14,7 +18,7 @@ Use the following Prettier rules:
 }
 ```
 
-- When creating new files, keep the same style and patterns as the existing source code for the repo in use.
+- When creating new files that are NOT formatted with Prettier, keep the same style and patterns as the existing source code.
 
 # GIT
 
