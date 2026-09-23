@@ -1,4 +1,5 @@
 // Validate and create a sync task, then start its first run asynchronously.
+import type {ObjectId} from "mongodb"
 import {z} from "zod"
 import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
@@ -8,7 +9,7 @@ import {runSyncTask} from "../../domain/sync/engine"
 import {isSafeModeEnabled, logSafeModeCreatePlaylist, safeModeWriteBlockedMessage} from "../../domain/sync/safe-mode"
 import logger from "../../utils/logger"
 import {parseObjectId} from "../../utils/object-id"
-import {accountSyncConflictMessage, findAccountSyncBetweenProviders, type SyncTaskDirection} from "~~/shared/types/domain"
+import {accountSyncConflictMessage, accountSyncProviderPairKey, findAccountSyncBetweenProviders, type SyncTaskDirection} from "~~/shared/types/domain"
 
 const taskSchema = z.object({
     mode: z.enum(["playlist", "account"]).default("playlist"),
@@ -82,21 +83,34 @@ export default defineEventHandler(async (event) => {
     }
     const direction: SyncTaskDirection = body.mode === "account" ? "one-way" : body.direction
     const now = new Date()
-    const result = await db.syncTasks.insertOne({
-        userId: user._id!,
-        mode: body.mode,
-        direction,
-        source: {providerAccountId: sourceAccountId, playlistId: body.source.playlistId, name: body.source.name},
-        destination: {
-            providerAccountId: destinationAccountId,
-            playlistId: destinationPlaylistId,
-            name: body.destination.createNew ? body.source.name : body.destination.name
-        },
-        status: "active",
-        nextRunAt: now,
-        createdAt: now,
-        updatedAt: now
-    })
+    // The unique index on {userId, accountSyncPairKey} (for mode "account") is the source of truth for provider-pair
+    // uniqueness; the earlier read-then-check is only a fast path for a friendlier error message.
+    const accountSyncPairKey = body.mode === "account" ? accountSyncProviderPairKey(sourceAccount.provider, destinationAccount.provider) : undefined
+    let result: {insertedId: ObjectId}
+    try {
+        result = await db.syncTasks.insertOne({
+            userId: user._id!,
+            mode: body.mode,
+            direction,
+            accountSyncPairKey,
+            source: {providerAccountId: sourceAccountId, playlistId: body.source.playlistId, name: body.source.name},
+            destination: {
+                providerAccountId: destinationAccountId,
+                playlistId: destinationPlaylistId,
+                name: body.destination.createNew ? body.source.name : body.destination.name
+            },
+            status: "active",
+            nextRunAt: now,
+            createdAt: now,
+            updatedAt: now
+        })
+    } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === 11000) {
+            logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, `Account sync already exists between ${sourceAccount.provider} and ${destinationAccount.provider}`)
+            throw createError({statusCode: 409, statusMessage: accountSyncConflictMessage({sourceProvider: sourceAccount.provider, destinationProvider: destinationAccount.provider})})
+        }
+        throw error
+    }
     logger.info("Tasks.create", `Task ${result.insertedId.toHexString()}`, `User ${user._id!.toHexString()}`, `${accounts[0]!.provider} to ${accounts[1]!.provider}`, direction)
     event.waitUntil(
         runSyncTask(result.insertedId, "created").catch((error) => {

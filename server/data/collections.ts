@@ -65,6 +65,7 @@ export async function ensureIndexes(): Promise<void> {
         db.oauthTransactions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.syncTasks.createIndex({userId: 1, status: 1}),
         db.syncTasks.createIndex({nextRunAt: 1, status: 1}),
+        db.syncTasks.createIndex({userId: 1, accountSyncPairKey: 1}, {unique: true, partialFilterExpression: {mode: "account"}}),
         db.syncSnapshots.createIndex({taskId: 1}, {unique: true}),
         db.syncRuns.createIndex({taskId: 1, startedAt: -1}),
         db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: 60 * 60 * 24 * 180}),

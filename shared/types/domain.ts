@@ -58,6 +58,11 @@ export function findAccountSyncBetweenProviders<T extends {mode?: SyncTaskMode; 
     return tasks.find((task) => task.mode === "account" && ((task.sourceProvider === sourceProvider && task.destinationProvider === destinationProvider) || (task.sourceProvider === destinationProvider && task.destinationProvider === sourceProvider)))
 }
 
+// Build an order-independent key identifying a provider pair, used to enforce one all-playlists sync per pair atomically.
+export function accountSyncProviderPairKey(providerA: Provider, providerB: Provider): string {
+    return [providerA, providerB].sort().join(":")
+}
+
 // Explain why a new task conflicts with an existing all-playlists task.
 export function accountSyncConflictMessage(task: {sourceProvider: Provider; destinationProvider: Provider}) {
     return `There's already a full sync from ${providerDisplayNames[task.sourceProvider]} to ${providerDisplayNames[task.destinationProvider]}. Delete it if you want to create another sync task between these providers.`
@@ -168,6 +173,7 @@ export interface SyncTaskDocument {
     userId: ObjectId
     mode?: SyncTaskMode
     direction?: SyncTaskDirection
+    accountSyncPairKey?: string
     source: PlaylistReference
     destination: PlaylistReference
     playlistMappings?: PlaylistMapping[]
