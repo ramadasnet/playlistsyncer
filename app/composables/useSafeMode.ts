@@ -1,4 +1,4 @@
-// Expose the process-wide SAFE_MODE flag to Vue components.
+// Expose the process-wide PLS_SAFE_MODE flag to Vue components.
 
 import {isPublicSafeMode} from "~~/shared/env-flag"
 

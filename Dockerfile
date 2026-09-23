@@ -12,9 +12,9 @@ RUN bun run build
 FROM oven/bun:1.4.0-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-ENV JSON_LOGGING=true
 ENV HOST=0.0.0.0
 ENV PORT=3007
+ENV PLS_JSON_LOGGING=true
 COPY --from=builder --chown=bun:bun /app/.output ./.output
 USER bun
 EXPOSE 3007

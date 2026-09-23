@@ -18,9 +18,9 @@ export function parseBooleanEnvFlag(value: unknown): boolean | undefined {
     return undefined
 }
 
-// Resolve SAFE_MODE for the public runtime configuration.
+// Resolve PLS_SAFE_MODE for the public runtime configuration.
 export function resolvePublicSafeMode(environment: Record<string, string | undefined>, baked = false): boolean {
-    const parsed = parseBooleanEnvFlag(environment.SAFE_MODE)
+    const parsed = parseBooleanEnvFlag(environment.PLS_SAFE_MODE)
     return parsed ?? baked
 }
 

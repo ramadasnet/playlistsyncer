@@ -2,7 +2,7 @@
 
 import {z} from "zod"
 import {parseBooleanEnvFlag} from "../../shared/env-flag"
-import {defaultProSyncIntervalHours} from "../../shared/sync-cadence"
+import {defaultProSyncIntervalMinutes} from "../../shared/sync-cadence"
 
 const optionalCredential = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional())
 const emailList = z.preprocess(
@@ -36,7 +36,7 @@ const appUrl = z
     .string()
     .url()
     .refine((value) => new URL(value).pathname === "/" && !new URL(value).search && !new URL(value).hash, {
-        message: "APP_URL must contain only an origin"
+        message: "PLS_APP_URL must contain only an origin"
     })
     .transform((value) => new URL(value).origin)
     .default("http://localhost:3007")
@@ -67,7 +67,7 @@ const serverConfigSchema = z.object({
     creemServer: z.enum(["test", "prod"]).default("test"),
     developmentProUserEmails: emailList,
     proSubscriptionRequiredAt: optionalInstant,
-    proSyncIntervalHours: z.coerce.number().int().min(1).default(defaultProSyncIntervalHours),
+    proSyncIntervalMinutes: z.coerce.number().int().min(1).default(defaultProSyncIntervalMinutes),
     smtpHost: optionalCredential,
     smtpPort: optionalPort,
     smtpUser: optionalCredential,
@@ -85,7 +85,7 @@ export function parseServerConfig(values: Record<string, unknown>): ServerConfig
 
 // Resolve the public application URL from supported environment names.
 export function resolveAppUrl(environment: Record<string, string | undefined>): string | undefined {
-    return environment.APP_URL || environment.NUXT_PUBLIC_SITE_URL
+    return environment.PLS_APP_URL
 }
 
 let cachedConfig: ServerConfig | undefined
@@ -95,37 +95,37 @@ export function getServerConfig(): ServerConfig {
     if (!cachedConfig) {
         cachedConfig = parseServerConfig({
             appUrl: resolveAppUrl(process.env),
-            mongodbUri: process.env.MONGODB_URI,
-            mongodbDatabase: process.env.MONGODB_DATABASE,
-            sessionSecret: process.env.SESSION_SECRET,
-            tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY,
-            schedulerSecret: process.env.SCHEDULER_SECRET,
-            spotifyClientId: process.env.SPOTIFY_CLIENT_ID,
-            spotifyClientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-            googleClientId: process.env.GOOGLE_CLIENT_ID,
-            googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
-            amazonClientId: process.env.AMAZON_CLIENT_ID,
-            amazonClientSecret: process.env.AMAZON_CLIENT_SECRET,
-            amazonMusicApiBaseUrl: process.env.AMAZON_MUSIC_API_BASE_URL,
-            tidalClientId: process.env.TIDAL_CLIENT_ID,
-            tidalClientSecret: process.env.TIDAL_CLIENT_SECRET,
-            spotifyMaxRequestsPerMinute: process.env.SPOTIFY_MAX_REQUESTS_PER_MINUTE,
-            youtubeMaxRequestsPerMinute: process.env.YOUTUBE_MAX_REQUESTS_PER_MINUTE,
-            tidalMaxRequestsPerMinute: process.env.TIDAL_MAX_REQUESTS_PER_MINUTE,
-            amazonMaxRequestsPerMinute: process.env.AMAZON_MAX_REQUESTS_PER_MINUTE,
-            creemApiKey: process.env.CREEM_API_KEY,
-            creemWebhookSecret: process.env.CREEM_WEBHOOK_SECRET,
-            creemProProductId: process.env.CREEM_PRO_PRODUCT_ID,
-            creemServer: process.env.CREEM_SERVER,
-            developmentProUserEmails: process.env.DEVELOPMENT_PRO_USER_EMAILS,
-            proSubscriptionRequiredAt: process.env.PRO_SUBSCRIPTION_REQUIRED_AT || process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT,
-            proSyncIntervalHours: process.env.PRO_SYNC_INTERVAL_HOURS,
-            smtpHost: process.env.SMTP_HOST,
-            smtpPort: process.env.SMTP_PORT,
-            smtpUser: process.env.SMTP_USER,
-            smtpPassword: process.env.SMTP_PASSWORD,
-            smtpFrom: process.env.SMTP_FROM,
-            safeMode: process.env.SAFE_MODE
+            mongodbUri: process.env.PLS_MONGODB_URI,
+            mongodbDatabase: process.env.PLS_MONGODB_DATABASE,
+            sessionSecret: process.env.PLS_SESSION_SECRET,
+            tokenEncryptionKey: process.env.PLS_TOKEN_ENCRYPTION_KEY,
+            schedulerSecret: process.env.PLS_SCHEDULER_SECRET,
+            spotifyClientId: process.env.PLS_SPOTIFY_CLIENT_ID,
+            spotifyClientSecret: process.env.PLS_SPOTIFY_CLIENT_SECRET,
+            googleClientId: process.env.PLS_GOOGLE_CLIENT_ID,
+            googleClientSecret: process.env.PLS_GOOGLE_CLIENT_SECRET,
+            amazonClientId: process.env.PLS_AMAZON_CLIENT_ID,
+            amazonClientSecret: process.env.PLS_AMAZON_CLIENT_SECRET,
+            amazonMusicApiBaseUrl: process.env.PLS_AMAZON_MUSIC_API_BASE_URL,
+            tidalClientId: process.env.PLS_TIDAL_CLIENT_ID,
+            tidalClientSecret: process.env.PLS_TIDAL_CLIENT_SECRET,
+            spotifyMaxRequestsPerMinute: process.env.PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE,
+            youtubeMaxRequestsPerMinute: process.env.PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE,
+            tidalMaxRequestsPerMinute: process.env.PLS_TIDAL_MAX_REQUESTS_PER_MINUTE,
+            amazonMaxRequestsPerMinute: process.env.PLS_AMAZON_MAX_REQUESTS_PER_MINUTE,
+            creemApiKey: process.env.PLS_CREEM_API_KEY,
+            creemWebhookSecret: process.env.PLS_CREEM_WEBHOOK_SECRET,
+            creemProProductId: process.env.PLS_CREEM_PRO_PRODUCT_ID,
+            creemServer: process.env.PLS_CREEM_SERVER,
+            developmentProUserEmails: process.env.PLS_DEVELOPMENT_PRO_USER_EMAILS,
+            proSubscriptionRequiredAt: process.env.PLS_PRO_SUBSCRIPTION_REQUIRED_AT,
+            proSyncIntervalMinutes: process.env.PLS_TASKSYNC_INTERVAL,
+            smtpHost: process.env.PLS_SMTP_HOST,
+            smtpPort: process.env.PLS_SMTP_PORT,
+            smtpUser: process.env.PLS_SMTP_USER,
+            smtpPassword: process.env.PLS_SMTP_PASSWORD,
+            smtpFrom: process.env.PLS_SMTP_FROM,
+            safeMode: process.env.PLS_SAFE_MODE
         })
     }
 

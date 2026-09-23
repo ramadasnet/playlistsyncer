@@ -72,7 +72,7 @@ export default defineEventHandler(async (event) => {
     }
     let destinationPlaylistId = body.destination.playlistId
     if (body.mode === "playlist" && body.destination.createNew) {
-        // Creating a destination playlist is a provider write, so SAFE_MODE refuses the task.
+        // Creating a destination playlist is a provider write, so PLS_SAFE_MODE refuses the task.
         if (isSafeModeEnabled()) {
             logSafeModeCreatePlaylist(destinationAccount.provider, body.source.name)
             logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, safeModeWriteBlockedMessage)

@@ -3,9 +3,9 @@
 # Installs JS dependencies against the checked-out source and creates a local
 # development .env (with throwaway dev secrets) when one is not already present.
 #
-# Optional external database: if a MONGODB_URI environment secret is provided
+# Optional external database: if a PLS_MONGODB_URI environment secret is provided
 # (for example a MongoDB Atlas connection string), it is written into .env so the
-# app targets that database instead of the local MongoDB. When no MONGODB_URI is
+# app targets that database instead of the local MongoDB. When no PLS_MONGODB_URI is
 # set, the environment falls back to the local MongoDB started by start.sh.
 set -euo pipefail
 
@@ -31,7 +31,7 @@ set_env_var() {
 if [ ! -f "$env_file" ]; then
     echo "Creating .env from .env.example with generated dev secrets"
     cp .env.example "$env_file"
-    for var in SESSION_SECRET TOKEN_ENCRYPTION_KEY SCHEDULER_SECRET; do
+    for var in PLS_SESSION_SECRET PLS_TOKEN_ENCRYPTION_KEY PLS_SCHEDULER_SECRET; do
         set_env_var "$var" "$(openssl rand -hex 32)"
     done
 fi
@@ -39,11 +39,11 @@ fi
 # Honor an external MongoDB (e.g. Atlas) supplied as an environment secret.
 # Making .env authoritative keeps the app consistent regardless of how the
 # runtime resolves .env versus process environment precedence.
-if [ -n "${MONGODB_URI:-}" ]; then
-    echo "External MONGODB_URI detected; pointing .env at the provided database"
-    set_env_var MONGODB_URI "$MONGODB_URI"
-    if [ -n "${MONGODB_DATABASE:-}" ]; then
-        set_env_var MONGODB_DATABASE "$MONGODB_DATABASE"
+if [ -n "${PLS_MONGODB_URI:-}" ]; then
+    echo "External PLS_MONGODB_URI detected; pointing .env at the provided database"
+    set_env_var PLS_MONGODB_URI "$PLS_MONGODB_URI"
+    if [ -n "${PLS_MONGODB_DATABASE:-}" ]; then
+        set_env_var PLS_MONGODB_DATABASE "$PLS_MONGODB_DATABASE"
     fi
 fi
 

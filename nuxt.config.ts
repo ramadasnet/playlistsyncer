@@ -1,16 +1,16 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import {resolvePublicSafeMode} from "./shared/env-flag"
-import {defaultProSyncIntervalHours} from "./shared/sync-cadence"
+import {defaultProSyncIntervalMinutes} from "./shared/sync-cadence"
 
-const appUrl = process.env.APP_URL || process.env.NUXT_PUBLIC_SITE_URL || "http://localhost:3007"
+const appUrl = process.env.PLS_APP_URL || "http://localhost:3007"
 const appHost = new URL(appUrl).hostname
-const proSyncIntervalHours = Number(process.env.PRO_SYNC_INTERVAL_HOURS || process.env.NUXT_PUBLIC_PRO_SYNC_INTERVAL_HOURS || defaultProSyncIntervalHours)
+const proSyncIntervalMinutes = Number(process.env.PLS_TASKSYNC_INTERVAL || defaultProSyncIntervalMinutes)
 
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
     css: ["~/assets/css/main.css"],
     // DevTools instruments the whole app; keep it opt-in so idle `nuxt dev` stays lean.
-    devtools: {enabled: process.env.NUXT_DEVTOOLS === "true"},
+    devtools: {enabled: process.env.PLS_DEVTOOLS === "true"},
     modules: ["@pinia/nuxt"],
     sourcemap: {
         server: false
@@ -31,14 +31,14 @@ export default defineNuxtConfig({
     },
     runtimeConfig: {
         public: {
-            appName: process.env.NUXT_PUBLIC_APP_NAME || "PlaylistSyncer",
+            appName: process.env.PLS_APP_NAME || "PlaylistSyncer",
             // Fallback display price. Startup replaces this with the configured Creem PRO product price when billing is configured.
-            proPrice: process.env.NUXT_PUBLIC_PRO_PRICE || "9.99 EUR",
-            supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || "info@playlistsyncer.com",
-            chatbaseHelpUrl: process.env.NUXT_PUBLIC_CHATBASE_HELP_URL || "https://www.chatbase.co/taNwdeaQwZIYPfxthXqRu/help",
+            proPrice: "9.99 EUR",
+            supportEmail: process.env.PLS_SUPPORT_EMAIL,
+            chatbaseHelpUrl: process.env.PLS_CHATBASE_HELP_URL,
             siteUrl: appUrl,
-            proSubscriptionRequiredAt: process.env.NUXT_PUBLIC_PRO_SUBSCRIPTION_REQUIRED_AT || process.env.PRO_SUBSCRIPTION_REQUIRED_AT || "",
-            proSyncIntervalHours: Number.isFinite(proSyncIntervalHours) && proSyncIntervalHours > 0 ? proSyncIntervalHours : defaultProSyncIntervalHours,
+            proSubscriptionRequiredAt: process.env.PLS_PRO_SUBSCRIPTION_REQUIRED_AT || "",
+            proSyncIntervalMinutes: Number.isInteger(proSyncIntervalMinutes) && proSyncIntervalMinutes > 0 ? proSyncIntervalMinutes : defaultProSyncIntervalMinutes,
             safeMode: resolvePublicSafeMode(process.env)
         }
     },

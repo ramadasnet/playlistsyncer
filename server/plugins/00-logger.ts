@@ -6,7 +6,7 @@ import logger from "../utils/logger"
 export default defineNitroPlugin((nitroApp) => {
     logger.info("PlaylistSync.startup", `PID ${process.pid}`, `Environment ${process.env.NODE_ENV || "development"}`)
     if (getServerConfig().safeMode) {
-        logger.warn("PlaylistSync.startup", "SAFE_MODE is enabled; music providers will not be written")
+        logger.warn("PlaylistSync.startup", "PLS_SAFE_MODE is enabled; music providers will not be written")
     }
 
     nitroApp.hooks.hook("error", (error, context) => {

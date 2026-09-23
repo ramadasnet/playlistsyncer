@@ -2,19 +2,19 @@
 # Per-boot startup: bring up MongoDB and wait until it accepts connections.
 # Idempotent: reuses an already-running mongod and cleans up a stale lock.
 #
-# Optional external database: when a MONGODB_URI environment secret points at a
+# Optional external database: when a PLS_MONGODB_URI environment secret points at a
 # non-local host (for example MongoDB Atlas), the local MongoDB is not started
 # and this script returns immediately; the app connects to the external database.
 set -euo pipefail
 
 # Skip the local database when an external MongoDB is configured via secret.
-if [ -n "${MONGODB_URI:-}" ]; then
-    case "$MONGODB_URI" in
+if [ -n "${PLS_MONGODB_URI:-}" ]; then
+    case "$PLS_MONGODB_URI" in
         *localhost*|*127.0.0.1*)
             : # Local target: fall through and start the bundled MongoDB.
             ;;
         *)
-            echo "External MONGODB_URI detected; skipping local MongoDB startup."
+            echo "External PLS_MONGODB_URI detected; skipping local MongoDB startup."
             exit 0
             ;;
     esac

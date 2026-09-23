@@ -140,7 +140,7 @@ async function applyDesired(
     if (additions.length || removals.length || skipped) {
         logger.info("Sync.applyDesired", account.provider, `Playlist ${playlistId}`, playlistName, `Additions ${additions.length}`, `Removals ${removals.length}`, `Unmatched ${skipped}`)
     }
-    // SAFE_MODE logs the planned membership and leaves music providers untouched.
+    // PLS_SAFE_MODE logs the planned membership and leaves music providers untouched.
     if (isSafeModeEnabled()) {
         logSafeModePlaylistUpdate({
             provider: account.provider,
@@ -523,7 +523,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     try {
         const result = await execute(task, recordChanges)
         const user = await db.users.findOne({_id: task.userId})
-        const proIntervalMs = proSyncIntervalMs(getServerConfig().proSyncIntervalHours)
+        const proIntervalMs = proSyncIntervalMs(getServerConfig().proSyncIntervalMinutes)
         const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? proIntervalMs : 7 * 24 * 60 * 60 * 1000
         const finishedAt = new Date()
         const completed = await db.syncTasks.updateOne(

@@ -28,7 +28,7 @@ logger.setOptions({
     unhandledRejections: true
 })
 
-if (process.env.NODE_ENV === "production" && process.env.JSON_LOGGING === "true") {
+if (process.env.NODE_ENV === "production" && process.env.PLS_JSON_LOGGING === "true") {
     logger.setOptions({levelOnConsole: false})
     logger.setup({
         name: "gcloud",

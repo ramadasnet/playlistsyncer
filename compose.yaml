@@ -7,7 +7,7 @@ services:
     env_file: .env
     environment:
       HOST: 0.0.0.0
-      MONGODB_URI: mongodb://mongodb:27017/playlistsync
+      PLS_MONGODB_URI: mongodb://mongodb:27017/playlistsync
       PORT: 3007
     ports:
       - "3007:3007"
