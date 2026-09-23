@@ -33,8 +33,7 @@ async function refreshAccessToken(account: ProviderAccountDocument): Promise<str
         body.set("client_id", definition.clientId)
         body.set("client_secret", definition.clientSecret)
     }
-    // Repeating a refresh request is harmless, so transient failures can be retried.
-    const response = await fetchWithRetry(definition.tokenUrl, {method: "POST", headers, body}, {label: "Provider.refreshToken", retryUnsafe: true})
+    const response = await fetchWithRetry(definition.tokenUrl, {method: "POST", headers, body}, {label: "Provider.refreshToken"})
     if (!response.ok) {
         logger.error("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`, `Status ${response.status}`)
         throw createError({

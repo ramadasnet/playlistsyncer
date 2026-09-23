@@ -44,7 +44,7 @@ export interface SyncTaskSummary {
     source: {providerAccountId: string; playlistId: string; name: string}
     destination: {providerAccountId: string; playlistId: string; name: string}
     status: SyncTaskStatus
-    pauseReason?: "user" | "entitlement"
+    pauseReason?: "user" | "entitlement" | "conflict"
     entitlementLocked?: boolean
     nextRunAt: string
     lastRunAt?: string

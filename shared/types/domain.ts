@@ -178,7 +178,7 @@ export interface SyncTaskDocument {
     destination: PlaylistReference
     playlistMappings?: PlaylistMapping[]
     status: SyncTaskStatus
-    pauseReason?: "user" | "entitlement"
+    pauseReason?: "user" | "entitlement" | "conflict"
     nextRunAt: Date
     lastRunAt?: Date
     lastSuccessAt?: Date

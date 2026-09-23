@@ -1,6 +1,7 @@
 // Provide typed MongoDB collections and create the indexes they require.
 import type {Collection} from "mongodb"
 import type {OAuthTransactionDocument, ProviderAccountDocument, SessionDocument, SyncRunDocument, SyncSnapshotDocument, SyncTaskDocument, UserDocument, WebhookEventDocument} from "~~/shared/types/domain"
+import {backfillAccountSyncPairKeys} from "./account-sync-migration"
 import {getDatabase} from "../utils/database"
 
 const collectionNames = {
@@ -52,6 +53,23 @@ export async function ensureIndexes(): Promise<void> {
     if (emailIndex && emailIndex.sparse !== true) {
         await db.users.dropIndex("email_1")
     }
+    let pairIndex: {name?: string; partialFilterExpression?: Record<string, unknown>} | undefined
+    try {
+        pairIndex = (await db.syncTasks.indexes()).find((index) => index.name === "userId_1_accountSyncPairKey_1")
+    } catch (error) {
+        if (!(error && typeof error === "object" && "code" in error && error.code === 26)) {
+            throw error
+        }
+    }
+    if (pairIndex && pairIndex.partialFilterExpression?.mode === "account" && !pairIndex.partialFilterExpression.accountSyncPairKey) {
+        try {
+            await db.syncTasks.dropIndex("userId_1_accountSyncPairKey_1")
+        } catch (error) {
+            if (!(error && typeof error === "object" && "code" in error && error.code === 27)) {
+                throw error
+            }
+        }
+    }
     await Promise.all([
         db.users.createIndex({email: 1}, {unique: true, sparse: true}),
         db.users.createIndex({tempEmail: 1}, {unique: true, sparse: true}),
@@ -65,11 +83,12 @@ export async function ensureIndexes(): Promise<void> {
         db.oauthTransactions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.syncTasks.createIndex({userId: 1, status: 1}),
         db.syncTasks.createIndex({nextRunAt: 1, status: 1}),
-        db.syncTasks.createIndex({userId: 1, accountSyncPairKey: 1}, {unique: true, partialFilterExpression: {mode: "account"}}),
+        db.syncTasks.createIndex({userId: 1, accountSyncPairKey: 1}, {unique: true, partialFilterExpression: {mode: "account", accountSyncPairKey: {$type: "string"}}}),
         db.syncSnapshots.createIndex({taskId: 1}, {unique: true}),
         db.syncRuns.createIndex({taskId: 1, startedAt: -1}),
         db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: 60 * 60 * 24 * 180}),
         db.webhookEvents.createIndex({eventId: 1}, {unique: true}),
         db.webhookEvents.createIndex({processedAt: 1}, {expireAfterSeconds: 60 * 60 * 24 * 90})
     ])
+    await backfillAccountSyncPairKeys(db.syncTasks, db.providerAccounts)
 }

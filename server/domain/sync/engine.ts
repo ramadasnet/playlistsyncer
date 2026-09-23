@@ -527,7 +527,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? proIntervalMs : 7 * 24 * 60 * 60 * 1000
         const finishedAt = new Date()
         const completed = await db.syncTasks.updateOne(
-            {_id: taskId, leaseId, pauseReason: {$ne: "entitlement"}},
+            {_id: taskId, leaseId, pauseReason: {$nin: ["entitlement", "conflict"]}},
             {
                 $set: {
                     status: result.conflicts ? "needs_attention" : "active",

@@ -34,14 +34,16 @@ export class ProviderRateLimiter {
     private slowdownChangedAt = 0
     private readonly now: () => number
     private readonly cooldownMs: number
+    private readonly wait: typeof wait
 
     constructor(
         readonly provider: Provider,
         readonly maxRequestsPerMinute: number,
-        options: {now?: () => number; cooldownMs?: number} = {}
+        options: {now?: () => number; cooldownMs?: number; wait?: typeof wait} = {}
     ) {
         this.now = options.now ?? Date.now
         this.cooldownMs = options.cooldownMs ?? defaultCooldownMs
+        this.wait = options.wait ?? wait
     }
 
     // Spacing between request starts, widened while recovering from a rate limit.
@@ -65,7 +67,7 @@ export class ProviderRateLimiter {
             }
             this.nextSlotAt = slot + this.intervalMs
             if (slot > now) {
-                await wait(slot - now, signal)
+                await this.wait(slot - now, signal)
             }
             // A rate limit may have arrived while this request was waiting for its slot.
             if (this.pausedUntil <= this.now()) {

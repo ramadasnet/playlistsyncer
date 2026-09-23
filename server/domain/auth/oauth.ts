@@ -78,8 +78,7 @@ async function exchangeCode(provider: Provider, code: string, codeVerifier: stri
         body.set("client_id", definition.clientId)
         body.set("client_secret", definition.clientSecret)
     }
-    // A repeated code exchange is rejected by the provider rather than duplicated, so transient failures can be retried.
-    const response = await fetchWithRetry(definition.tokenUrl, {method: "POST", headers, body}, {label: "OAuth.exchangeCode", retryUnsafe: true})
+    const response = await fetchWithRetry(definition.tokenUrl, {method: "POST", headers, body}, {label: "OAuth.exchangeCode"})
     if (!response.ok) {
         logger.error("OAuth.exchangeCode", provider, `Provider returned status ${response.status}`)
         throw createError({statusCode: 502, statusMessage: `OAuth token exchange failed (${response.status})`})
@@ -103,7 +102,7 @@ export function newUserFromOAuthProfile(profile: OAuthProfile, now: Date): UserD
     const email = hasVerifiedProviderEmail(profile) ? profile.email!.trim().toLowerCase() : undefined
     return {
         ...(email ? {email} : {}),
-        displayName: truncateDisplayName(profile.displayName),
+        displayName: truncateDisplayName(profile.displayName) || "Anonymous",
         avatarUrl: profile.avatarUrl,
         tier: "free",
         createdAt: now,
@@ -201,6 +200,11 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         throw createError({statusCode: 409, statusMessage: "This provider account is already linked to another user"})
     }
     let user: UserDocument = conflictingAccount ? await db.users.findOne({_id: conflictingAccount.userId}).then((value) => value!) : await findOrCreateUser(profile, transaction.linkingUserId)
+    const anotherProviderAccount = await db.providerAccounts.findOne({userId: user._id!, provider, externalAccountId: {$ne: profile.id}})
+    if (anotherProviderAccount) {
+        logger.warn("OAuth.finish", provider, `User ${user._id!.toHexString()}`, "Another account from this provider is already linked")
+        throw createError({statusCode: 409, statusMessage: "Only one account per music provider can be connected"})
+    }
     user = await assignVerifiedProviderEmail(user, profile)
     const now = new Date()
     await db.providerAccounts.updateOne(

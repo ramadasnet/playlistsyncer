@@ -68,20 +68,19 @@ describe("provider rate limiter", () => {
     })
 
     test("queues a pacing backlog longer than the cooldown limit", async () => {
-        const limiter = new ProviderRateLimiter("spotify", 1, {now: () => 1_000_000})
-        const controller = new AbortController()
-        // Slots are a minute apart, so the last requests start beyond the cooldown limit without any rate limit.
-        const queued = Array.from({length: maxQueueWaitMs / 60_000 + 2}, () =>
-            limiter.acquire(controller.signal).then(
-                () => "started",
-                (error: {statusCode?: number}) => error.statusCode ?? "aborted"
-            )
-        )
-        controller.abort(new Error("Cancelled"))
+        let now = 1_000_000
+        const sleepers: {ms: number; resolve: () => void}[] = []
+        const limiter = new ProviderRateLimiter("spotify", 1, {
+            now: () => now,
+            wait: (ms) => new Promise((resolve) => sleepers.push({ms, resolve}))
+        })
+        const queued = Array.from({length: maxQueueWaitMs / 60_000 + 2}, () => limiter.acquire())
 
-        const results = await Promise.all(queued)
-        expect(results[0]).toBe("started")
-        expect(results).not.toContain(429)
+        expect(sleepers.map((sleeper) => sleeper.ms)).toEqual([60_000, 120_000, 180_000, 240_000, 300_000, 360_000])
+        now += 360_000
+        sleepers.forEach((sleeper) => sleeper.resolve())
+
+        await expect(Promise.all(queued)).resolves.toEqual(Array(7).fill(undefined))
     })
 
     test("uses the default cooldown when the provider sends no Retry-After", () => {

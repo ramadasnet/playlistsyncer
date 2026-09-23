@@ -9,7 +9,7 @@ export function normalizeDisplayName(value: string): string {
 
 // Fit provider-supplied names into the limit without leaving a broken surrogate pair.
 export function truncateDisplayName(value: string): string {
-    const normalized = normalizeDisplayName(value)
+    const normalized = normalizeDisplayName(value) || "Anonymous"
     if (normalized.length <= maxDisplayNameLength) {
         return normalized
     }

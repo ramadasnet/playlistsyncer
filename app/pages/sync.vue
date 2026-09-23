@@ -422,8 +422,8 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
                             v-if="!isEntitlementLocked(task)"
                             class="icon-button"
                             type="button"
-                            :title="task.status === 'paused' ? 'Resume' : 'Pause'"
-                            :disabled="busyTask === task.id"
+                            :title="task.pauseReason === 'conflict' ? 'Duplicate full sync detected; please delete this task' : task.status === 'paused' ? 'Resume' : 'Pause'"
+                            :disabled="busyTask === task.id || task.pauseReason === 'conflict'"
                             @click="taskAction(task, task.status === 'paused' ? 'resume' : 'pause')"
                         >
                             <Play v-if="task.status === 'paused'" :size="18" /><CirclePause v-else :size="18" />
@@ -445,6 +445,7 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
                     <span class="status-label" :class="`status-${task.status}`"><span />{{ task.status.replace("_", " ") }}</span>
                     <span>{{ isOneWay(task) ? "One-way" : "Two-way" }}</span>
                     <span>{{ task.status === "paused" ? "Paused" : `Next ${formatDate(task.nextRunAt)}` }}</span>
+                    <span v-if="task.pauseReason === 'conflict'">Duplicate full sync; delete this task to resolve the conflict.</span>
                     <span v-if="isInitialSyncPending(task)">Processing initial sync...</span>
                     <template v-else>
                         <span>Last {{ formatDate(task.lastSuccessAt) }}</span>

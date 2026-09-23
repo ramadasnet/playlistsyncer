@@ -122,6 +122,16 @@ describe("free-tier task retention", () => {
         })
     })
 
+    test("keeps duplicate full syncs paused across plan changes", () => {
+        const tasks = [
+            {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: undefined},
+            {_id: account, mode: "account" as const, createdAt: created.account, pauseReason: "conflict" as const}
+        ]
+
+        expect(planTaskEntitlement(tasks, false)).toEqual({pauseIds: [], resumeIds: []})
+        expect(planTaskEntitlement(tasks, true)).toEqual({pauseIds: [], resumeIds: []})
+    })
+
     test("locks extra user-paused tasks on Free without converting their pause reason", () => {
         const tasks = [
             {_id: first, mode: "playlist" as const, createdAt: created.first, pauseReason: "user" as const},

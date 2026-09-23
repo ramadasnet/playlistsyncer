@@ -34,4 +34,8 @@ describe("display name limits", () => {
 
         expect(user.displayName).toBe("A Very Long Spotify Display Na")
     })
+
+    test("never stores a blank provider-supplied display name", () => {
+        expect(truncateDisplayName(" \n ")).toBe("Anonymous")
+    })
 })

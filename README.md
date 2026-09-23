@@ -1,21 +1,21 @@
-# PlaylistSyncer (ALPHA / WIP!!!)
+# PlaylistSyncer (BETA)
 
-A Nuxt 4 and Bun service for two-way and one-way playlist synchronization across Spotify, Amazon Music, YouTube Music, and TIDAL. MongoDB stores users, encrypted provider credentials, task baselines, leases, and run history. Creem owns paid subscription state.
+An open-source service that allows users to sync their playlists among multiple music providers.
 
-## Product behavior
+- Two-way sync: changes made to a playlist on one service will also update the playlist on the other service.
+- One-way sync: one provider acts as the master, and the playlist on the other provider is a mirror of the master.
+- Full sync: all playlists from one provider are synced to the other provider.
+- Automatic sync: background jobs will sync the playlists automatically every few hours / days, depending on settings.
+  Supported providers: Spotify, YouTube Music, TIDAL.
 
-- Sign in with Spotify, Login with Amazon, Google/YouTube, or TIDAL and link additional provider identities to the same account.
-- Synchronize one selected playlist between two providers, either two-way or with the first playlist as master.
-- Mirror every playlist from one provider account to another with durable source/destination mappings.
-- Create, pause, run, inspect, and delete synchronization tasks from the authenticated application.
-- Use Creem-hosted Checkout and Customer Portal flows for PRO subscriptions.
-- PRO accounts can opt in to a weekly email summarizing playlists and tracks that were added or removed. The email is sent only when something changed.
+## Stack
 
-Spotify, YouTube, and TIDAL use their official APIs. YouTube synchronization operates on video playlists that are also visible in YouTube Music. Login with Amazon is implemented, but Amazon playlist access remains capability-gated until the approved partner API contract is configured; the application does not use private endpoints, browser automation, or credential scraping.
+- TypeScript + Nuxt 4 running on Bun
+- MongoDB database, also compatible with Google Firestore and Amazon DocumentDB
+- Platform agnostic, should run anywhere using Docker
+- Creem is used for billing and payments
 
 ## Architecture and persistence
-
-The application is a single Nuxt 4 deployment: Vue and Pinia provide the frontend, while Nitro API routes call framework-independent domain modules for OAuth, billing, provider access, matching, reconciliation, and task execution. It runs on Bun and uses the official MongoDB driver rather than an ODM.
 
 MongoDB collections hold:
 
@@ -26,31 +26,32 @@ MongoDB collections hold:
 - playlist baselines and synchronization run history
 - idempotently processed Creem webhook event IDs
 
-Indexes enforce unique users, provider identities, sessions, OAuth states, snapshots, and webhook events. Sessions and OAuth transactions expire automatically; sync runs are retained for 180 days and webhook event records for 90 days.
+Indexes enforce unique users, provider identities, sessions, OAuth states, snapshots, and webhook events. Sessions and OAuth transactions expire automatically.
 
-## Synchronization behavior
+Sync runs are retained for 180 days and webhook event records for 90 days.
 
-### Playlist pairs
+## Synchronization Steps
 
-The first run treats the selected source playlist as authoritative, replaces the destination contents, and stores both resulting playlists as the common baseline.
-
-Two-way tasks then compare both current playlists with that baseline:
+### Two-way sync
 
 - A change made on only one side is propagated to the other.
 - The same change made on both sides is accepted.
-- Contradictory changes preserve the larger occurrence count, are recorded as conflicts, and leave the task in `needs_attention`.
+- Contradictory changes preserve the larger occurrence count, are recorded as conflicts, and flag the task with `needs_attention`.
 - Duplicate track occurrences are counted and preserved where the provider permits them.
-- Tracks that cannot be matched in the other provider's catalog are skipped and make the run partial rather than applying a low-confidence result. From the run details overlay, a user can search for similar catalog tracks (title, artist, and length) and pick one to add. Two-way and one-way playlist tasks store a snapshot alias between the unmatched song and that pick so later syncs keep both copies instead of removing the manual choice.
+- Tracks that cannot be matched in the other provider's catalog are skipped. In this case, users can use the frontend to find and match the track manually.
+- Tasks store a snapshot alias between the unmatched song and manually selected tracks, so later syncs keep both copies instead of removing the manual choice.
 
-One-way tasks keep the first selected playlist as the master. Later runs copy that membership onto the second playlist only: additions and removals on the master are mirrored, extra tracks on the destination are removed, and the master is never rewritten.
+### One-way sync
 
-After mutations, both playlists are read again and the verified state becomes the next baseline. Ordering is not currently reconciled; synchronization preserves track membership and duplicate counts.
+- The first selected playlist is always master. Sync tasks will mirror changes made to the second playlist.
+- Tracks added or removed from the second playlist are never synced back to the master, and might be overwritten.
 
-### Account mirrors
+### Full sync
 
-Account mode is intentionally one-way. Each source playlist is matched to its durable destination mapping, then by an unclaimed playlist with the same name, or created when neither exists. Its contents are mirrored from source to destination. When a previously mapped source playlist disappears, its mapped destination playlist is deleted; unrelated destination playlists are left alone.
-
-Every execution acquires a 15-minute MongoDB lease, records additions, removals, conflicts, skipped tracks, and failures, and releases the lease when complete. This prevents overlapping manual and scheduled runs of the same task.
+- If the user selects `ALL Playlists` as the source, a full sync will consider the first provider the master and the second provider the mirror.
+- Each source playlist is matched to its durable destination mapping, then by an unclaimed playlist with the same name, or created as a new playlist if it doesn't exist.
+- When a previously mapped source playlist disappears, its mapped destination playlist is not deleted.
+- Every execution acquires a 15-minute database lease and records additions, removals, conflicts, skipped tracks, and failures. This prevents overlapping manual and scheduled runs of the same task.
 
 ## Plans and scheduling
 
@@ -60,13 +61,15 @@ Every execution acquires a 15-minute MongoDB lease, records additions, removals,
 
 Creem webhook events are the source of truth for paid entitlement. Downgrades and the end of the complimentary trial retain tasks and history. Extra playlist-pair tasks and every whole-account task are paused with an entitlement lock: they cannot run or be edited, and the UI explains that a PRO subscription is needed. The earliest playlist-pair task stays enabled on Free. In local development, `DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
 
+On startup, legacy whole-account tasks are assigned a provider-pair key to prevent concurrent creation of duplicate full syncs. If existing tasks already share a provider pair, the oldest claims the key and the other tasks are retained but paused with a conflict notice. Delete the duplicate tasks to clear the conflict; they cannot be resumed.
+
 ## Authentication and security
 
-OAuth uses Authorization Code with PKCE, hashed single-use state, exact callback URLs, and ten-minute transaction expiry. Automatic registration matches a provider-verified email to an existing account. If the provider does not share a verified email, the user is signed in and sent to the account page to enter an address. That value is stored as a temporary email until the user confirms it from a mailed link; only then is it set on the profile. An already authenticated user may explicitly link another provider account. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies outside development.
+OAuth uses Authorization Code with PKCE, hashed single-use state, exact callback URLs, and ten-minute transaction expiry. Automatic registration matches a provider-verified email to an existing account. If the provider does not share a verified email, the user is signed in and sent to the account page to enter an address. That value is stored as a temporary email until the user confirms it from a mailed link; only then is it set on the profile. An already authenticated user may explicitly link another provider account, but only one account per provider. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies outside development.
 
-Provider tokens are encrypted at rest with versioned AES-GCM values. Access tokens are refreshed 15 minutes before expiry, concurrent refreshes for the same account are coalesced, and a provider 401 retries once after a forced refresh. All external HTTP requests (provider APIs, OAuth, and Creem) go through `server/utils/fetch-retry.ts`, which applies a per-attempt timeout and retries rate limits (429, plus YouTube `rateLimitExceeded` 403s), transient 408/5xx errors, and network failures with jittered exponential backoff, honoring `Retry-After` up to 30 seconds by default. Non-idempotent requests such as playlist additions are only retried on rate limit responses, which providers reject before processing, so a retry never adds tracks twice. OAuth code exchanges and token refreshes are the exception and also retry transient failures, since a repeated attempt is rejected rather than duplicated. Provider API requests additionally pass through a process-wide limiter per provider (`server/domain/providers/rate-limit.ts`) shared by every account: request starts are spaced to stay under the provider's configured requests per minute, and a rate limit hit by any account pauses and queues every pending request for that provider until `Retry-After` has passed (5 seconds when absent, growing with each consecutive slowdown), then resumes at half pace and recovers one step per idle minute. Provider API requests retry rate limits up to 5 times and honor cooldowns up to 5 minutes; longer cooldowns fail with 429 instead of queueing. The limiter coordinates a single app instance; multiple instances each pace independently. Mutating application requests are restricted to the configured origin, scheduler routes require a constant-time-checked bearer secret, and Creem webhooks require valid signatures and unique event IDs. Secrets, authorization headers, OAuth codes and tokens, raw webhook payloads, and email addresses are excluded from logs.
+Provider tokens are encrypted at rest with versioned AES-GCM values. Access tokens are refreshed 15 minutes before expiry, concurrent refreshes for the same account are coalesced, and a provider 401 retries once after a forced refresh. External HTTP requests (provider APIs and OAuth) go through `server/utils/fetch-retry.ts`, which applies a per-attempt timeout and retries rate limits (429, plus YouTube `rateLimitExceeded` 403s for provider API requests), transient 408/5xx errors, and network failures with jittered exponential backoff when safe to repeat, honoring `Retry-After` up to 30 seconds by default. Non-idempotent requests, including playlist additions, OAuth code exchanges, and token refreshes, retry only rate-limit responses. Creem uses its SDK's own timeout and retry settings. Provider API requests and OAuth profile requests pass through a process-wide limiter per provider (`server/domain/providers/rate-limit.ts`) shared by every account: request starts are spaced to stay under the provider's configured requests per minute, and a rate limit hit by any account pauses and queues every pending request for that provider until `Retry-After` has passed (5 seconds when absent, growing with each consecutive slowdown), then resumes at half pace and recovers one step per idle minute. Provider API requests retry rate limits up to 5 times and honor cooldowns up to 5 minutes; longer cooldowns fail with 429 instead of queueing. The limiter coordinates a single app instance; multiple instances each pace independently. Mutating application requests are restricted to the configured origin, scheduler routes require a constant-time-checked bearer secret, and Creem webhooks require valid signatures and unique event IDs. Secrets, authorization headers, OAuth codes and tokens, raw webhook payloads, and email addresses are excluded from logs.
 
-## Run locally
+## Running locally
 
 Prerequisites: Bun 1.4+, Docker with Compose, and the provider credentials described below.
 
