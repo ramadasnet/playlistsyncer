@@ -9,6 +9,10 @@ const {enabledProviders} = await useEnabledProviders()
 const {everyLabel, everyTitleLabel} = useProSyncCadence()
 const {data: trial} = await useFetch<{proSubscriptionRequiredAt?: string}>("/api/trial")
 const trialEndsAt = computed(() => complimentaryTrialEndsAt(trial.value?.proSubscriptionRequiredAt || String(config.public.proSubscriptionRequiredAt || "")))
+// The baked runtime config only reflects the Creem price on the server render that first started the process; fetch the resolved
+// price so client-side navigation to this page still shows it instead of the env fallback.
+const {data: resolvedProPrice} = await useFetch<{proPrice?: string}>("/api/pro-price")
+const proPrice = computed(() => resolvedProPrice.value?.proPrice || String(config.public.proPrice))
 type PlanValue = string | boolean
 const features = computed<[string, PlanValue, PlanValue][]>(() => [
     ["Playlist pairs", "1", "Unlimited"],
@@ -40,7 +44,7 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
             <article class="plan-panel featured">
                 <p class="eyebrow light">PRO</p>
                 <h2>Sync everything</h2>
-                <p class="price">{{ config.public.proPrice }} / year</p>
+                <p class="price">{{ proPrice }} / year</p>
                 <p>Unlimited playlist with synchronization {{ everyLabel }}, sync history, weekly summaries, and more!</p>
                 <NuxtLink class="button button-light" :to="auth.user ? '/account' : '/login'">Get PRO <ArrowRight :size="17" /></NuxtLink>
             </article>

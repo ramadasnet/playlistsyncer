@@ -44,3 +44,16 @@ export async function loadCreemProPrice(creemEnabled: boolean, productId: string
         return undefined
     }
 }
+
+// Cache the Creem-resolved price so API routes can serve it to clients that never render on the server, such as client-side navigations.
+let resolvedProPrice: string | undefined
+
+// Record the price resolved from Creem at startup.
+export function setResolvedProPrice(price: string): void {
+    resolvedProPrice = price
+}
+
+// Return the Creem-resolved price, when the startup lookup succeeded.
+export function getResolvedProPrice(): string | undefined {
+    return resolvedProPrice
+}
