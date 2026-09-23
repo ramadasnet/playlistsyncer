@@ -35,6 +35,11 @@ async function fetchJson<T>(url: string, accessToken: string, extraHeaders?: Hea
     return response.json() as Promise<T>
 }
 
+// Use the first provider-supplied name that is not blank, so a whitespace-only name never becomes an empty display name.
+function profileDisplayName(fallback: string, ...names: (string | undefined)[]): string {
+    return names.map((name) => name?.trim()).find(Boolean) || fallback
+}
+
 const oauthProviders: Record<Provider, OAuthProvider> = {
     spotify: {
         authorizeUrl: "https://accounts.spotify.com/authorize",
@@ -54,7 +59,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 id: profile.id,
                 email: profile.email,
                 emailVerified: Boolean(profile.email),
-                displayName: profile.display_name || profile.email || "Spotify user",
+                displayName: profileDisplayName("Spotify user", profile.display_name, profile.email),
                 avatarUrl: profile.images?.[0]?.url
             }
         }
@@ -78,7 +83,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 id: profile.sub,
                 email: profile.email,
                 emailVerified: profile.email_verified === true,
-                displayName: profile.name || profile.email || "Google user",
+                displayName: profileDisplayName("Google user", profile.name, profile.email),
                 avatarUrl: profile.picture
             }
         }
@@ -96,7 +101,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 id: profile.user_id,
                 email: profile.email,
                 emailVerified: Boolean(profile.email),
-                displayName: profile.name || profile.email || "Amazon user"
+                displayName: profileDisplayName("Amazon user", profile.name, profile.email)
             }
         }
     },
@@ -121,7 +126,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 }
             }>("https://openapi.tidal.com/v2/users/me", accessToken, {Accept: "application/vnd.api+json"})
             const attributes = document.data.attributes || {}
-            const displayName = [attributes.firstName, attributes.lastName].filter(Boolean).join(" ") || attributes.username || attributes.email || "TIDAL user"
+            const displayName = profileDisplayName("TIDAL user", [attributes.firstName, attributes.lastName].filter(Boolean).join(" "), attributes.username, attributes.email)
             return {
                 id: document.data.id,
                 email: attributes.email,

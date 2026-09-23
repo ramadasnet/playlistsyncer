@@ -59,7 +59,7 @@ export class ProviderRateLimiter {
             const now = this.now()
             this.recover(now)
             const slot = Math.max(now, this.nextSlotAt, this.pausedUntil)
-            if (slot - now > maxQueueWaitMs) {
+            if (this.pausedUntil - now > maxQueueWaitMs) {
                 logger.warn("Provider.rateLimit", this.provider, `Cooldown ${Math.ceil((this.pausedUntil - now) / 1000)}s exceeds the queue limit`)
                 throw createError({statusCode: 429, statusMessage: `${this.provider} API is rate limited; try again later`})
             }
@@ -89,9 +89,11 @@ export class ProviderRateLimiter {
         }
     }
 
+    // Halve the slowdown once for every full recovery interval elapsed since the last change or cooldown.
     private recover(now: number): void {
-        if (this.slowdown > 1 && this.pausedUntil <= now && now - Math.max(this.slowdownChangedAt, this.pausedUntil) >= slowdownRecoveryMs) {
-            this.slowdown = Math.max(1, this.slowdown / 2)
+        const steps = Math.floor((now - Math.max(this.slowdownChangedAt, this.pausedUntil)) / slowdownRecoveryMs)
+        if (this.slowdown > 1 && this.pausedUntil <= now && steps > 0) {
+            this.slowdown = Math.max(1, this.slowdown / 2 ** steps)
             this.slowdownChangedAt = now
         }
     }

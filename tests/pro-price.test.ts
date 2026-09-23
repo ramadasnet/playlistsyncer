@@ -2,51 +2,44 @@ import {describe, expect, mock, test} from "bun:test"
 import type {Creem} from "creem"
 import {fetchCreemProPrice, formatCreemPrice, loadCreemProPrice} from "../server/domain/billing/pro-price"
 
-function creemClient(items: Array<{price: number; currency: string}>, search = mock(async () => ({result: {items}}))): Pick<Creem, "products"> {
-    return {products: {search: search as Creem["products"]["search"]}}
+function creemClient(product?: {price: number; currency: string}, get = mock(async () => product!)): Pick<Creem, "products"> {
+    return {products: {get: get as unknown as Creem["products"]["get"]} as Creem["products"]}
 }
 
 describe("Creem PRO price", () => {
-    test("formats Creem cents as a currency label", () => {
-        expect(formatCreemPrice(999, "usd")).toBe("$9.99")
-        expect(formatCreemPrice(1000, "EUR")).toBe("€10.00")
+    test("formats Creem cents as an amount with its currency code", () => {
+        expect(formatCreemPrice(999, "usd")).toBe("9.99 USD")
+        expect(formatCreemPrice(1000, "EUR")).toBe("10.00 EUR")
+        expect(formatCreemPrice(123456, "EUR")).toBe("1,234.56 EUR")
         expect(() => formatCreemPrice(Number.NaN, "USD")).toThrow("Creem product price is not a number")
     })
 
-    test("uses the first active product", async () => {
-        const search = mock(async () => ({
-            result: {
-                items: [
-                    {price: 1299, currency: "EUR"},
-                    {price: 100, currency: "USD"}
-                ]
-            }
-        }))
-        const price = await fetchCreemProPrice(creemClient([], search))
+    test("uses the configured PRO product", async () => {
+        const get = mock(async () => ({price: 1299, currency: "EUR"}))
+        const price = await fetchCreemProPrice("prod_pro", creemClient(undefined, get))
 
-        expect(price).toBe("€12.99")
-        expect(search).toHaveBeenCalledWith(1, 1, "active", {timeoutMs: 10_000, retries: {strategy: "none"}})
+        expect(price).toBe("12.99 EUR")
+        expect(get).toHaveBeenCalledWith("prod_pro", {timeoutMs: 10_000, retries: {strategy: "none"}})
     })
 
-    test("returns nothing when Creem has no product", async () => {
-        await expect(fetchCreemProPrice(creemClient([]))).resolves.toBeUndefined()
-    })
+    test("keeps the env price when Creem is disabled, unconfigured, or the lookup fails", async () => {
+        const get = mock(async () => ({price: 1299, currency: "EUR"}))
 
-    test("keeps the env price when Creem is disabled or the lookup fails", async () => {
-        const search = mock(async () => ({result: {items: [{price: 1299, currency: "EUR"}]}}))
+        await expect(loadCreemProPrice(false, "prod_pro", creemClient(undefined, get))).resolves.toBeUndefined()
+        await expect(loadCreemProPrice(true, undefined, creemClient(undefined, get))).resolves.toBeUndefined()
+        expect(get).not.toHaveBeenCalled()
 
-        await expect(loadCreemProPrice(false, creemClient([], search))).resolves.toBeUndefined()
-        expect(search).not.toHaveBeenCalled()
-
-        await expect(loadCreemProPrice(true, creemClient([]))).resolves.toBeUndefined()
         await expect(
-            loadCreemProPrice(true, {
-                products: {
-                    search: (async () => {
+            loadCreemProPrice(
+                true,
+                "prod_pro",
+                creemClient(
+                    undefined,
+                    mock(async () => {
                         throw new Error("creem down")
-                    }) as Creem["products"]["search"]
-                }
-            })
+                    })
+                )
+            )
         ).resolves.toBeUndefined()
     })
 })

@@ -1,39 +1,42 @@
-// Load the public PRO price from the single Creem subscription product.
+// Load the public PRO price from the configured Creem subscription product.
 import type {Creem} from "creem"
 import logger from "../../utils/logger"
 import {getCreem} from "./creem"
 
 const priceLookupTimeoutMs = 10_000
 
-// Format a Creem price, stored in cents, as a currency label.
+// Format a Creem price, stored in cents, as an amount followed by its currency code.
 export function formatCreemPrice(priceCents: number, currency: string): string {
     if (!Number.isFinite(priceCents)) {
         throw new Error("Creem product price is not a number")
     }
-    return new Intl.NumberFormat("en", {style: "currency", currency: currency.toUpperCase()}).format(priceCents / 100)
+    const code = currency.toUpperCase()
+    const parts = new Intl.NumberFormat("en", {style: "currency", currency: code}).formatToParts(priceCents / 100)
+    const amount = parts
+        .filter((part) => part.type !== "currency")
+        .map((part) => part.value)
+        .join("")
+        .trim()
+    return `${amount} ${code}`
 }
 
-// Read the price of the first active Creem product.
-export async function fetchCreemProPrice(creem: Pick<Creem, "products"> = getCreem()): Promise<string | undefined> {
-    const page = await creem.products.search(1, 1, "active", {timeoutMs: priceLookupTimeoutMs, retries: {strategy: "none"}})
-    const product = page.result.items[0]
-    if (!product) {
-        return undefined
-    }
+// Read the price of the PRO product that checkout charges.
+export async function fetchCreemProPrice(productId: string, creem: Pick<Creem, "products"> = getCreem()): Promise<string> {
+    const product = await creem.products.get(productId, {timeoutMs: priceLookupTimeoutMs, retries: {strategy: "none"}})
     return formatCreemPrice(product.price, product.currency)
 }
 
 // Resolve the startup price, leaving it unset when Creem is disabled or the lookup fails.
-export async function loadCreemProPrice(creemEnabled: boolean, creem?: Pick<Creem, "products">): Promise<string | undefined> {
+export async function loadCreemProPrice(creemEnabled: boolean, productId: string | undefined, creem?: Pick<Creem, "products">): Promise<string | undefined> {
     if (!creemEnabled) {
         return undefined
     }
+    if (!productId) {
+        logger.warn("Creem.proPrice", "No PRO product configured; using the configured PRO price")
+        return undefined
+    }
     try {
-        const price = await fetchCreemProPrice(creem)
-        if (!price) {
-            logger.warn("Creem.proPrice", "No product returned; using the configured PRO price")
-            return undefined
-        }
+        const price = await fetchCreemProPrice(productId, creem)
         logger.info("Creem.proPrice", `Loaded ${price}`)
         return price
     } catch (error) {

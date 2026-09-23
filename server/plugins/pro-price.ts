@@ -4,7 +4,8 @@ import {getServerConfig} from "../utils/config"
 
 // Copy a successfully loaded Creem price into each request. The shared runtime config is frozen, and each request clones the env fallback.
 export default defineNitroPlugin(async (nitroApp) => {
-    const proPrice = await loadCreemProPrice(Boolean(getServerConfig().creemApiKey))
+    const config = getServerConfig()
+    const proPrice = await loadCreemProPrice(Boolean(config.creemApiKey), config.creemProProductId)
     if (!proPrice) {
         return
     }

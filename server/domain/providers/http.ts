@@ -50,13 +50,15 @@ export async function providerFetch<T>(account: ProviderAccountDocument, url: st
     if (!response.ok) {
         const requestUrl = new URL(url)
         const logParts = [account.provider, init.method || "GET", requestUrl.pathname, `Status ${response.status}`, `Provider account ${account.externalAccountId}`]
-        if (response.status === 429) {
+        // Exhausted YouTube rate limit 403s are still rate limits, not upstream failures.
+        const rateLimited = response.status === 429 || (account.provider === "youtube" && (await isYoutubeRateLimit(response)))
+        if (rateLimited) {
             logger.warn("Provider.request", ...logParts, "Rate limited")
         } else {
             logger.error("Provider.request", ...logParts)
         }
         throw createError({
-            statusCode: response.status === 429 ? 429 : 502,
+            statusCode: rateLimited ? 429 : 502,
             statusMessage: `${account.provider} API request failed (${response.status})`
         })
     }

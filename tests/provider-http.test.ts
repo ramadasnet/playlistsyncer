@@ -105,4 +105,11 @@ describe("Provider HTTP requests", () => {
         await expect(providerFetch(youtube, "https://www.googleapis.com/youtube/v3/search?q=test")).rejects.toMatchObject({statusCode: 502})
         expect(fetchMock).toHaveBeenCalledTimes(1)
     })
+
+    test("maps exhausted YouTube rate limit 403s to 429", async () => {
+        fetchMock.mockImplementation(async () => youtubeError("userRateLimitExceeded"))
+
+        await expect(providerFetch(youtube, "https://www.googleapis.com/youtube/v3/playlistItems", {method: "POST", body: "{}"})).rejects.toMatchObject({statusCode: 429})
+        expect(fetchMock).toHaveBeenCalledTimes(providerMaxRetries + 1)
+    })
 })

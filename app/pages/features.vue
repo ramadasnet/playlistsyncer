@@ -40,7 +40,7 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
             <article class="plan-panel featured">
                 <p class="eyebrow light">PRO</p>
                 <h2>Sync everything</h2>
-                <p class="price">{{ config.public.proPrice }} EUR / year</p>
+                <p class="price">{{ config.public.proPrice }} / year</p>
                 <p>Unlimited playlist with synchronization {{ everyLabel }}, sync history, weekly summaries, and more!</p>
                 <NuxtLink class="button button-light" :to="auth.user ? '/account' : '/login'">Get PRO <ArrowRight :size="17" /></NuxtLink>
             </article>

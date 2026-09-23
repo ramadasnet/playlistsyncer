@@ -226,7 +226,7 @@ function taskPairLabel(task: SyncTaskSummary) {
     return hasSharedName(task) ? task.source.name : `${task.source.name} and ${task.destination.name}`
 }
 
-const deletingTask = computed(() => Boolean(taskPendingDelete.value && busyTask.value === taskPendingDelete.value.id))
+const deletingTask = ref(false)
 
 // Ask before removing a sync task and its run history.
 function openDeleteConfirm(task: SyncTaskSummary) {
@@ -244,7 +244,7 @@ function closeDeleteConfirm() {
 async function confirmDelete() {
     const task = taskPendingDelete.value
     if (!task || deletingTask.value) return
-    busyTask.value = task.id
+    deletingTask.value = true
     deleteError.value = ""
     try {
         await api(`/api/tasks/${task.id}`, {method: "DELETE"})
@@ -257,7 +257,7 @@ async function confirmDelete() {
     } catch (error) {
         deleteError.value = error instanceof Error ? error.message : "The sync task could not be deleted"
     } finally {
-        busyTask.value = ""
+        deletingTask.value = false
         if (!showDeleteConfirm.value) taskPendingDelete.value = null
     }
 }
