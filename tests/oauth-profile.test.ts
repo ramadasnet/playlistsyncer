@@ -54,6 +54,7 @@ describe("OAuth provider profile requests", () => {
         config.soundcloudClientSecret = "soundcloud-client-secret"
         const limiter = new ProviderRateLimiter("soundcloud", 0, {cooldownMs: 0})
         providerRateLimiters.set("soundcloud", limiter)
+        const acquire = spyOn(limiter, "acquire")
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({urn: "soundcloud:users:42", full_name: " ", username: "listener", avatar_url: " "})))
 
         const profile = await getOAuthProvider("soundcloud").fetchProfile("test-access-token")
@@ -67,5 +68,6 @@ describe("OAuth provider profile requests", () => {
         const headers = new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.headers)
         expect(headers.get("Authorization")).toBe("OAuth test-access-token")
         expect(headers.get("Accept")).toBe("application/json; charset=utf-8")
+        expect(acquire).toHaveBeenCalledTimes(1)
     })
 })

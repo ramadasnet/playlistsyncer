@@ -2,13 +2,17 @@
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
 import {findBestTrackMatch, searchableTitle} from "./matching"
-import {trackIdsForProvider} from "./track-ids"
+import {isProviderTrackId, trackIdsForProvider} from "./track-ids"
 import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
 const apiBase = "https://api.soundcloud.com"
 const playlistUrnPattern = /^soundcloud:playlists:\d+$/
-const trackUrnPattern = /^soundcloud:tracks:\d+$/
 const searchCandidateLimit = 10
+
+// Track URNs use the catalog pattern shared with duration lookups.
+function isTrackUrn(id: string): boolean {
+    return isProviderTrackId("soundcloud", id)
+}
 
 interface SoundCloudUser {
     username?: string
@@ -57,12 +61,12 @@ function soundCloudFetch<T>(account: ProviderAccountDocument, url: string, init:
 
 // Keep URN path segments intact; other ids are encoded.
 function resourcePath(id: string): string {
-    return playlistUrnPattern.test(id) || trackUrnPattern.test(id) ? id : encodeURIComponent(id)
+    return playlistUrnPattern.test(id) || isTrackUrn(id) ? id : encodeURIComponent(id)
 }
 
 // Normalize a track URN from the identifier SoundCloud returned.
 function trackUrnFrom(track: SoundCloudTrack): string | undefined {
-    if (track.urn && trackUrnPattern.test(track.urn)) {
+    if (track.urn && isTrackUrn(track.urn)) {
         return track.urn
     }
     const match = track.uri?.match(/\/tracks\/(?:soundcloud:tracks:)?(\d+)(?:$|[/?#])/)
@@ -168,7 +172,7 @@ function removalTargets(itemIds: string[]): Map<string, string[]> {
     for (const itemId of itemIds) {
         const separator = itemId.lastIndexOf(":")
         const urn = separator > 0 ? itemId.slice(0, separator) : ""
-        if (!trackUrnPattern.test(urn)) {
+        if (!isTrackUrn(urn)) {
             continue
         }
         const queued = targets.get(urn)
@@ -291,7 +295,7 @@ export const soundcloudAdapter: ProviderAdapter = {
         return durations
     },
     async addTracks(account, playlistId, trackIds, onAdded) {
-        const additions = trackIds.filter((trackId) => trackUrnPattern.test(trackId))
+        const additions = trackIds.filter((trackId) => isTrackUrn(trackId))
         if (!additions.length) {
             return
         }
