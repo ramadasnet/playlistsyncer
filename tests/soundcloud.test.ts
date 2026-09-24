@@ -217,6 +217,29 @@ describe("SoundCloud provider", () => {
         expect(onRemoved).toHaveBeenCalledWith(["soundcloud:tracks:11:0"])
     })
 
+    test("removes only the requested copies when the same track is listed more than once", async () => {
+        const onRemoved = mock(async () => undefined)
+        providerFetch.mockResolvedValueOnce({
+            collection: [
+                {urn: "soundcloud:tracks:11", title: "First"},
+                {urn: "soundcloud:tracks:12", title: "Other"},
+                {urn: "soundcloud:tracks:11", title: "Second"}
+            ]
+        })
+        providerFetch.mockResolvedValueOnce({urn: playlistId})
+
+        await soundcloudAdapter.removePlaylistItems(account, playlistId, ["soundcloud:tracks:11:0"], onRemoved)
+
+        expect(providerFetch).toHaveBeenLastCalledWith(account, `https://api.soundcloud.com/playlists/${playlistId}`, {
+            method: "PUT",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                playlist: {tracks: [{urn: "soundcloud:tracks:12"}, {urn: "soundcloud:tracks:11"}]}
+            })
+        })
+        expect(onRemoved).toHaveBeenCalledWith(["soundcloud:tracks:11:0"])
+    })
+
     test("does not report a mutation when the provider request fails", async () => {
         const onAdded = mock(async () => undefined)
         providerFetch.mockResolvedValueOnce({collection: []})
@@ -282,6 +305,44 @@ describe("SoundCloud provider", () => {
         await Promise.all([first, second])
 
         expect(membership).toEqual(["soundcloud:tracks:12", "soundcloud:tracks:13"])
+    })
+
+    test("removes a queued track after an earlier removal shifts its position", async () => {
+        const membership = ["soundcloud:tracks:11", "soundcloud:tracks:12"]
+        let writes = 0
+        let releaseFirstWrite: () => void = () => undefined
+        const firstWrite = new Promise<void>((resolve) => {
+            releaseFirstWrite = resolve
+        })
+        let markFirstWriteStarted: () => void = () => undefined
+        const firstWriteStarted = new Promise<void>((resolve) => {
+            markFirstWriteStarted = resolve
+        })
+        providerFetch.mockImplementation(async (_account: ProviderAccountDocument, _url: string, init?: RequestInit) => {
+            if (init?.method === "PUT") {
+                writes += 1
+                const body = JSON.parse(String(init.body)) as {playlist: {tracks: {urn: string}[]}}
+                if (writes === 1) {
+                    markFirstWriteStarted()
+                    await firstWrite
+                }
+                membership.splice(0, membership.length, ...body.playlist.tracks.map((track) => track.urn))
+                return {urn: playlistId}
+            }
+            return {collection: membership.map((urn) => ({urn, title: urn}))}
+        })
+
+        const onFirstRemoved = mock(async () => undefined)
+        const onSecondRemoved = mock(async () => undefined)
+        const first = soundcloudAdapter.removePlaylistItems(account, playlistId, ["soundcloud:tracks:11:0"], onFirstRemoved)
+        await firstWriteStarted
+        const second = soundcloudAdapter.removePlaylistItems(account, playlistId, ["soundcloud:tracks:12:1"], onSecondRemoved)
+        releaseFirstWrite()
+        await Promise.all([first, second])
+
+        expect(membership).toEqual([])
+        expect(onFirstRemoved).toHaveBeenCalledWith(["soundcloud:tracks:11:0"])
+        expect(onSecondRemoved).toHaveBeenCalledWith(["soundcloud:tracks:12:1"])
     })
 
     test("loads durations only for SoundCloud track URNs", async () => {

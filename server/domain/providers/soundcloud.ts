@@ -161,6 +161,26 @@ function assertPlaylistReplaceable(unmapped: number) {
     }
 }
 
+// Item ids are `urn:index` from an earlier read. Another replacement shifts those indexes,
+// so a removal matches the track URN and only as many copies as were requested.
+function removalTargets(itemIds: string[]): Map<string, string[]> {
+    const targets = new Map<string, string[]>()
+    for (const itemId of itemIds) {
+        const separator = itemId.lastIndexOf(":")
+        const urn = separator > 0 ? itemId.slice(0, separator) : ""
+        if (!trackUrnPattern.test(urn)) {
+            continue
+        }
+        const queued = targets.get(urn)
+        if (queued) {
+            queued.push(itemId)
+        } else {
+            targets.set(urn, [itemId])
+        }
+    }
+    return targets
+}
+
 function asPlaylist(playlist: SoundCloudPlaylist): ProviderPlaylist | undefined {
     const id = playlistUrnFrom(playlist)
     if (!id || (playlist.kind && playlist.kind !== "playlist")) {
@@ -283,8 +303,8 @@ export const soundcloudAdapter: ProviderAdapter = {
         })
     },
     async removePlaylistItems(account, playlistId, itemIds, onRemoved) {
-        const requested = new Set(itemIds)
-        if (!requested.size) {
+        const targets = removalTargets(itemIds)
+        if (!targets.size) {
             return
         }
         await withPlaylistWrite(playlistId, async () => {
@@ -293,8 +313,9 @@ export const soundcloudAdapter: ProviderAdapter = {
             const removed: string[] = []
             const remaining: string[] = []
             for (const track of tracks) {
-                if (requested.has(track.itemId)) {
-                    removed.push(track.itemId)
+                const itemId = targets.get(track.trackId)?.shift()
+                if (itemId) {
+                    removed.push(itemId)
                 } else {
                     remaining.push(track.trackId)
                 }
