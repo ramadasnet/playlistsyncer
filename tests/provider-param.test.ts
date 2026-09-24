@@ -3,13 +3,13 @@ import {formatProviderNames, isProviderFlagEnabled, providerFlags, providers} fr
 
 describe("provider identifiers", () => {
     test("remain stable for routes, persisted documents, and display order", () => {
-        expect(providers).toEqual(["spotify", "tidal", "youtube", "amazon"])
+        expect(providers).toEqual(["spotify", "tidal", "youtube", "soundcloud", "amazon"])
     })
 
     test("can hide a provider from the product without removing it from the catalog", () => {
         expect(providerFlags.amazon.disabled).toBe(true)
         expect(isProviderFlagEnabled("amazon")).toBe(false)
-        expect(providers.filter(isProviderFlagEnabled)).toEqual(["spotify", "tidal", "youtube"])
+        expect(providers.filter(isProviderFlagEnabled)).toEqual(["spotify", "tidal", "youtube", "soundcloud"])
     })
 
     test("formats enabled provider names for product copy", () => {

@@ -2,6 +2,7 @@
 import type {Provider, ProviderAccountDocument} from "~~/shared/types/domain"
 import {isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModeDeletePlaylist, safeModeWriteBlockedMessage} from "../sync/safe-mode"
 import logger from "../../utils/logger"
+import {soundcloudAdapter} from "./soundcloud"
 import {spotifyAdapter} from "./spotify"
 import {tidalAdapter} from "./tidal"
 import type {ProviderAdapter} from "./types"
@@ -41,6 +42,8 @@ export function getProviderAdapter(provider: Provider): ProviderAdapter {
         adapter = tidalAdapter
     } else if (provider === "youtube") {
         adapter = youtubeAdapter
+    } else if (provider === "soundcloud") {
+        adapter = soundcloudAdapter
     } else {
         throw createError({
             statusCode: 501,

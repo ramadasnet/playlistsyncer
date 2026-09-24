@@ -22,7 +22,9 @@ async function isYoutubeRateLimit(response: Response): Promise<boolean> {
 async function authorizedFetch(account: ProviderAccountDocument, url: string, init: RequestInit, forceRefresh = false): Promise<Response> {
     const limiter = getProviderRateLimiter(account.provider)
     const headers = new Headers(init.headers)
-    headers.set("Authorization", `Bearer ${await getAccessToken(account, {force: forceRefresh})}`)
+    // SoundCloud documents the OAuth scheme. The other providers use Bearer.
+    const accessToken = await getAccessToken(account, {force: forceRefresh})
+    headers.set("Authorization", account.provider === "soundcloud" ? `OAuth ${accessToken}` : `Bearer ${accessToken}`)
     if (init.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json")
     }
@@ -65,5 +67,10 @@ export async function providerFetch<T>(account: ProviderAccountDocument, url: st
     if (response.status === 204) {
         return undefined as T
     }
-    return response.json() as Promise<T>
+    // Some successful deletes, including SoundCloud playlist removal, return an empty body.
+    const payload = await response.text()
+    if (!payload.trim()) {
+        return undefined as T
+    }
+    return JSON.parse(payload) as T
 }
