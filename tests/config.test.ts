@@ -25,7 +25,7 @@ describe("server configuration", () => {
         const defaults = parseServerConfig({spotifyMaxRequestsPerMinute: ""})
         const config = parseServerConfig({spotifyMaxRequestsPerMinute: "90", tidalMaxRequestsPerMinute: "0"})
 
-        expect([defaults.spotifyMaxRequestsPerMinute, defaults.youtubeMaxRequestsPerMinute, defaults.tidalMaxRequestsPerMinute, defaults.amazonMaxRequestsPerMinute]).toEqual([120, 300, 60, 60])
+        expect([defaults.spotifyMaxRequestsPerMinute, defaults.youtubeMaxRequestsPerMinute, defaults.tidalMaxRequestsPerMinute, defaults.soundcloudMaxRequestsPerMinute, defaults.amazonMaxRequestsPerMinute]).toEqual([120, 300, 60, 60, 60])
         expect(config.spotifyMaxRequestsPerMinute).toBe(90)
         expect(config.tidalMaxRequestsPerMinute).toBe(0)
         expect(() => parseServerConfig({youtubeMaxRequestsPerMinute: "-1"})).toThrow()

@@ -6,7 +6,7 @@ An open-source service that allows users to sync their playlists among multiple 
 - One-way sync: one provider acts as the master, and the playlist on the other provider is a mirror of the master.
 - Full sync: all playlists from one provider are synced to the other provider.
 - Automatic sync: background jobs will sync the playlists automatically every few hours / days, depending on settings.
-  Supported providers: Spotify, YouTube Music, TIDAL.
+  Supported providers: Spotify, YouTube Music, TIDAL, and SoundCloud.
 
 ## Stack
 
@@ -117,12 +117,15 @@ Application settings use the `PLS_` prefix.
 | `PLS_GOOGLE_CLIENT_SECRET`            | Google OAuth client secret for YouTube.                                                                                                      | Unset                                                                                                   |
 | `PLS_TIDAL_CLIENT_ID`                 | TIDAL OAuth client ID.                                                                                                                       | Unset                                                                                                   |
 | `PLS_TIDAL_CLIENT_SECRET`             | TIDAL OAuth client secret.                                                                                                                   | Unset                                                                                                   |
+| `PLS_SOUNDCLOUD_CLIENT_ID`            | SoundCloud OAuth client ID.                                                                                                                  | Unset                                                                                                   |
+| `PLS_SOUNDCLOUD_CLIENT_SECRET`        | SoundCloud OAuth client secret.                                                                                                              | Unset                                                                                                   |
 | `PLS_AMAZON_CLIENT_ID`                | Login with Amazon client ID.                                                                                                                 | Unset                                                                                                   |
 | `PLS_AMAZON_CLIENT_SECRET`            | Login with Amazon client secret.                                                                                                             | Unset                                                                                                   |
 | `PLS_AMAZON_MUSIC_API_BASE_URL`       | Reserved endpoint for an approved Amazon Music partner API.                                                                                  | Unset                                                                                                   |
 | `PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE` | Shared Spotify request pacing; `0` disables pacing.                                                                                          | `120`                                                                                                   |
 | `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE` | Shared YouTube request pacing; `0` disables pacing.                                                                                          | `300`                                                                                                   |
 | `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE`   | Shared TIDAL request pacing; `0` disables pacing.                                                                                            | `60`                                                                                                    |
+| `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` | Shared SoundCloud request pacing; `0` disables pacing.                                                                                    | `60`                                                                                                    |
 | `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE`  | Shared Amazon request pacing; `0` disables pacing.                                                                                           | `60`                                                                                                    |
 | `PLS_CREEM_API_KEY`                   | Creem API credential for checkout and price lookup.                                                                                          | Unset                                                                                                   |
 | `PLS_CREEM_PRO_PRODUCT_ID`            | Creem product charged at PRO checkout and used for the displayed price.                                                                      | Unset                                                                                                   |
@@ -142,6 +145,7 @@ Some of the environment variables are optional, and will dictate which features 
     - `PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE` (default 120)
     - `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE` (default 300)
     - `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE` (default 60)
+    - `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` (default 60)
     - `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE` (default 60)
 
 ### Spotify
@@ -179,6 +183,20 @@ ${PLS_APP_URL}/api/auth/tidal/callback
 ```
 
 Scopes requested: `user.read`, `playlists.read`, `playlists.write`, and `search.read`.
+
+### SoundCloud
+
+Create a SoundCloud app and supply `PLS_SOUNDCLOUD_CLIENT_ID` and `PLS_SOUNDCLOUD_CLIENT_SECRET`. SoundCloud currently requires an Artist Pro account to register an application. PlaylistSyncer does not ship with SoundCloud credentials.
+
+Register this redirect URI exactly:
+
+```text
+${PLS_APP_URL}/api/auth/soundcloud/callback
+```
+
+SoundCloud's authorization-code flow does not use OAuth scopes. The app sends PKCE (`S256`) and exchanges the code with the client id, client secret, and code verifier. `/me` does not include an email address, so a first login continues on the account page until an email is added and confirmed.
+
+Created playlists are private. SoundCloud updates playlist membership by replacing the full track list (track URNs), not by adding or removing individual items. Replacements of one playlist run one at a time in this process. A queued removal still deletes the track from the earlier read after another write changes its position, and only as many copies as that read asked to remove. A replacement is refused when an entry has no track URN so that entry is not deleted. Tracks that SoundCloud rejects with `422` cannot be added. SoundCloud does not publish an aggregate request cap for these playlist calls; `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` still paces this app (default 60). Their published limit applies to play streams, which PlaylistSyncer does not request.
 
 ### Amazon
 

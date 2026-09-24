@@ -51,7 +51,10 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
     url.searchParams.set("client_id", definition.clientId)
     url.searchParams.set("redirect_uri", callbackUrl(provider))
     url.searchParams.set("response_type", "code")
-    url.searchParams.set("scope", definition.scopes.join(" "))
+    // SoundCloud documents no OAuth scopes, so an empty list omits the parameter.
+    if (definition.scopes.length) {
+        url.searchParams.set("scope", definition.scopes.join(" "))
+    }
     url.searchParams.set("state", state)
     url.searchParams.set("code_challenge", challenge)
     url.searchParams.set("code_challenge_method", "S256")

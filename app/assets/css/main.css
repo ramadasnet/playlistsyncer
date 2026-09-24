@@ -290,6 +290,9 @@ main {
 .provider-tidal {
     color: #0f6b6b;
 }
+.provider-soundcloud {
+    color: #c4470a;
+}
 
 .hero {
     position: relative;

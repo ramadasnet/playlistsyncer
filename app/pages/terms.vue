@@ -38,7 +38,7 @@ useSeoMeta({
                 <h3>Personal information</h3>
                 <p>We may ask for personal information, or get information provided by third party integrations, which may include one or more of the following:</p>
                 <ul>
-                    <li>Music provider profile, such as Spotify, TIDAL, or YouTube Music (required)</li>
+                    <li>Music provider profile, such as Spotify, TIDAL, YouTube Music, or SoundCloud (required)</li>
                     <li>Email address</li>
                     <li>Playlist names and metadata</li>
                     <li>Track metadata, such as titles, artists, albums, and durations</li>
@@ -139,8 +139,8 @@ useSeoMeta({
             <section class="legal-panel" aria-labelledby="terms-providers">
                 <h2 id="terms-providers">Dependency on music providers</h2>
                 <p>
-                    The Service is dependent on third party music provider APIs, such as Spotify, TIDAL, and YouTube Music. We cannot guarantee that these APIs will work or exist at any time in the future. If for any reason a provider disables their
-                    API, restricts our access, or in the event that our connection to their API is terminated, the affected sync features of the Service will cease to work.
+                    The Service is dependent on third party music provider APIs, such as Spotify, TIDAL, YouTube Music, and SoundCloud. We cannot guarantee that these APIs will work or exist at any time in the future. If for any reason a provider
+                    disables their API, restricts our access, or in the event that our connection to their API is terminated, the affected sync features of the Service will cease to work.
                 </p>
             </section>
 

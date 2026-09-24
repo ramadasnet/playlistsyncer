@@ -26,7 +26,10 @@ interface OAuthProvider {
 // Fetch a provider profile with a bearer token and normalized error handling.
 async function fetchJson<T>(provider: Provider, url: string, accessToken: string, extraHeaders?: HeadersInit): Promise<T> {
     const headers = new Headers(extraHeaders)
-    headers.set("Authorization", `Bearer ${accessToken}`)
+    // A provider that does not use Bearer, such as SoundCloud, supplies its own Authorization header.
+    if (!headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${accessToken}`)
+    }
     const limiter = getProviderRateLimiter(provider)
     const response = await fetchWithRetry(
         url,
@@ -115,6 +118,35 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 email: profile.email,
                 emailVerified: Boolean(profile.email),
                 displayName: profileDisplayName("Amazon user", profile.name, profile.email)
+            }
+        }
+    },
+    soundcloud: {
+        authorizeUrl: "https://secure.soundcloud.com/authorize",
+        tokenUrl: "https://secure.soundcloud.com/oauth/token",
+        // SoundCloud's authorization-code guide does not request a scope.
+        scopes: [],
+        clientIdKey: "soundcloudClientId",
+        clientSecretKey: "soundcloudClientSecret",
+        tokenAuth: "body",
+        async fetchProfile(accessToken) {
+            const profile = await fetchJson<{
+                urn?: string
+                username?: string
+                full_name?: string
+                avatar_url?: string
+            }>("soundcloud", "https://api.soundcloud.com/me", accessToken, {
+                Accept: "application/json; charset=utf-8",
+                Authorization: `OAuth ${accessToken}`
+            })
+            if (!profile.urn) {
+                throw createError({statusCode: 502, statusMessage: "SoundCloud profile did not include an account id"})
+            }
+            return {
+                id: profile.urn,
+                emailVerified: false,
+                displayName: profileDisplayName("SoundCloud user", profile.full_name, profile.username),
+                avatarUrl: profile.avatar_url?.trim() || undefined
             }
         }
     },

@@ -13,6 +13,7 @@ const {ProviderRateLimiter, providerRateLimiters} = await import("../server/doma
 const spotify = {provider: "spotify", externalAccountId: "account-id"} as ProviderAccountDocument
 const otherSpotify = {provider: "spotify", externalAccountId: "other-account-id"} as ProviderAccountDocument
 const youtube = {provider: "youtube", externalAccountId: "account-id"} as ProviderAccountDocument
+const soundcloud = {provider: "soundcloud", externalAccountId: "account-id"} as ProviderAccountDocument
 const providerMaxRetries = 5
 const originalFetch = globalThis.fetch
 const originalDefaults = {...fetchRetryDefaults}
@@ -27,6 +28,7 @@ describe("Provider HTTP requests", () => {
         Object.assign(fetchRetryDefaults, {baseDelayMs: 0, maxDelayMs: 0})
         providerRateLimiters.set("spotify", new ProviderRateLimiter("spotify", 0, {cooldownMs: 0}))
         providerRateLimiters.set("youtube", new ProviderRateLimiter("youtube", 0, {cooldownMs: 0}))
+        providerRateLimiters.set("soundcloud", new ProviderRateLimiter("soundcloud", 0, {cooldownMs: 0}))
     })
 
     afterAll(() => {
@@ -104,6 +106,15 @@ describe("Provider HTTP requests", () => {
 
         await expect(providerFetch(youtube, "https://www.googleapis.com/youtube/v3/search?q=test")).rejects.toMatchObject({statusCode: 502})
         expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    test("sends SoundCloud's OAuth scheme and accepts an empty success body", async () => {
+        fetchMock.mockResolvedValueOnce(new Response("", {status: 200}))
+
+        await expect(providerFetch(soundcloud, "https://api.soundcloud.com/playlists/soundcloud:playlists:1", {method: "DELETE"})).resolves.toBeUndefined()
+
+        const headers = new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.headers)
+        expect(headers.get("Authorization")).toBe("OAuth token")
     })
 
     test("maps exhausted YouTube rate limit 403s to 429", async () => {

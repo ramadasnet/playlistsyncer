@@ -2,7 +2,7 @@
 import type {ObjectId} from "mongodb"
 
 // Providers recognized by the application and their feature flags.
-export const providers = ["spotify", "tidal", "youtube", "amazon"] as const
+export const providers = ["spotify", "tidal", "youtube", "soundcloud", "amazon"] as const
 
 export type Provider = (typeof providers)[number]
 
@@ -14,6 +14,7 @@ export const providerFlags: Record<Provider, ProviderFlags> = {
     spotify: {},
     tidal: {},
     youtube: {},
+    soundcloud: {},
     amazon: {disabled: true}
 }
 
@@ -21,6 +22,7 @@ export const providerDisplayNames: Record<Provider, string> = {
     spotify: "Spotify",
     tidal: "TIDAL",
     youtube: "YouTube Music",
+    soundcloud: "SoundCloud",
     amazon: "Amazon Music"
 }
 

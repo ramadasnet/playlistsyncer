@@ -16,4 +16,10 @@ describe("provider catalog identifiers", () => {
     test("keeps only numeric TIDAL IDs", () => {
         expect(trackIdsForProvider("tidal", ["123456789", "dQw4w9WgXcQ", "spotify:track:4uLU6hMCjMI75M1A2tKUQC"])).toEqual(["123456789"])
     })
+
+    test("keeps SoundCloud track URNs distinct from numeric TIDAL IDs", () => {
+        expect(trackIdsForProvider("soundcloud", ["soundcloud:tracks:123456789", "123456789", "dQw4w9WgXcQ"])).toEqual(["soundcloud:tracks:123456789"])
+        expect(isProviderTrackId("tidal", "soundcloud:tracks:123456789")).toBe(false)
+        expect(isProviderTrackId("soundcloud", "123456789")).toBe(false)
+    })
 })
