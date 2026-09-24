@@ -4,6 +4,7 @@ import type {ProviderAccountDocument} from "../shared/types/domain"
 const providerFetch = mock(async (): Promise<unknown> => undefined)
 
 mock.module("../server/domain/providers/http", () => ({providerFetch}))
+;(globalThis as {createError?: (input: {statusCode: number; statusMessage: string}) => Error}).createError = (input) => Object.assign(new Error(input.statusMessage), input)
 
 const {soundcloudAdapter} = await import("../server/domain/providers/soundcloud")
 const account = {provider: "soundcloud"} as ProviderAccountDocument
@@ -156,6 +157,29 @@ describe("SoundCloud provider", () => {
         expect(textMatch?.trackId).toBe("soundcloud:tracks:13")
     })
 
+    test("keeps only the first page of search candidates", async () => {
+        providerFetch.mockResolvedValueOnce({
+            collection: Array.from({length: 12}, (_, index) => ({
+                urn: `soundcloud:tracks:${index + 1}`,
+                title: "Track",
+                metadata_artist: "Artist"
+            })),
+            next_href: "https://api.soundcloud.com/tracks?cursor=2"
+        })
+
+        const matches = await soundcloudAdapter.searchTrackCandidates(account, {
+            itemId: "source",
+            trackId: "source",
+            title: "Track",
+            artists: ["Artist"]
+        })
+
+        expect(providerFetch).toHaveBeenCalledTimes(1)
+        expect(matches).toHaveLength(10)
+        expect(matches[0]?.trackId).toBe("soundcloud:tracks:1")
+        expect(matches[9]?.trackId).toBe("soundcloud:tracks:10")
+    })
+
     test("replaces the full playlist when adding and removing tracks", async () => {
         const onAdded = mock(async () => undefined)
         const onRemoved = mock(async () => undefined)
@@ -201,6 +225,63 @@ describe("SoundCloud provider", () => {
         await expect(soundcloudAdapter.addTracks(account, playlistId, ["soundcloud:tracks:12"], onAdded)).rejects.toThrow("Provider failed")
 
         expect(onAdded).not.toHaveBeenCalled()
+    })
+
+    test("does not replace a playlist that contains an unmapped entry", async () => {
+        const onAdded = mock(async () => undefined)
+        const onRemoved = mock(async () => undefined)
+        const unmappedPage = {
+            collection: [{urn: "soundcloud:tracks:11", title: "Keep"}, {title: "Unmapped"}]
+        }
+        providerFetch.mockResolvedValueOnce(unmappedPage)
+
+        const visible = await soundcloudAdapter.getPlaylistItems(account, playlistId)
+
+        expect(visible.map((track) => track.trackId)).toEqual(["soundcloud:tracks:11"])
+
+        providerFetch.mockResolvedValueOnce(unmappedPage)
+        await expect(soundcloudAdapter.addTracks(account, playlistId, ["soundcloud:tracks:12"], onAdded)).rejects.toThrow("cannot be updated safely")
+
+        providerFetch.mockResolvedValueOnce(unmappedPage)
+        await expect(soundcloudAdapter.removePlaylistItems(account, playlistId, ["soundcloud:tracks:11:0"], onRemoved)).rejects.toThrow("cannot be updated safely")
+
+        expect(providerFetch).toHaveBeenCalledTimes(3)
+        expect(onAdded).not.toHaveBeenCalled()
+        expect(onRemoved).not.toHaveBeenCalled()
+    })
+
+    test("applies overlapping replacements in order so the later write keeps both tracks", async () => {
+        const membership: string[] = []
+        let writes = 0
+        let releaseFirstWrite: () => void = () => undefined
+        const firstWrite = new Promise<void>((resolve) => {
+            releaseFirstWrite = resolve
+        })
+        let markFirstWriteStarted: () => void = () => undefined
+        const firstWriteStarted = new Promise<void>((resolve) => {
+            markFirstWriteStarted = resolve
+        })
+        providerFetch.mockImplementation(async (_account: ProviderAccountDocument, _url: string, init?: RequestInit) => {
+            if (init?.method === "PUT") {
+                writes += 1
+                const body = JSON.parse(String(init.body)) as {playlist: {tracks: {urn: string}[]}}
+                if (writes === 1) {
+                    markFirstWriteStarted()
+                    await firstWrite
+                }
+                membership.splice(0, membership.length, ...body.playlist.tracks.map((track) => track.urn))
+                return {urn: playlistId}
+            }
+            return {collection: membership.map((urn) => ({urn, title: urn}))}
+        })
+
+        const first = soundcloudAdapter.addTracks(account, playlistId, ["soundcloud:tracks:12"])
+        await firstWriteStarted
+        const second = soundcloudAdapter.addTracks(account, playlistId, ["soundcloud:tracks:13"])
+        releaseFirstWrite()
+        await Promise.all([first, second])
+
+        expect(membership).toEqual(["soundcloud:tracks:12", "soundcloud:tracks:13"])
     })
 
     test("loads durations only for SoundCloud track URNs", async () => {

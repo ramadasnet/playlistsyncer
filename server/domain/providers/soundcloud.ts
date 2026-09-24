@@ -8,6 +8,7 @@ import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 const apiBase = "https://api.soundcloud.com"
 const playlistUrnPattern = /^soundcloud:playlists:\d+$/
 const trackUrnPattern = /^soundcloud:tracks:\d+$/
+const searchCandidateLimit = 10
 
 interface SoundCloudUser {
     username?: string
@@ -120,6 +121,46 @@ function replacePlaylistTracks(account: ProviderAccountDocument, playlistId: str
     })
 }
 
+// One full-list replacement per playlist in this process. Separate task leases do not cover the same playlist.
+const playlistWriteTails = new Map<string, Promise<unknown>>()
+
+function withPlaylistWrite<T>(playlistId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = playlistWriteTails.get(playlistId) ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(operation)
+    playlistWriteTails.set(playlistId, run)
+    return run.finally(() => {
+        if (playlistWriteTails.get(playlistId) === run) {
+            playlistWriteTails.delete(playlistId)
+        }
+    })
+}
+
+// Read playlist membership without dropping entries that cannot be written back.
+async function loadPlaylistTracks(account: ProviderAccountDocument, playlistId: string): Promise<{tracks: ProviderTrack[]; unmapped: number}> {
+    const raw = await collectPages<SoundCloudTrack>(account, `${apiBase}/playlists/${resourcePath(playlistId)}/tracks?linked_partitioning=true`)
+    let unmapped = 0
+    const tracks = raw.flatMap((track, index) => {
+        const urn = trackUrnFrom(track)
+        if (!urn) {
+            unmapped += 1
+            return []
+        }
+        const mapped = mapTrack(track, `${urn}:${index}`)
+        return mapped ? [mapped] : []
+    })
+    return {tracks, unmapped}
+}
+
+// Refuse a full-list write that would delete entries we cannot represent.
+function assertPlaylistReplaceable(unmapped: number) {
+    if (unmapped > 0) {
+        throw createError({
+            statusCode: 502,
+            statusMessage: "SoundCloud playlist has entries that cannot be updated safely"
+        })
+    }
+}
+
 function asPlaylist(playlist: SoundCloudPlaylist): ProviderPlaylist | undefined {
     const id = playlistUrnFrom(playlist)
     if (!id || (playlist.kind && playlist.kind !== "playlist")) {
@@ -134,15 +175,16 @@ function asPlaylist(playlist: SoundCloudPlaylist): ProviderPlaylist | undefined 
     }
 }
 
-// Search playable catalog tracks. SoundCloud has no ISRC filter, so an ISRC is a text query.
+// Search one page of playable tracks. SoundCloud has no ISRC filter, so an ISRC is a text query.
 async function searchTracks(account: ProviderAccountDocument, query: string): Promise<ProviderTrack[]> {
     const params = new URLSearchParams({
         q: query,
         access: "playable",
-        limit: "10",
+        limit: String(searchCandidateLimit),
         linked_partitioning: "true"
     })
-    const tracks = await collectPages<SoundCloudTrack>(account, `${apiBase}/tracks?${params.toString()}`)
+    const page = await soundCloudFetch<SoundCloudPage<SoundCloudTrack> | SoundCloudTrack[]>(account, `${apiBase}/tracks?${params.toString()}`)
+    const tracks = (Array.isArray(page) ? page : page.collection || []).slice(0, searchCandidateLimit)
     return tracks.flatMap((track) => {
         const mapped = mapTrack(track)
         return mapped ? [mapped] : []
@@ -189,12 +231,8 @@ export const soundcloudAdapter: ProviderAdapter = {
         await soundCloudFetch(account, `${apiBase}/playlists/${resourcePath(playlistId)}`, {method: "DELETE"})
     },
     async getPlaylistItems(account, playlistId) {
-        const tracks = await collectPages<SoundCloudTrack>(account, `${apiBase}/playlists/${resourcePath(playlistId)}/tracks?linked_partitioning=true`)
-        return tracks.flatMap((track, index) => {
-            const urn = trackUrnFrom(track)
-            const mapped = urn ? mapTrack(track, `${urn}:${index}`) : undefined
-            return mapped ? [mapped] : []
-        })
+        const {tracks} = await loadPlaylistTracks(account, playlistId)
+        return tracks
     },
     async searchTrackCandidates(account, track) {
         if (track.isrc) {
@@ -237,29 +275,35 @@ export const soundcloudAdapter: ProviderAdapter = {
         if (!additions.length) {
             return
         }
-        const current = await this.getPlaylistItems(account, playlistId)
-        await replacePlaylistTracks(account, playlistId, [...current.map((track) => track.trackId), ...additions])
-        await onAdded?.(additions.map((providerTrackId) => ({providerTrackId})))
+        await withPlaylistWrite(playlistId, async () => {
+            const {tracks, unmapped} = await loadPlaylistTracks(account, playlistId)
+            assertPlaylistReplaceable(unmapped)
+            await replacePlaylistTracks(account, playlistId, [...tracks.map((track) => track.trackId), ...additions])
+            await onAdded?.(additions.map((providerTrackId) => ({providerTrackId})))
+        })
     },
     async removePlaylistItems(account, playlistId, itemIds, onRemoved) {
         const requested = new Set(itemIds)
         if (!requested.size) {
             return
         }
-        const current = await this.getPlaylistItems(account, playlistId)
-        const removed: string[] = []
-        const remaining: string[] = []
-        for (const track of current) {
-            if (requested.has(track.itemId)) {
-                removed.push(track.itemId)
-            } else {
-                remaining.push(track.trackId)
+        await withPlaylistWrite(playlistId, async () => {
+            const {tracks, unmapped} = await loadPlaylistTracks(account, playlistId)
+            assertPlaylistReplaceable(unmapped)
+            const removed: string[] = []
+            const remaining: string[] = []
+            for (const track of tracks) {
+                if (requested.has(track.itemId)) {
+                    removed.push(track.itemId)
+                } else {
+                    remaining.push(track.trackId)
+                }
             }
-        }
-        if (!removed.length) {
-            return
-        }
-        await replacePlaylistTracks(account, playlistId, remaining)
-        await onRemoved?.(removed)
+            if (!removed.length) {
+                return
+            }
+            await replacePlaylistTracks(account, playlistId, remaining)
+            await onRemoved?.(removed)
+        })
     }
 }
