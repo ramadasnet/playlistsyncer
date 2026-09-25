@@ -1,8 +1,9 @@
 <!-- Details overlay for a sync task's latest run, with PRO history browsing. -->
 
 <script setup lang="ts">
-import {ArrowLeftRight, ArrowRight, LoaderCircle, Search} from "lucide-vue-next"
+import {ArrowLeftRight, ArrowRight, LoaderCircle, Search, Undo2} from "lucide-vue-next"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
+import type {ReverseSyncReason} from "~~/shared/reverse-sync"
 import type {SimilarTrackSuggestion, SyncRunDetail, SyncRunTrack, SyncTaskSummary} from "~/types/api"
 
 const open = defineModel<boolean>({required: true})
@@ -11,11 +12,15 @@ const props = defineProps<{
     sourceProvider: Provider
     destinationProvider: Provider
 }>()
-const emit = defineEmits<{matched: []}>()
+const emit = defineEmits<{matched: []; restored: []}>()
 
 const canViewHistory = computed(() => useAuthStore().user?.tier === "pro")
 const loading = ref(false)
 const errorMessage = ref("")
+const restoring = ref(false)
+const restoreError = ref("")
+const restoreMessage = ref("")
+let keepRestoreMessage = false
 const canBrowseHistory = ref(false)
 const runs = ref<SyncRunDetail[]>([])
 const selectedRunId = ref("")
@@ -62,10 +67,21 @@ function runOptionLabel(run: SyncRunDetail) {
     return `${formatDate(run.startedAt)} · ${run.status.replace("_", " ")} · ${changes.join(" / ")}`
 }
 
-function triggerLabel(trigger: SyncRunDetail["trigger"]) {
-    if (trigger === "created") return "First run"
-    if (trigger === "manual") return "Manual"
+function triggerLabel(run: SyncRunDetail) {
+    if (run.reverseSync?.reason === "deleted-source") return "Source restore"
+    if (run.trigger === "created") return "First run"
+    if (run.trigger === "manual") return "Manual"
     return "Scheduled"
+}
+
+function reverseSyncLabel(reason: ReverseSyncReason) {
+    if (reason === "deleted-source") return "Restore source playlist"
+    return "Run reverse sync"
+}
+
+function reverseSyncCopy(reason: ReverseSyncReason) {
+    if (reason === "deleted-source") return "The source playlist is missing. Restore it once by copying the target playlist back. Later syncs keep their usual direction."
+    return "Run a one-time reverse sync."
 }
 
 function groupedTracks(tracks: SyncRunTrack[]) {
@@ -99,6 +115,25 @@ function statusMessage(error: unknown, fallback: string) {
 
 function targetProviderFor(track: SyncRunTrack): Provider {
     return track.side === "destination" ? props.sourceProvider : props.destinationProvider
+}
+
+async function restoreSource() {
+    const plan = selectedRun.value?.availableReverseSync
+    if (!props.task || !plan || restoring.value) return
+    restoring.value = true
+    restoreError.value = ""
+    restoreMessage.value = ""
+    try {
+        await api(`/api/tasks/${props.task.id}/reverse-sync`, {method: "POST", body: plan})
+        emit("restored")
+        await loadRuns()
+        keepRestoreMessage = true
+        restoreMessage.value = "The source playlist was restored from the target. Later syncs keep their usual direction."
+    } catch (error) {
+        restoreError.value = statusMessage(error, "The source playlist could not be restored")
+    } finally {
+        restoring.value = false
+    }
 }
 
 async function loadRuns() {
@@ -177,11 +212,20 @@ async function chooseSuggestion(track: SyncRunTrack, index: number, suggestion: 
 }
 
 watch([open, () => props.task?.id], ([isOpen]) => {
-    if (isOpen) loadRuns()
+    if (!isOpen) return
+    restoreError.value = ""
+    restoreMessage.value = ""
+    loadRuns()
 })
 
 watch(selectedRunId, () => {
     suggestionState.value = {}
+    if (keepRestoreMessage) {
+        keepRestoreMessage = false
+        return
+    }
+    restoreError.value = ""
+    restoreMessage.value = ""
 })
 </script>
 
@@ -209,10 +253,22 @@ watch(selectedRunId, () => {
                 </label>
                 <div class="run-dialog-meta">
                     <span class="status-label" :class="`status-${selectedRun.status}`"><span />{{ selectedRun.status.replace("_", " ") }}</span>
-                    <span>{{ triggerLabel(selectedRun.trigger) }}</span>
+                    <span>{{ triggerLabel(selectedRun) }}</span>
                     <span>{{ formatDate(selectedRun.startedAt) }}</span>
                 </div>
                 <p v-if="selectedRun.error" class="dialog-error">{{ selectedRun.error }}</p>
+                <div v-if="selectedRun.availableReverseSync || restoreError || restoreMessage" class="run-restore">
+                    <template v-if="selectedRun.availableReverseSync">
+                        <p id="restore-source-copy">{{ reverseSyncCopy(selectedRun.availableReverseSync.reason) }}</p>
+                        <button class="button button-primary" type="button" :disabled="restoring" aria-describedby="restore-source-copy" @click="restoreSource">
+                            <LoaderCircle v-if="restoring" class="spin" :size="16" />
+                            <Undo2 v-else :size="16" />
+                            {{ reverseSyncLabel(selectedRun.availableReverseSync.reason) }}
+                        </button>
+                    </template>
+                    <p v-if="restoreError" class="dialog-error" role="alert">{{ restoreError }}</p>
+                    <p v-if="restoreMessage" role="status">{{ restoreMessage }}</p>
+                </div>
 
                 <section class="run-track-section" aria-labelledby="added-heading">
                     <h3 id="added-heading">Added ({{ selectedRun.addedTracks.length }})</h3>

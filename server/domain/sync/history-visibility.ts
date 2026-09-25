@@ -1,5 +1,6 @@
 // Control which synchronization history is visible at each account tier.
 import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
+import {availableReverseSync, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
 
 export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt">
 
@@ -28,6 +29,9 @@ export interface SerializedSyncRun {
     startedAt: Date
     finishedAt?: Date
     error?: string
+    failureReason?: SyncFailureReason
+    reverseSync?: ReverseSyncRequest
+    availableReverseSync?: ReverseSyncRequest
     addedTracks: SerializedRunTrack[]
     removedTracks: SerializedRunTrack[]
     unmatchedTracks: SerializedRunTrack[]
@@ -86,7 +90,13 @@ export function serializeRunTrack(track: SyncRunTrackReference, task?: Pick<Sync
 }
 
 // Public representation of one synchronization run and its track lists.
-export function serializeSyncRun(run: SyncRunDocument, task?: Pick<SyncTaskDocument, "source" | "destination">, snapshot?: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">): SerializedSyncRun {
+export function serializeSyncRun(
+    run: SyncRunDocument,
+    task?: Pick<SyncTaskDocument, "source" | "destination">,
+    snapshot?: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">,
+    newerRuns: Pick<SyncRunDocument, "status" | "failureReason" | "reverseSync">[] = []
+): SerializedSyncRun {
+    const offer = availableReverseSync(run, newerRuns)
     return {
         id: run._id?.toHexString() || "",
         trigger: run.trigger,
@@ -98,6 +108,9 @@ export function serializeSyncRun(run: SyncRunDocument, task?: Pick<SyncTaskDocum
         startedAt: run.startedAt,
         finishedAt: run.finishedAt,
         error: run.error,
+        ...(run.failureReason ? {failureReason: run.failureReason} : {}),
+        ...(run.reverseSync ? {reverseSync: run.reverseSync} : {}),
+        ...(offer ? {availableReverseSync: offer} : {}),
         addedTracks: run.addedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
         removedTracks: run.removedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
         unmatchedTracks: run.unmatchedTracks.map((track) => serializeRunTrack(track, task, snapshot))

@@ -474,6 +474,7 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
             :source-provider="providerFor(detailsTask?.source.providerAccountId || '')"
             :destination-provider="providerFor(detailsTask?.destination.providerAccountId || '')"
             @matched="onManualMatch"
+            @restored="onManualMatch"
         />
         <OverlayDialog v-model="showDeleteConfirm" title="Delete sync task" :busy="deletingTask">
             <p v-if="taskPendingDelete" class="confirm-dialog-copy">

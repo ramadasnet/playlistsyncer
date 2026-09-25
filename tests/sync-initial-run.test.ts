@@ -1,6 +1,7 @@
 import {describe, expect, mock, test} from "bun:test"
 import {ObjectId, type Collection} from "mongodb"
-import type {ProviderAccountDocument, SyncTaskDocument, UserDocument} from "../shared/types/domain"
+import type {ProviderAccountDocument, SyncRunDocument, SyncTaskDocument, UserDocument} from "../shared/types/domain"
+import {reverseSyncRequestFor} from "../shared/reverse-sync"
 import type {ProviderAdapter, ProviderTrack} from "../server/domain/providers/types"
 import * as domain from "../shared/types/domain"
 import * as cadence from "../shared/sync-cadence"
@@ -83,16 +84,22 @@ function fakeCollection<T>(docs: T[] = []): Collection<T> {
             return doc
         },
         insertOne: async (doc: T) => {
+            const insertedId = (doc as {_id?: ObjectId})._id || new ObjectId()
+            ;(doc as {_id?: ObjectId})._id = insertedId
             store.push(doc)
-            return {acknowledged: true, insertedId: new ObjectId()}
+            return {acknowledged: true, insertedId}
         },
         deleteOne: async (filter: Record<string, unknown>) => {
             const index = store.findIndex((doc) => matches(doc, filter))
             if (index >= 0) store.splice(index, 1)
             return {acknowledged: true, deletedCount: index >= 0 ? 1 : 0}
         },
-        updateOne: async (filter: Record<string, unknown>, update: Record<string, Record<string, unknown>>) => {
-            const doc = store.find((item) => matches(item, filter))
+        updateOne: async (filter: Record<string, unknown>, update: Record<string, Record<string, unknown>>, options?: {upsert?: boolean}) => {
+            let doc = store.find((item) => matches(item, filter))
+            if (!doc && options?.upsert) {
+                doc = {...filter} as T
+                store.push(doc)
+            }
             if (doc) {
                 applyUpdate(doc, update)
             }
@@ -115,13 +122,26 @@ function fakeCollection<T>(docs: T[] = []): Collection<T> {
                     return (leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0) * (sort[key!] as number)
                 })
             }
-            return {
-                sort: (sort: Record<string, 1 | -1>) => ({
-                    limit: (count: number) => ({
-                        next: async () => sortDocs(matching(), sort).slice(0, count)[0] ?? null
-                    })
-                })
+            const cursor = {
+                sortKey: undefined as Record<string, 1 | -1> | undefined,
+                max: Number.POSITIVE_INFINITY,
+                sort(sort: Record<string, 1 | -1>) {
+                    this.sortKey = sort
+                    return this
+                },
+                limit(count: number) {
+                    this.max = count
+                    return this
+                },
+                async toArray() {
+                    const docs = cursor.sortKey ? sortDocs(matching(), cursor.sortKey) : matching()
+                    return docs.slice(0, cursor.max)
+                },
+                async next() {
+                    return (await this.toArray())[0] ?? null
+                }
             }
+            return cursor
         }
     } as unknown as Collection<T>
 }
@@ -185,7 +205,12 @@ mock.module("~~/shared/sync-cadence", () => cadence)
 mock.module("../server/data/collections", () => ({collections: async () => db, ensureIndexes: async () => undefined}))
 mock.module("../server/domain/providers", () => ({getProviderAdapter: () => adapter}))
 
-const {runSyncTask} = await import("../server/domain/sync/engine")
+const testGlobals = globalThis as {createError?: (input: {statusCode?: number; statusMessage?: string; data?: unknown}) => Error}
+if (!testGlobals.createError) {
+    testGlobals.createError = (input) => Object.assign(new Error(input.statusMessage || "Error"), input)
+}
+
+const {runReverseSync, runSyncTask} = await import("../server/domain/sync/engine")
 
 describe("initial two-way playlist sync", () => {
     test("fills only the missing tracks instead of duplicating both playlists", async () => {
@@ -272,6 +297,127 @@ describe("whole-account playlist mappings", () => {
             adapter.deletePlaylist = originalDeletePlaylist
             adapter.getPlaylistItems = originalGetPlaylistItems
             await db.syncTasks.deleteOne({_id: accountTaskId})
+        }
+    })
+})
+
+describe("deleted source restore", () => {
+    const deletedSourceRestore = reverseSyncRequestFor("deleted-source")
+
+    function missingPlaylist(provider: string) {
+        const statusMessage = `${provider} API request failed (404)`
+        return Object.assign(new Error(statusMessage), {statusCode: 502, statusMessage})
+    }
+
+    async function storedRuns() {
+        return db.syncRuns.find({taskId}).toArray() as Promise<SyncRunDocument[]>
+    }
+
+    test("marks a missing source, then restores it once from the target", async () => {
+        const originalGetPlaylistItems = adapter.getPlaylistItems
+        const originalCreatePlaylist = adapter.createPlaylist
+        const originalSource = playlists["source-playlist"]
+        const originalDestination = playlists["dest-playlist"]
+        const originalDirection = task.direction
+        const originalPlaylist = {...task.source}
+        const created: string[] = []
+        task.direction = "one-way"
+        task.source = {...task.source, name: "Road songs"}
+        delete playlists["source-playlist"]
+        playlists["dest-playlist"] = [track("B:0", "Song B"), track("C:1", "Song C")]
+        adapter.getPlaylistItems = async (account, playlistId) => {
+            if (!(playlistId in playlists)) throw missingPlaylist(account.provider)
+            return originalGetPlaylistItems(account, playlistId)
+        }
+        adapter.createPlaylist = async (account, name) => {
+            created.push(name)
+            playlists["restored-source"] = []
+            return originalCreatePlaylist(account, name).then((playlist) => ({...playlist, id: "restored-source", name}))
+        }
+        const addedBefore = addedCalls.length
+
+        try {
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            const failed = (await storedRuns()).find((run) => run.failureReason === "deleted-source")
+            expect(failed?.status).toBe("failed")
+            expect(failed?.error).toBe("spotify API request failed (404)")
+
+            const result = await runReverseSync(taskId, deletedSourceRestore)
+            expect(result.additions).toBe(2)
+            expect(result.removals).toBe(0)
+            expect(created).toEqual(["Road songs"])
+            expect(addedCalls.slice(addedBefore).map((call) => call.playlistId)).toEqual(["restored-source"])
+            expect(task.direction).toBe("one-way")
+            expect(task.source.playlistId).toBe("restored-source")
+            expect(task.lastError).toBeUndefined()
+            const restored = (await storedRuns()).find((run) => run.reverseSync?.reason === "deleted-source")
+            expect(restored?.status).toBe("succeeded")
+            expect(restored?.reverseSync).toEqual(deletedSourceRestore)
+
+            await runSyncTask(taskId, "scheduled")
+            expect(created).toEqual(["Road songs"])
+            expect(task.direction).toBe("one-way")
+        } finally {
+            adapter.getPlaylistItems = originalGetPlaylistItems
+            adapter.createPlaylist = originalCreatePlaylist
+            task.direction = originalDirection
+            task.source = originalPlaylist
+            playlists["source-playlist"] = originalSource
+            playlists["dest-playlist"] = originalDestination
+            delete playlists["restored-source"]
+        }
+    })
+
+    test("does not restore an unrelated failure, a missing target, or a source that still exists", async () => {
+        const originalGetPlaylistItems = adapter.getPlaylistItems
+        const originalCreatePlaylist = adapter.createPlaylist
+        const originalSource = playlists["source-playlist"]
+        const originalDestination = playlists["dest-playlist"]
+        const created: string[] = []
+        adapter.createPlaylist = async (account, name) => {
+            created.push(name)
+            return originalCreatePlaylist(account, name)
+        }
+        adapter.getPlaylistItems = async (account, playlistId) => {
+            if (!(playlistId in playlists)) throw missingPlaylist(account.provider)
+            return originalGetPlaylistItems(account, playlistId)
+        }
+
+        try {
+            delete playlists["source-playlist"]
+            delete playlists["dest-playlist"]
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            expect((await storedRuns()).at(-1)?.failureReason).toBeUndefined()
+
+            playlists["source-playlist"] = [track("A:0", "Song A")]
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            expect((await storedRuns()).at(-1)?.failureReason).toBeUndefined()
+
+            adapter.getPlaylistItems = async () => {
+                throw new Error("spotify API request failed (500)")
+            }
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (500)")
+            expect((await storedRuns()).at(-1)?.failureReason).toBeUndefined()
+
+            adapter.getPlaylistItems = async (account, playlistId) => {
+                if (!(playlistId in playlists)) throw missingPlaylist(account.provider)
+                return originalGetPlaylistItems(account, playlistId)
+            }
+            delete playlists["source-playlist"]
+            playlists["dest-playlist"] = [track("B:0", "Song B")]
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            expect((await storedRuns()).at(-1)?.failureReason).toBe("deleted-source")
+            playlists["source-playlist"] = [track("A:0", "Song A")]
+            await expect(runReverseSync(taskId, deletedSourceRestore)).rejects.toThrow("The playlist to restore is already there")
+            expect(created).toEqual([])
+
+            await expect(runReverseSync(taskId, {...deletedSourceRestore, cadence: "ongoing"})).rejects.toThrow("This reverse sync is not available")
+            await expect(runReverseSync(taskId, {...deletedSourceRestore, direction: "forward"})).rejects.toThrow("This reverse sync is not available")
+        } finally {
+            adapter.getPlaylistItems = originalGetPlaylistItems
+            adapter.createPlaylist = originalCreatePlaylist
+            if (originalSource) playlists["source-playlist"] = originalSource
+            if (originalDestination) playlists["dest-playlist"] = originalDestination
         }
     })
 })

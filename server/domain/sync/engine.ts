@@ -6,7 +6,10 @@ import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {resolveEntitlement} from "../billing/entitlement"
 import {applyTaskEntitlement} from "../billing/task-entitlement"
+import {isMissingPlaylistError} from "../providers/http"
 import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
+import {readSyncFailureReason, reverseSyncCaseFor, type ReverseSyncCase, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
+import {assertReverseSyncAvailable} from "./reverse-sync"
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
 import {getServerConfig} from "../../utils/config"
 import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges} from "./safe-mode"
@@ -214,6 +217,29 @@ async function loadAccount(id: ObjectId, userId: ObjectId): Promise<ProviderAcco
     return account
 }
 
+type PlaylistRead = {missing: true} | {missing: false; items: ProviderTrack[]}
+
+// Read a playlist, treating a provider 404 as a missing playlist instead of an unknown failure.
+async function readPlaylistItems(account: ProviderAccountDocument, playlistId: string): Promise<PlaylistRead> {
+    try {
+        return {missing: false, items: await getProviderAdapter(account.provider).getPlaylistItems(account, playlistId)}
+    } catch (error) {
+        if (isMissingPlaylistError(error)) {
+            return {missing: true}
+        }
+        throw error
+    }
+}
+
+// Keep the provider's 404 text and, for a deleted source, mark the run so restore can be offered.
+function missingPlaylistError(provider: string, failureReason?: SyncFailureReason) {
+    return createError({
+        statusCode: 502,
+        statusMessage: `${provider} API request failed (404)`,
+        ...(failureReason ? {data: {failureReason}} : {})
+    })
+}
+
 // Describe a task's source and destination provider and playlist for log lines.
 async function describeTask(task: SyncTaskDocument): Promise<string> {
     const db = await collections()
@@ -231,11 +257,16 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     const destinationAccount = await loadAccount(task.destination.providerAccountId, task.userId)
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
     const destinationAdapter = getProviderAdapter(destinationAccount.provider)
-    const [sourceItems, destinationItems, snapshot] = await Promise.all([
-        sourceAdapter.getPlaylistItems(sourceAccount, task.source.playlistId),
-        destinationAdapter.getPlaylistItems(destinationAccount, task.destination.playlistId),
-        db.syncSnapshots.findOne({taskId: task._id!})
-    ])
+    const [sourceRead, destinationRead, snapshot] = await Promise.all([readPlaylistItems(sourceAccount, task.source.playlistId), readPlaylistItems(destinationAccount, task.destination.playlistId), db.syncSnapshots.findOne({taskId: task._id!})])
+    if (sourceRead.missing || destinationRead.missing) {
+        // Only a missing source, with the target still readable, can be restored from that target.
+        if (sourceRead.missing && !destinationRead.missing) {
+            throw missingPlaylistError(sourceAccount.provider, "deleted-source")
+        }
+        throw missingPlaylistError((sourceRead.missing ? sourceAccount : destinationAccount).provider)
+    }
+    const sourceItems = sourceRead.items
+    const destinationItems = destinationRead.items
     const oneWay = task.direction === "one-way"
     logger.info(
         "Sync.execute",
@@ -333,7 +364,15 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     if (isSafeModeEnabled()) {
         logger.info("Sync.safeMode", `Task ${task._id!.toHexString()}`, "Skipping snapshot update")
     } else {
-        const [verifiedSource, verifiedDestination] = await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, task.source.playlistId), destinationAdapter.getPlaylistItems(destinationAccount, task.destination.playlistId)])
+        const [verifiedSourceRead, verifiedDestinationRead] = await Promise.all([readPlaylistItems(sourceAccount, task.source.playlistId), readPlaylistItems(destinationAccount, task.destination.playlistId)])
+        if (verifiedSourceRead.missing || verifiedDestinationRead.missing) {
+            if (verifiedSourceRead.missing && !verifiedDestinationRead.missing) {
+                throw missingPlaylistError(sourceAccount.provider, "deleted-source")
+            }
+            throw missingPlaylistError((verifiedSourceRead.missing ? sourceAccount : destinationAccount).provider)
+        }
+        const verifiedSource = verifiedSourceRead.items
+        const verifiedDestination = verifiedDestinationRead.items
         const desiredAliases = new Map<string, string>([
             ...(snapshot ? [...aliasMap(snapshot.sourceItems), ...aliasMap(snapshot.destinationItems)] : []),
             ...sourceResult.aliases.map((item) => [item.trackId, item.canonicalKey] as const),
@@ -437,13 +476,82 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
     return {additions, removals, skipped, conflicts: 0}
 }
 
-// Dispatch a task to playlist or account synchronization.
-async function execute(task: SyncTaskDocument, recordChanges: RecordTrackChanges) {
+// Copy one playlist onto the other in the case's direction. A deleted target is recreated only when the case asks for that.
+async function copyPlaylistOnce(task: SyncTaskDocument, recordChanges: RecordTrackChanges, syncCase: ReverseSyncCase) {
+    const db = await collections()
+    const reverse = syncCase.direction === "reverse"
+    const fromRef = reverse ? task.destination : task.source
+    const toRef = reverse ? task.source : task.destination
+    const fromAccount = await loadAccount(fromRef.providerAccountId, task.userId)
+    const toAccount = await loadAccount(toRef.providerAccountId, task.userId)
+    const fromRead = await readPlaylistItems(fromAccount, fromRef.playlistId)
+    if (fromRead.missing) {
+        throw createError({statusCode: 409, statusMessage: "The playlist to copy from is missing"})
+    }
+    const toRead = await readPlaylistItems(toAccount, toRef.playlistId)
+    let toPlaylistId = toRef.playlistId
+    let toItems: ProviderTrack[] = []
+    if (toRead.missing) {
+        if (!syncCase.recreateTarget) {
+            throw missingPlaylistError(toAccount.provider)
+        }
+        const created = await getProviderAdapter(toAccount.provider).createPlaylist(toAccount, toRef.name)
+        toPlaylistId = created.id
+        if (reverse) {
+            task.source = {...task.source, playlistId: created.id}
+        } else {
+            task.destination = {...task.destination, playlistId: created.id}
+        }
+        await db.syncTasks.updateOne({_id: task._id}, {$set: {source: task.source, destination: task.destination, updatedAt: new Date()}})
+        logger.info("Sync.reverse", `Task ${task._id!.toHexString()}`, syncCase.reason, toAccount.provider, `Created playlist ${created.id}`)
+    } else if (syncCase.recreateTarget) {
+        throw createError({statusCode: 409, statusMessage: "The playlist to restore is already there"})
+    } else {
+        toItems = toRead.items
+    }
+    const result = await applyDesired(toAccount, toPlaylistId, toItems, reconcileOneWay(fromRead.items).desired, recordChanges, toRef.name, {
+        account: fromAccount,
+        playlistId: fromRef.playlistId,
+        playlistName: fromRef.name
+    })
+    if (!isSafeModeEnabled()) {
+        const [verifiedFrom, verifiedTo] = await Promise.all([getProviderAdapter(fromAccount.provider).getPlaylistItems(fromAccount, fromRef.playlistId), getProviderAdapter(toAccount.provider).getPlaylistItems(toAccount, toPlaylistId)])
+        const aliases = new Map(result.aliases.map((item) => [item.trackId, item.canonicalKey]))
+        const withAliases = (items: ProviderTrack[]) => items.map((item) => ({...item, canonicalKey: aliases.get(item.itemId) || aliases.get(item.trackId) || item.canonicalKey}))
+        const sourceItems = reverse ? withAliases(verifiedTo) : verifiedFrom
+        const destinationItems = reverse ? verifiedFrom : withAliases(verifiedTo)
+        await db.syncSnapshots.updateOne({taskId: task._id!}, {$set: {sourceItems: sourceItems.map(toCanonical), destinationItems: destinationItems.map(toCanonical), createdAt: new Date()}}, {upsert: true})
+    }
+    logger.info("Sync.reverse", `Task ${task._id!.toHexString()}`, syncCase.reason, syncCase.direction, syncCase.cadence, `Additions ${result.additions}`, `Removals ${result.removals}`, `Unmatched ${result.skipped}`)
+    return {additions: result.additions, removals: result.removals, skipped: result.skipped, conflicts: 0}
+}
+
+// Run one registered reverse sync without changing the task's usual direction.
+async function executeReverseSync(task: SyncTaskDocument, recordChanges: RecordTrackChanges, request: ReverseSyncRequest) {
+    const syncCase = reverseSyncCaseFor(request)
+    if (!syncCase) {
+        throw createError({statusCode: 400, statusMessage: "This reverse sync is not available"})
+    }
+    if (task.mode !== "playlist") {
+        throw createError({statusCode: 409, statusMessage: "Reverse sync is only available for a playlist pair"})
+    }
+    // One-time cases copy once. An ongoing case needs its own schedule before it can run.
+    if (syncCase.cadence !== "one-time") {
+        throw createError({statusCode: 400, statusMessage: "Ongoing reverse sync is not available yet"})
+    }
+    return copyPlaylistOnce(task, recordChanges, syncCase)
+}
+
+// Dispatch a task to playlist, account, or a registered reverse synchronization.
+async function execute(task: SyncTaskDocument, recordChanges: RecordTrackChanges, reverseSync?: ReverseSyncRequest) {
+    if (reverseSync) {
+        return executeReverseSync(task, recordChanges, reverseSync)
+    }
     return task.mode === "account" ? executeAccount(task, recordChanges) : executePlaylist(task, recordChanges)
 }
 
 // Acquire a lease, execute one task, and persist its run outcome.
-export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled") {
+export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled", reverseSync?: ReverseSyncRequest) {
     const db = await collections()
     const current = await db.syncTasks.findOne({_id: taskId})
     if (current) {
@@ -458,7 +566,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     if (isSafeModeEnabled()) {
         logger.warn("Sync.safeMode", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "PLS_SAFE_MODE is enabled; music providers will not be written")
     }
-    logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Trigger ${trigger}`, "Acquiring lease")
+    logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Trigger ${trigger}`, ...(reverseSync ? [reverseSync.direction, reverseSync.cadence, reverseSync.reason] : []), "Acquiring lease")
     const task = await db.syncTasks.findOneAndUpdate(
         {
             _id: taskId,
@@ -483,6 +591,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         addedTracks: [],
         removedTracks: [],
         unmatchedTracks: [],
+        ...(reverseSync ? {reverseSync} : {}),
         startedAt: now
     })
     logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Run ${run.insertedId.toHexString()}`, "Started")
@@ -498,7 +607,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         }
     }
     try {
-        const result = await execute(task, recordChanges)
+        const result = await execute(task, recordChanges, reverseSync)
         const user = await db.users.findOne({_id: task.userId})
         const proIntervalMs = proSyncIntervalMs(getServerConfig().proSyncIntervalMinutes)
         const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? proIntervalMs : 7 * 24 * 60 * 60 * 1000
@@ -542,6 +651,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
     } catch (error) {
         const finishedAt = new Date()
         const message = error instanceof Error ? error.message.slice(0, 500) : "Unknown synchronization error"
+        const failureReason = readSyncFailureReason(error)
         const failed = await db.syncTasks.updateOne(
             {_id: taskId, leaseId},
             {
@@ -549,11 +659,20 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
                 $unset: {leaseId: "", leaseExpiresAt: ""}
             }
         )
-        await db.syncRuns.updateOne({_id: run.insertedId}, {$set: {status: "failed", error: message, finishedAt}})
+        await db.syncRuns.updateOne({_id: run.insertedId}, {$set: {status: "failed", error: message, finishedAt, ...(failureReason ? {failureReason} : {})}})
         if (!failed.matchedCount) {
             await db.syncTasks.updateOne({_id: taskId}, {$set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt}})
         }
         logger.error("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Run ${run.insertedId.toHexString()}`, `Duration ${finishedAt.getTime() - now.getTime()}ms`, error)
         throw error
     }
+}
+
+// Start a registered reverse sync when that case still applies to the task's runs.
+export async function runReverseSync(taskId: ObjectId, request: ReverseSyncRequest) {
+    const db = await collections()
+    const runs = await db.syncRuns.find({taskId}).sort({startedAt: -1}).limit(50).toArray()
+    assertReverseSyncAvailable(runs, request)
+    logger.info("Sync.reverse", `Task ${taskId.toHexString()}`, request.reason, request.direction, request.cadence)
+    return runSyncTask(taskId, "manual", request)
 }

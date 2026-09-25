@@ -1,5 +1,6 @@
 // Client-side representations returned by the server API.
 import type {AccountTier, Provider, SyncRunStatus, SyncTaskDirection, SyncTaskMode, SyncTaskStatus} from "~~/shared/types/domain"
+import type {ReverseSyncRequest, SyncFailureReason} from "~~/shared/reverse-sync"
 
 // Public authenticated session data.
 export interface SessionUser {
@@ -92,6 +93,9 @@ export interface SyncRunDetail {
     startedAt: string
     finishedAt?: string
     error?: string
+    failureReason?: SyncFailureReason
+    reverseSync?: ReverseSyncRequest
+    availableReverseSync?: ReverseSyncRequest
     addedTracks: SyncRunTrack[]
     removedTracks: SyncRunTrack[]
     unmatchedTracks: SyncRunTrack[]

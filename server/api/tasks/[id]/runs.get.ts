@@ -20,6 +20,6 @@ export default defineEventHandler(async (event) => {
     const runsWithDurations = await fillMissingRunTrackDurations(user._id!, runs, [task.source.providerAccountId, task.destination.providerAccountId])
     return {
         canBrowseHistory: canViewRunHistory(tier),
-        runs: runsWithDurations.map((run) => serializeSyncRun(run, task, snapshot || undefined))
+        runs: runsWithDurations.map((run, index) => serializeSyncRun(run, task, snapshot || undefined, runsWithDurations.slice(0, index)))
     }
 })
