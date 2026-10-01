@@ -1,7 +1,7 @@
 // Control which synchronization history is visible at each account tier.
 import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
 
-export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt">
+export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt" | "progress">
 
 export const proRunHistoryLimit = 50
 
@@ -28,6 +28,7 @@ export interface SerializedSyncRun {
     startedAt: Date
     finishedAt?: Date
     error?: string
+    progress?: SyncRunDocument["progress"]
     addedTracks: SerializedRunTrack[]
     removedTracks: SerializedRunTrack[]
     unmatchedTracks: SerializedRunTrack[]
@@ -98,6 +99,7 @@ export function serializeSyncRun(run: SyncRunDocument, task?: Pick<SyncTaskDocum
         startedAt: run.startedAt,
         finishedAt: run.finishedAt,
         error: run.error,
+        ...(run.progress ? {progress: run.progress} : {}),
         addedTracks: run.addedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
         removedTracks: run.removedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
         unmatchedTracks: run.unmatchedTracks.map((track) => serializeRunTrack(track, task, snapshot))

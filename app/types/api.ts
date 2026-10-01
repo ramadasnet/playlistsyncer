@@ -57,6 +57,11 @@ export interface SyncTaskSummary {
         conflicts: number
         skipped: number
         startedAt: string
+        progress?: {
+            playlistsTotal?: number
+            playlistsCompleted?: number
+            tracksTotal?: number
+        }
     }
 }
 
@@ -81,6 +86,15 @@ export interface SimilarTrackSuggestion {
     imageUrl?: string
 }
 
+export interface SyncTaskDetail {
+    task: SyncTaskSummary
+    sourceProvider: Provider | null
+    destinationProvider: Provider | null
+    playlistMappings: {sourcePlaylistId: string; destinationPlaylistId: string; name: string}[]
+    canBrowseHistory: boolean
+    runs: SyncRunDetail[]
+}
+
 export interface SyncRunDetail {
     id: string
     trigger: "created" | "manual" | "scheduled"
@@ -92,6 +106,11 @@ export interface SyncRunDetail {
     startedAt: string
     finishedAt?: string
     error?: string
+    progress?: {
+        playlistsTotal?: number
+        playlistsCompleted?: number
+        tracksTotal?: number
+    }
     addedTracks: SyncRunTrack[]
     removedTracks: SyncRunTrack[]
     unmatchedTracks: SyncRunTrack[]

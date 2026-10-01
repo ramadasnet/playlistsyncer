@@ -46,7 +46,7 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
                 <h2>Sync everything</h2>
                 <p class="price">{{ proPrice }} / year</p>
                 <p>Unlimited playlist with synchronization {{ everyLabel }}, sync history, weekly summaries, and more!</p>
-                <NuxtLink class="button button-light" :to="auth.user ? '/account' : '/login'">Get PRO <ArrowRight :size="17" /></NuxtLink>
+                <NuxtLink class="button button-light" :to="auth.user ? '/account' : '/login?redirect=/account'">Get PRO <ArrowRight :size="17" /></NuxtLink>
             </article>
         </section>
 

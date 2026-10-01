@@ -17,8 +17,8 @@ watch(
     <header class="site-header">
         <div class="shell header-inner">
             <NuxtLink class="brand" to="/" aria-label="PlaylistSyncer home">
-                <span class="brand-record" aria-hidden="true"><span /></span>
-                <span>PlaylistSyncer</span>
+                <img class="brand-mark" src="/logo-mark.svg" alt="" width="32" height="32" />
+                <span>Playlist<span class="brand-syncer">Syncer</span></span>
             </NuxtLink>
 
             <button class="icon-button nav-toggle" type="button" :aria-expanded="open" aria-label="Toggle navigation" @click="open = !open">

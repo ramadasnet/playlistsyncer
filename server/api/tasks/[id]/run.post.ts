@@ -3,11 +3,11 @@ import {collections} from "../../../data/collections"
 import {requireUser} from "../../../domain/auth/session"
 import {resolveEntitlement} from "../../../domain/billing/entitlement"
 import {manualSyncAvailableAt} from "../../../domain/sync/cooldown"
-import {runSyncTask} from "../../../domain/sync/engine"
+import {beginSyncTask, completeSyncTask} from "../../../domain/sync/engine"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
 
-// Reject runs during the cooldown and delegate eligible runs to the engine.
+// Reject runs during the cooldown, start the run immediately, and finish it in the background.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const taskId = parseObjectId(getRouterParam(event, "id"), "task id")
@@ -27,5 +27,11 @@ export default defineEventHandler(async (event) => {
         })
     }
     logger.info("Tasks.run", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`)
-    return runSyncTask(taskId, "manual")
+    const context = await beginSyncTask(taskId, "manual")
+    event.waitUntil(
+        completeSyncTask(context).catch((error) => {
+            logger.error("Tasks.runBackground", `Task ${taskId.toHexString()}`, `Run ${context.runId.toHexString()}`, error)
+        })
+    )
+    return {status: "running", runId: context.runId.toHexString()}
 })

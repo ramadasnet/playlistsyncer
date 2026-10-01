@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
-import {canonicalItemsWithAliases, findSnapshotItem, manualMatchAliases, resolveMatchTarget, unmatchedTrackMatches} from "../server/domain/sync/manual-match"
+import {canonicalItemsWithAliases, findSnapshotItem, manualMatchAliases, moveUnmatchedToAdded, resolveMatchTarget, unmatchedTrackMatches} from "../server/domain/sync/manual-match"
 import {trackKey} from "../server/domain/sync/reconcile"
 import type {CanonicalTrack, SyncTaskDocument} from "../shared/types/domain"
 
@@ -77,5 +77,23 @@ describe("manual unmatched-track matching", () => {
         expect(findSnapshotItem([unmatched], {providerItemId: "src-2", providerTrackId: "track-src-2"})).toBe(unmatched)
         expect(linked.map((item) => item.canonicalKey)).toEqual(["canonical:missing", "canonical:missing"])
         expect(trackKey({title: "Other Song", artists: ["Bea"]})).not.toBe(unmatched.canonicalKey)
+    })
+
+    test("moves a matched track from unmatched to added and updates the counts", () => {
+        const unmatched = {providerAccountId: sourceAccount, playlistId: "src", providerTrackId: "yt-2", providerItemId: "item-2", title: "Midnight Radio", artists: ["Velvet Hours"]}
+        const added = {providerAccountId: destinationAccount, playlistId: "dst", providerTrackId: "sp-9", providerItemId: "item-9", title: "Midnight Radio", artists: ["Velvet Hours"], playlistName: "Road Trip"}
+        const next = moveUnmatchedToAdded(
+            {status: "partial" as const, additions: 1, skipped: 2, conflicts: 0, addedTracks: [], unmatchedTracks: [unmatched, {providerAccountId: sourceAccount, playlistId: "src", providerTrackId: "yt-3", title: "Other", artists: ["Bea"]}]},
+            {playlistId: "src", providerTrackId: "yt-2", providerItemId: "item-2"},
+            added
+        )
+
+        expect(next).toMatchObject({
+            additions: 2,
+            skipped: 1,
+            status: "partial",
+            unmatchedTracks: [{providerTrackId: "yt-3"}],
+            addedTracks: [added]
+        })
     })
 })

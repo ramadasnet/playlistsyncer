@@ -8,6 +8,11 @@ const proSyncIntervalMinutes = Number(process.env.PLS_TASKSYNC_INTERVAL || defau
 
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
+    app: {
+        head: {
+            link: [{rel: "icon", type: "image/svg+xml", href: "/logo-mark.svg"}]
+        }
+    },
     css: ["~/assets/css/main.css"],
     // DevTools instruments the whole app; keep it opt-in so idle `nuxt dev` stays lean.
     devtools: {enabled: process.env.PLS_DEVTOOLS === "true"},
