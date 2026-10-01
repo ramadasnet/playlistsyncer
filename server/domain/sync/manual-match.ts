@@ -6,7 +6,9 @@ import logger from "../../utils/logger"
 import {getProviderAdapter, type ProviderTrack} from "../providers"
 import {rankSimilarTracks} from "../providers/matching"
 import {unmatchedTracksFromSnapshot} from "./history-visibility"
+import {saveMergedPlaylistMappings} from "./playlist-mappings"
 import {isSafeModeEnabled, safeModeWriteBlockedMessage} from "./safe-mode"
+import {assertSyncTaskIdle} from "./task-activity"
 import {trackKey} from "./reconcile"
 
 export interface UnmatchedTrackIdentity {
@@ -172,16 +174,6 @@ async function loadAccount(id: ObjectId, userId: ObjectId): Promise<ProviderAcco
     return account
 }
 
-function identityByTrack(track: Pick<SyncRunTrackReference, "providerTrackId" | "providerItemId">, identity: UnmatchedTrackIdentity) {
-    if (track.providerTrackId !== identity.providerTrackId) {
-        return false
-    }
-    if (identity.providerItemId && track.providerItemId && track.providerItemId !== identity.providerItemId) {
-        return false
-    }
-    return true
-}
-
 function playlistPairTarget(task: Pick<SyncTaskDocument, "source" | "destination">, unmatchedSide: "source" | "destination"): MatchTarget {
     return unmatchedSide === "source"
         ? {unmatchedSide: "source", targetSide: "destination", targetPlaylistId: task.destination.playlistId, targetPlaylistName: task.destination.name}
@@ -207,9 +199,9 @@ async function resolveUnmatchedReference(task: SyncTaskDocument, identity: Unmat
     const db = await collections()
     const runId = identity.runId && ObjectId.isValid(identity.runId) ? new ObjectId(identity.runId) : undefined
     const run: SyncRunDocument | null = runId ? await db.syncRuns.findOne({_id: runId, taskId: task._id}) : await db.syncRuns.findOne({taskId: task._id, status: {$ne: "running"}}, {sort: {startedAt: -1}})
-    const fromRun = run?.unmatchedTracks.find((track) => unmatchedTrackMatches(track, identity)) || run?.unmatchedTracks.find((track) => identityByTrack(track, identity))
+    const fromRun = run?.unmatchedTracks.find((track) => unmatchedTrackMatches(track, identity))
     const snapshot = await db.syncSnapshots.findOne({taskId: task._id})
-    const fromSnapshot = snapshot ? unmatchedTracksFromSnapshot(snapshot, task).find((track) => identityByTrack(track, identity)) : undefined
+    const fromSnapshot = snapshot ? unmatchedTracksFromSnapshot(snapshot, task).find((track) => unmatchedTrackMatches(track, identity)) : undefined
     const unmatched = fromSnapshot || fromRun
     if (!unmatched) {
         throw createError({statusCode: 404, statusMessage: "Unmatched track was not found"})
@@ -264,6 +256,7 @@ async function locateUnmatchedPlacement(task: SyncTaskDocument, identity: Unmatc
 // Rank similar catalog tracks on the other service for an unmatched playlist song.
 export async function suggestMatchesForUnmatched(userId: ObjectId, taskId: ObjectId, identity: UnmatchedTrackIdentity): Promise<MatchSuggestionsResult> {
     const {task} = await loadOwnedTask(taskId, userId)
+    await assertSyncTaskIdle(task)
     const unmatched = await resolveUnmatchedReference(task, identity)
     const placement = await locateUnmatchedPlacement(task, identity, unmatched)
     const targetAccount = await loadAccount(placement.target.targetSide === "source" ? task.source.providerAccountId : task.destination.providerAccountId, userId)
@@ -285,8 +278,10 @@ export async function suggestMatchesForUnmatched(userId: ObjectId, taskId: Objec
 
 // Move a matched song from a run's unmatched list onto its added list.
 export function moveUnmatchedToAdded<T extends Pick<SyncRunDocument, "unmatchedTracks" | "addedTracks" | "additions" | "skipped" | "conflicts" | "status">>(run: T, identity: UnmatchedTrackIdentity, addedTrack: SyncRunTrackReference): T | null {
+    // A running sync is still appending these lists, so a stale copy must not replace them.
+    if (run.status === "running") return null
     const unmatchedTracks = [...run.unmatchedTracks]
-    const index = unmatchedTracks.findIndex((track) => unmatchedTrackMatches(track, identity) || identityByTrack(track, identity))
+    const index = unmatchedTracks.findIndex((track) => unmatchedTrackMatches(track, identity))
     if (index < 0) return null
     unmatchedTracks.splice(index, 1)
     const alreadyAdded = run.addedTracks.some((track) => track.playlistId === addedTrack.playlistId && track.providerTrackId === addedTrack.providerTrackId)
@@ -304,12 +299,18 @@ export function moveUnmatchedToAdded<T extends Pick<SyncRunDocument, "unmatchedT
 
 async function recordManualMatchOnRuns(taskId: ObjectId, identity: UnmatchedTrackIdentity, addedTrack: SyncRunTrackReference) {
     const db = await collections()
-    const runs = await db.syncRuns.find({taskId, "unmatchedTracks.providerTrackId": identity.providerTrackId}).toArray()
+    const runs = await db.syncRuns
+        .find({
+            taskId,
+            status: {$ne: "running"},
+            unmatchedTracks: {$elemMatch: {playlistId: identity.playlistId, providerTrackId: identity.providerTrackId}}
+        })
+        .toArray()
     for (const run of runs) {
         const next = moveUnmatchedToAdded(run, identity, addedTrack)
         if (!next) continue
         await db.syncRuns.updateOne(
-            {_id: run._id},
+            {_id: run._id, status: {$ne: "running"}},
             {
                 $set: {
                     unmatchedTracks: next.unmatchedTracks,
@@ -325,12 +326,14 @@ async function recordManualMatchOnRuns(taskId: ObjectId, identity: UnmatchedTrac
 
 // Remember a full-sync stand-in so the next mirror keeps that pair linked.
 async function saveAccountManualAlias(task: SyncTaskDocument, unmatchedPlaylistId: string, targetPlaylistId: string, alias: ManualTrackAlias) {
-    const mappings = [...(task.playlistMappings || [])]
+    if (!task._id) return
+    const db = await collections()
+    const stored = await db.syncTasks.findOne({_id: task._id}, {projection: {playlistMappings: 1}})
+    const mappings = (stored?.playlistMappings || []).map((item) => ({...item, ...(item.manualAliases ? {manualAliases: item.manualAliases.map((saved) => ({...saved}))} : {})}))
     const mapping = mappings.find((item) => [item.sourcePlaylistId, item.destinationPlaylistId].includes(unmatchedPlaylistId) || [item.sourcePlaylistId, item.destinationPlaylistId].includes(targetPlaylistId))
     if (!mapping) return
     mapping.manualAliases = [...(mapping.manualAliases || []).filter((item) => item.canonicalKey !== alias.canonicalKey && item.sourceTrackId !== alias.sourceTrackId), alias]
-    const db = await collections()
-    await db.syncTasks.updateOne({_id: task._id}, {$set: {playlistMappings: mappings, updatedAt: new Date()}})
+    await saveMergedPlaylistMappings(task._id, mappings)
 }
 
 // Add the chosen catalog track and alias both sides so later syncs treat them as one song.
@@ -339,6 +342,7 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
         throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
     }
     const {db, task} = await loadOwnedTask(taskId, userId)
+    await assertSyncTaskIdle(task)
     const unmatched = await resolveUnmatchedReference(task, identity)
     const placement = await locateUnmatchedPlacement(task, identity, unmatched)
     const liveUnmatched = placement.live
@@ -379,7 +383,12 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
             canonicalKey: sharedKey
         })
     } else {
-        const aliases = manualMatchAliases(placement.snapshot, {providerItemId: liveUnmatched.itemId, providerTrackId: liveUnmatched.trackId}, {providerItemId: addedLive.itemId || addedIds.providerItemId, providerTrackId: addedLive.trackId}, sharedKey)
+        const aliases = manualMatchAliases(
+            placement.snapshot,
+            {providerItemId: liveUnmatched.itemId, providerTrackId: liveUnmatched.trackId},
+            {providerItemId: addedLive.itemId || addedIds.providerItemId, providerTrackId: addedLive.trackId},
+            sharedKey
+        )
         const sourceItems = canonicalItemsWithAliases(placement.target.unmatchedSide === "source" ? verifiedUnmatched : verifiedTarget, aliases)
         const destinationItems = canonicalItemsWithAliases(placement.target.unmatchedSide === "source" ? verifiedTarget : verifiedUnmatched, aliases)
         await db.syncSnapshots.updateOne(

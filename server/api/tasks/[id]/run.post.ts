@@ -4,6 +4,7 @@ import {requireUser} from "../../../domain/auth/session"
 import {resolveEntitlement} from "../../../domain/billing/entitlement"
 import {manualSyncAvailableAt} from "../../../domain/sync/cooldown"
 import {beginSyncTask, completeSyncTask} from "../../../domain/sync/engine"
+import {assertSyncTaskIdle} from "../../../domain/sync/task-activity"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
 
@@ -16,6 +17,7 @@ export default defineEventHandler(async (event) => {
     if (!task) {
         throw createError({statusCode: 404, statusMessage: "Sync task not found"})
     }
+    await assertSyncTaskIdle(task)
     const availableAt = manualSyncAvailableAt(resolveEntitlement(user).tier, task.lastSuccessAt)
     if (availableAt) {
         const retryAfterSeconds = Math.ceil((availableAt.getTime() - Date.now()) / 1000)

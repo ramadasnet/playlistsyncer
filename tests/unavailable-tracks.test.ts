@@ -8,6 +8,9 @@ describe("unavailable YouTube videos", () => {
         expect(isUnavailableSyncTrack({title: "  [Deleted video]  "})).toBe(true)
         expect(isUnavailableSyncTrack({title: "Midnight Radio"})).toBe(false)
         expect(isUnavailableSyncTrack({title: "Private video session"})).toBe(false)
+        expect(isUnavailableSyncTrack({title: "Private video", provider: "youtube"})).toBe(true)
+        expect(isUnavailableSyncTrack({title: "Private video", provider: "spotify"})).toBe(false)
+        expect(isUnavailableSyncTrack({title: "Deleted video", provider: "tidal"})).toBe(false)
     })
 
     test("keeps unlabeled skipped tracks in the unmatched count", () => {

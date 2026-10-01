@@ -5,6 +5,7 @@ export interface RunPlaylistRef {
     playlistId?: string
     playlistName?: string
     title?: string
+    provider?: string
 }
 
 export interface RunPlaylistMapping {
@@ -117,7 +118,8 @@ export function groupRunPlaylists(input: {
 // True when a run track belongs to the selected matched playlist.
 export function trackInRunPlaylist(track: RunPlaylistRef, group: Pick<RunPlaylistGroup, "name" | "ids"> | undefined) {
     if (!group) return true
-    if (track.playlistId && group.ids.includes(track.playlistId)) return true
+    const playlistId = track.playlistId?.trim()
+    if (playlistId) return group.ids.includes(playlistId)
     const name = track.playlistName?.trim().toLowerCase()
     return Boolean(name) && name === group.name.trim().toLowerCase()
 }

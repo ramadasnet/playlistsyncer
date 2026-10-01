@@ -96,4 +96,26 @@ describe("manual unmatched-track matching", () => {
             addedTracks: [added]
         })
     })
+
+    test("moves only the requested playlist when the same song is unmatched twice", () => {
+        const focus = {providerAccountId: sourceAccount, playlistId: "focus", providerTrackId: "yt-2", title: "Midnight Radio", artists: ["Velvet Hours"]}
+        const sleep = {providerAccountId: sourceAccount, playlistId: "sleep", providerTrackId: "yt-2", title: "Midnight Radio", artists: ["Velvet Hours"]}
+        const added = {providerAccountId: destinationAccount, playlistId: "focus-dest", providerTrackId: "sp-9", title: "Midnight Radio", artists: ["Velvet Hours"]}
+        const next = moveUnmatchedToAdded({status: "partial" as const, additions: 0, skipped: 2, conflicts: 0, addedTracks: [], unmatchedTracks: [focus, sleep]}, {playlistId: "focus", providerTrackId: "yt-2"}, added)
+
+        expect(next).toMatchObject({
+            additions: 1,
+            skipped: 1,
+            unmatchedTracks: [sleep],
+            addedTracks: [added]
+        })
+    })
+
+    test("does not replace track lists on a run that is still writing", () => {
+        const unmatched = {providerAccountId: sourceAccount, playlistId: "src", providerTrackId: "yt-2", title: "Midnight Radio", artists: ["Velvet Hours"]}
+        const added = {providerAccountId: destinationAccount, playlistId: "dst", providerTrackId: "sp-9", title: "Midnight Radio", artists: ["Velvet Hours"]}
+        const next = moveUnmatchedToAdded({status: "running" as const, additions: 4, skipped: 1, conflicts: 0, addedTracks: [], unmatchedTracks: [unmatched]}, {playlistId: "src", providerTrackId: "yt-2"}, added)
+
+        expect(next).toBeNull()
+    })
 })

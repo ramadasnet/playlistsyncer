@@ -4,6 +4,7 @@ import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {applyTaskEntitlement, entitlementEditBlockedMessage, isEntitlementLocked, retainedFreeTierTask} from "../../domain/billing/task-entitlement"
+import {assertSyncTaskIdle} from "../../domain/sync/task-activity"
 import logger from "../../utils/logger"
 import {parseObjectId} from "../../utils/object-id"
 
@@ -20,6 +21,7 @@ export default defineEventHandler(async (event) => {
     if (!task) {
         throw createError({statusCode: 404, statusMessage: "Sync task not found"})
     }
+    await assertSyncTaskIdle(task)
     if (isEntitlementLocked(task)) {
         logger.warn("Tasks.update", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`, "Entitlement lock")
         throw createError({statusCode: 403, statusMessage: entitlementEditBlockedMessage})

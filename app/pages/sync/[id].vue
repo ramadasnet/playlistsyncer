@@ -4,6 +4,7 @@
 import {ArrowLeft, ArrowLeftRight, ArrowRight, LoaderCircle, Search} from "lucide-vue-next"
 import {formatSyncProgressMessage} from "~~/shared/sync-progress"
 import {formatRunPlaylistLabel, groupRunPlaylists, trackInRunPlaylist} from "~~/shared/sync-run-playlists"
+import {isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
 import {isUnavailableSyncTrack, unmatchedCategoryCounts} from "~~/shared/unavailable-tracks"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import type {SimilarTrackSuggestion, SyncRunDetail, SyncRunTrack, SyncTaskDetail} from "~/types/api"
@@ -33,6 +34,7 @@ const suggestionState = ref<
 
 const task = computed(() => data.value?.task)
 const runs = computed(() => data.value?.runs || [])
+const taskIsRunning = computed(() => Boolean(task.value && isSyncInProgress(task.value)))
 const sourceProvider = computed(() => data.value?.sourceProvider || undefined)
 const destinationProvider = computed(() => data.value?.destinationProvider || undefined)
 const canBrowseHistory = computed(() => Boolean(data.value?.canBrowseHistory))
@@ -52,6 +54,23 @@ const loadError = computed(() => {
 
 type PlaylistOption = ReturnType<typeof groupRunPlaylists>[number]
 
+function providerForTrack(track: SyncRunTrack) {
+    const current = task.value
+    if (!current) return undefined
+    const source = sourceProvider.value || undefined
+    const destination = destinationProvider.value || undefined
+    if (track.providerAccountId && track.providerAccountId === current.source.providerAccountId) return source
+    if (track.providerAccountId && track.providerAccountId === current.destination.providerAccountId) return destination
+    if (track.side === "source") return source
+    if (track.side === "destination") return destination
+    return undefined
+}
+
+function describedTrack(track: SyncRunTrack) {
+    const provider = providerForTrack(track)
+    return provider ? {...track, provider} : track
+}
+
 const playlistOptions = computed((): PlaylistOption[] => {
     const current = task.value
     const run = selectedRun.value
@@ -61,9 +80,9 @@ const playlistOptions = computed((): PlaylistOption[] => {
         source: current.source,
         destination: current.destination,
         playlistMappings: data.value?.playlistMappings,
-        addedTracks: run.addedTracks,
-        removedTracks: run.removedTracks,
-        unmatchedTracks: run.unmatchedTracks
+        addedTracks: run.addedTracks.map(describedTrack),
+        removedTracks: run.removedTracks.map(describedTrack),
+        unmatchedTracks: run.unmatchedTracks.map(describedTrack)
     })
 })
 
@@ -81,8 +100,8 @@ const playlistUnmatched = computed(() => {
     if (!run) return []
     return run.unmatchedTracks.map((track, index) => ({track, index})).filter(({track}) => trackInSelectedPlaylist(track))
 })
-const filteredUnmatched = computed(() => playlistUnmatched.value.filter(({track}) => !isUnavailableSyncTrack(track)))
-const filteredUnavailable = computed(() => playlistUnmatched.value.filter(({track}) => isUnavailableSyncTrack(track)))
+const filteredUnmatched = computed(() => playlistUnmatched.value.filter(({track}) => !isUnavailableSyncTrack(describedTrack(track))))
+const filteredUnavailable = computed(() => playlistUnmatched.value.filter(({track}) => isUnavailableSyncTrack(describedTrack(track))))
 const filteredAdded = computed(() => selectedRun.value?.addedTracks.filter(trackInSelectedPlaylist) || [])
 const filteredRemoved = computed(() => selectedRun.value?.removedTracks.filter(trackInSelectedPlaylist) || [])
 const showPlaylistColumn = computed(() => viewingAllPlaylists.value && playlistOptions.value.length > 1)
@@ -117,7 +136,7 @@ function formatDuration(ms?: number) {
 
 function runOptionLabel(run: SyncRunDetail) {
     const changes = [`+${run.additions}`, `-${run.removals}`]
-    const counts = unmatchedCategoryCounts(run.skipped, run.unmatchedTracks)
+    const counts = unmatchedCategoryCounts(run.skipped, run.unmatchedTracks.map(describedTrack))
     return `${formatDate(run.startedAt)} · ${run.status.replace("_", " ")} · ${changes.join(" / ")}`
 }
 
@@ -165,6 +184,7 @@ function showMatchAlert(tone: "success" | "error", message: string) {
 }
 
 function openMatchDialog(track: SyncRunTrack, index: number) {
+    if (taskIsRunning.value) return
     matchTarget.value = {track, index}
     showMatchDialog.value = true
     const state = suggestionState.value[unmatchedKey(track, index)]
@@ -176,7 +196,7 @@ watch(showMatchDialog, (open) => {
 })
 
 async function loadSuggestions(track: SyncRunTrack, index: number) {
-    if (!task.value || !canSuggest(track)) return
+    if (!task.value || !canSuggest(track) || taskIsRunning.value) return
     const key = unmatchedKey(track, index)
     suggestionState.value = {
         ...suggestionState.value,
@@ -205,10 +225,11 @@ async function loadSuggestions(track: SyncRunTrack, index: number) {
 }
 
 async function chooseSuggestion(track: SyncRunTrack, index: number, suggestion: SimilarTrackSuggestion) {
-    if (!task.value || !canSuggest(track)) return
+    if (!task.value || !canSuggest(track) || taskIsRunning.value) return
     const key = unmatchedKey(track, index)
     const current = suggestionState.value[key]
     suggestionState.value = {...suggestionState.value, [key]: {...current, loading: false, matchingId: suggestion.trackId, error: ""}}
+    let matched = false
     try {
         await api(`/api/tasks/${task.value.id}/matches`, {
             method: "POST",
@@ -220,12 +241,19 @@ async function chooseSuggestion(track: SyncRunTrack, index: number, suggestion: 
                 candidateTrackId: suggestion.trackId
             }
         })
+        matched = true
         const detail = await $fetch<SyncTaskDetail>(`/api/tasks/${task.value.id}`)
         data.value = detail
         suggestionState.value = {}
         showMatchDialog.value = false
         showMatchAlert("success", `${suggestion.title} was matched.`)
     } catch (caught) {
+        if (matched) {
+            suggestionState.value = {}
+            showMatchDialog.value = false
+            showMatchAlert("success", `${suggestion.title} was matched. The updated lists could not be loaded.`)
+            return
+        }
         suggestionState.value = {
             ...suggestionState.value,
             [key]: {...current, loading: false, matchingId: undefined, error: ""}
@@ -317,6 +345,8 @@ onUnmounted(() => {
                 </label>
             </div>
 
+            <div v-if="taskIsRunning" class="notice" role="status">{{ syncTaskBusyMessage }}. Matching and other changes are unavailable until it finishes.</div>
+
             <div class="run-detail-meta">
                 <span class="status-label" :class="`status-${selectedRun.status}`"><span />{{ selectedRun.status.replace("_", " ") }}</span>
                 <span>{{ triggerLabel(selectedRun.trigger) }}</span>
@@ -340,12 +370,16 @@ onUnmounted(() => {
 
                 <section class="run-track-section unmatched">
                     <h3>Unmatched ({{ selectedPlaylistUnmatchedCount }})</h3>
-                    <p v-if="selectedPlaylistUnmatchedCount" class="run-track-note">These tracks could not be found automatically. Search for a close match and add it yourself — PlaylistSyncer will keep that pair linked so later syncs do not remove it.</p>
+                    <p v-if="selectedPlaylistUnmatchedCount" class="run-track-note">
+                        These tracks could not be found automatically. Search for a close match and add it yourself — PlaylistSyncer will keep that pair linked so later syncs do not remove it.
+                    </p>
                     <p v-if="!filteredUnmatched.length && !selectedPlaylistUnmatchedCount" class="run-track-empty">{{ filteredUnavailable.length ? "No tracks need a manual match." : "Every track was matched." }}</p>
                     <p v-else-if="!filteredUnmatched.length" class="run-track-empty">This run skipped {{ selectedPlaylistUnmatchedCount }} {{ selectedPlaylistUnmatchedCount === 1 ? "track" : "tracks" }}, but individual titles were not stored.</p>
                     <RunTrackTable v-else :rows="filteredUnmatched" :show-playlist="showPlaylistColumn" actions>
                         <template #actions="{track, index}">
-                            <button v-if="canSuggest(track)" class="button button-small button-secondary" type="button" @click="openMatchDialog(track, index)"><Search :size="14" /> Find similar</button>
+                            <button v-if="canSuggest(track)" class="button button-small button-secondary" type="button" :disabled="taskIsRunning" :title="taskIsRunning ? syncTaskBusyMessage : 'Find similar'" @click="openMatchDialog(track, index)">
+                                <Search :size="14" /> Find similar
+                            </button>
                         </template>
                     </RunTrackTable>
                 </section>
@@ -370,9 +404,7 @@ onUnmounted(() => {
                     <p class="run-track-note">Search for a close match and add it yourself. PlaylistSyncer will keep that pair linked so later syncs do not remove it.</p>
                     <p v-if="matchState?.loading" class="run-detail-loading"><LoaderCircle class="spin" :size="18" />Looking for similar tracks</p>
                     <p v-else-if="matchState?.error" class="dialog-error" role="alert">{{ matchState.error }}</p>
-                    <p v-else-if="matchState?.suggestions && !matchState.suggestions.length" class="run-track-empty">
-                        No similar tracks were found on {{ providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)] }}.
-                    </p>
+                    <p v-else-if="matchState?.suggestions && !matchState.suggestions.length" class="run-track-empty">No similar tracks were found on {{ providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)] }}.</p>
                     <ul v-else-if="matchState?.suggestions" class="similar-track-list">
                         <li v-for="suggestion in matchState.suggestions" :key="suggestion.trackId" class="similar-track">
                             <img v-if="suggestion.imageUrl" class="similar-track-art" :src="suggestion.imageUrl" :alt="suggestion.title" />
@@ -380,13 +412,13 @@ onUnmounted(() => {
                                 <span>{{ formatTrack(suggestion) }}</span>
                                 <span v-if="suggestion.album || formatDuration(suggestion.durationMs)" class="similar-track-meta">{{ [suggestion.album, formatDuration(suggestion.durationMs)].filter(Boolean).join(" · ") }}</span>
                             </div>
-                            <button class="button button-small button-primary" type="button" :disabled="Boolean(matchState.matchingId)" @click="chooseSuggestion(matchTarget.track, matchTarget.index, suggestion)">
+                            <button class="button button-small button-primary" type="button" :disabled="Boolean(matchState.matchingId) || taskIsRunning" @click="chooseSuggestion(matchTarget.track, matchTarget.index, suggestion)">
                                 <LoaderCircle v-if="matchState.matchingId === suggestion.trackId" class="spin" :size="14" />
                                 Add to {{ providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)] }}
                             </button>
                         </li>
                     </ul>
-                    <button v-if="matchState?.suggestions" class="button button-small button-secondary" type="button" :disabled="matchState.loading" @click="loadSuggestions(matchTarget.track, matchTarget.index)">
+                    <button v-if="matchState?.suggestions" class="button button-small button-secondary" type="button" :disabled="matchState.loading || taskIsRunning" @click="loadSuggestions(matchTarget.track, matchTarget.index)">
                         <Search :size="14" /> Search again
                     </button>
                 </div>

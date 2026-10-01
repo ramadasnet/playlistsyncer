@@ -10,6 +10,7 @@ import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
 import {getServerConfig} from "../../utils/config"
 import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges} from "./safe-mode"
+import {saveMergedPlaylistMappings} from "./playlist-mappings"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
 
 const leaseDurationMs = 15 * 60 * 1000
@@ -378,7 +379,15 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
 }
 
 // Mirror one source playlist into its mapped destination playlist.
-async function mirrorPlaylist(sourceAccount: ProviderAccountDocument, destinationAccount: ProviderAccountDocument, sourcePlaylistId: string, destinationPlaylistId: string, playlistName: string, recordChanges: RecordTrackChanges, manualAliases: PlaylistMapping["manualAliases"] = []) {
+async function mirrorPlaylist(
+    sourceAccount: ProviderAccountDocument,
+    destinationAccount: ProviderAccountDocument,
+    sourcePlaylistId: string,
+    destinationPlaylistId: string,
+    playlistName: string,
+    recordChanges: RecordTrackChanges,
+    manualAliases: PlaylistMapping["manualAliases"] = []
+) {
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
     const destinationAdapter = getProviderAdapter(destinationAccount.provider)
     const [sourceItems, destinationItems] = await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylistId), destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylistId)])
@@ -396,7 +405,6 @@ async function mirrorPlaylist(sourceAccount: ProviderAccountDocument, destinatio
 
 // Synchronize every source playlist and maintain destination mappings.
 async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrackChanges, reportProgress: ReportProgress) {
-    const db = await collections()
     const sourceAccount = await loadAccount(task.source.providerAccountId, task.userId)
     const destinationAccount = await loadAccount(task.destination.providerAccountId, task.userId)
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
@@ -405,7 +413,8 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
     const destinationById = new Map(destinationPlaylists.map((playlist) => [playlist.id, playlist]))
     const mappings: PlaylistMapping[] = [...(task.playlistMappings || [])]
     const claimedDestinationIds = new Set(mappings.map((mapping) => mapping.destinationPlaylistId))
-    const persistMappings = () => db.syncTasks.updateOne({_id: task._id!}, {$set: {playlistMappings: mappings, updatedAt: new Date()}})
+    // Re-read aliases at save time so a manual match is not replaced by this older copy.
+    const persistMappings = () => saveMergedPlaylistMappings(task._id!, mappings)
     let additions = 0
     let removals = 0
     let skipped = 0

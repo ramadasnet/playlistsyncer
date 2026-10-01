@@ -2,6 +2,7 @@
 import {AlertTriangle, ArrowLeftRight, ArrowRight, CirclePause, ListMusic, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
 import type {ConnectedAccount, PlaylistSummary, SyncTaskSummary} from "~/types/api"
 import {formatSyncProgressMessage} from "~~/shared/sync-progress"
+import {isInitialSyncPending, isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
 import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders, type Provider, type SyncTaskDirection} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
@@ -203,15 +204,6 @@ function isOneWay(task: SyncTaskSummary) {
     return task.direction === "one-way"
 }
 
-// Active tasks that never finished a run are still processing their first sync.
-function isInitialSyncPending(task: SyncTaskSummary) {
-    return task.status === "active" && !task.lastRunAt
-}
-
-function isSyncInProgress(task: SyncTaskSummary) {
-    return task.latestRun?.status === "running" || isInitialSyncPending(task)
-}
-
 function syncProgressMessage(task: SyncTaskSummary) {
     if (task.latestRun?.status === "running") {
         return formatSyncProgressMessage(task.mode, task.latestRun.progress)
@@ -248,7 +240,7 @@ function closeDeleteConfirm() {
 // Remove the task only after the confirmation dialog is accepted.
 async function confirmDelete() {
     const task = taskPendingDelete.value
-    if (!task || deletingTask.value) return
+    if (!task || deletingTask.value || pendingDeleteIsRunning.value) return
     deletingTask.value = true
     deleteError.value = ""
     try {
@@ -271,11 +263,18 @@ watch(showDeleteConfirm, (open) => {
 
 const progressPollMs = 3000
 const hasActiveSyncProgress = computed(() => tasks.value.some(isSyncInProgress))
+const pendingDeleteIsRunning = computed(() => {
+    const pending = taskPendingDelete.value
+    if (!pending) return false
+    const fresh = tasks.value.find((task) => task.id === pending.id) || pending
+    return isSyncInProgress(fresh)
+})
 let progressPollTimer: ReturnType<typeof setInterval> | undefined
 
 watch(
     hasActiveSyncProgress,
     (active) => {
+        if (import.meta.server) return
         if (active) {
             if (!progressPollTimer) {
                 progressPollTimer = setInterval(() => {
@@ -424,7 +423,7 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
                             v-if="!isEntitlementLocked(task)"
                             class="icon-button"
                             type="button"
-                            :title="runTitle(task)"
+                            :title="isSyncInProgress(task) ? syncTaskBusyMessage : runTitle(task)"
                             :disabled="busyTask === task.id || isSyncInProgress(task) || task.status === 'paused' || !!manualSyncAvailableAt(task)"
                             @click="taskAction(task, 'run')"
                         >
@@ -434,7 +433,7 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
                             v-if="!isEntitlementLocked(task)"
                             class="icon-button"
                             type="button"
-                            :title="task.status === 'paused' ? 'Resume' : 'Pause'"
+                            :title="isSyncInProgress(task) ? syncTaskBusyMessage : task.status === 'paused' ? 'Resume' : 'Pause'"
                             :disabled="busyTask === task.id || isSyncInProgress(task)"
                             @click="taskAction(task, task.status === 'paused' ? 'resume' : 'pause')"
                         >
@@ -443,7 +442,7 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
                         <button
                             class="icon-button danger"
                             type="button"
-                            title="Delete task"
+                            :title="isSyncInProgress(task) ? syncTaskBusyMessage : 'Delete task'"
                             aria-haspopup="dialog"
                             :aria-expanded="showDeleteConfirm && taskPendingDelete?.id === task.id"
                             :disabled="busyTask === task.id || isSyncInProgress(task)"
@@ -488,7 +487,7 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
             <p v-if="deleteError" class="dialog-error" role="alert">{{ deleteError }}</p>
             <div class="dialog-actions">
                 <button class="button button-secondary" type="button" :disabled="deletingTask" @click="closeDeleteConfirm">Cancel</button>
-                <button class="button button-danger" type="button" :disabled="deletingTask" @click="confirmDelete">
+                <button class="button button-danger" type="button" :disabled="deletingTask || pendingDeleteIsRunning" @click="confirmDelete">
                     <LoaderCircle v-if="deletingTask" class="spin" :size="17" />
                     Delete task
                 </button>

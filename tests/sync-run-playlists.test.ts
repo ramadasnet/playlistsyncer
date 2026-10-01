@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test"
-import {formatRunPlaylistLabel, groupRunPlaylists} from "../shared/sync-run-playlists"
+import {formatRunPlaylistLabel, groupRunPlaylists, trackInRunPlaylist} from "../shared/sync-run-playlists"
 
 describe("matched playlist groups", () => {
     test("merges both providers of a playlist pair into one option", () => {
@@ -74,5 +74,31 @@ describe("matched playlist groups", () => {
 
         expect(groups).toEqual([{key: "yt-1", name: "Road Trip", ids: ["yt-1", "sp-1"], added: 0, removed: 0, unmatched: 1, unavailable: 3}])
         expect(formatRunPlaylistLabel(groups[0]!)).toBe("Road Trip 0+ 0- 1?")
+    })
+
+    test("keeps same-named playlists apart when a track id is known", () => {
+        const groups = groupRunPlaylists({
+            mode: "account",
+            source: {playlistId: "all", name: "All playlists"},
+            destination: {playlistId: "all", name: "All playlists"},
+            playlistMappings: [
+                {sourcePlaylistId: "yt-a", destinationPlaylistId: "sp-a", name: "Focus"},
+                {sourcePlaylistId: "yt-b", destinationPlaylistId: "sp-b", name: "Focus"}
+            ],
+            addedTracks: [
+                {playlistId: "sp-a", playlistName: "Focus"},
+                {playlistId: "sp-b", playlistName: "Focus"}
+            ],
+            removedTracks: [],
+            unmatchedTracks: [{playlistId: "yt-b", playlistName: "Focus", title: "Private video", provider: "spotify"}]
+        })
+        const focusA = groups.find((group) => group.key === "yt-a")
+        const focusB = groups.find((group) => group.key === "yt-b")
+
+        expect(focusA).toMatchObject({added: 1, unmatched: 0, unavailable: 0})
+        expect(focusB).toMatchObject({added: 1, unmatched: 1, unavailable: 0})
+        expect(trackInRunPlaylist({playlistId: "sp-b", playlistName: "Focus"}, focusA)).toBe(false)
+        expect(trackInRunPlaylist({playlistId: "sp-b", playlistName: "Focus"}, focusB)).toBe(true)
+        expect(trackInRunPlaylist({playlistName: "Focus"}, focusA)).toBe(true)
     })
 })
