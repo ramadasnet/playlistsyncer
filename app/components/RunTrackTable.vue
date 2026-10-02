@@ -2,20 +2,13 @@
 
 <script setup lang="ts">
 import type {SyncRunTrack} from "~/types/api"
+import {formatDuration} from "~~/shared/format-duration"
 
 defineProps<{
     rows: {track: SyncRunTrack; index: number}[]
     showPlaylist?: boolean
     actions?: boolean
 }>()
-
-function formatDuration(ms?: number) {
-    if (!ms) return ""
-    const totalSeconds = Math.round(ms / 1000)
-    const minutes = Math.floor(totalSeconds / 60)
-    const seconds = totalSeconds % 60
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`
-}
 </script>
 
 <template>

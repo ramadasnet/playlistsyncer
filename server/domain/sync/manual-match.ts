@@ -333,7 +333,7 @@ async function saveAccountManualAlias(task: SyncTaskDocument, unmatchedPlaylistI
     const mapping = mappings.find((item) => [item.sourcePlaylistId, item.destinationPlaylistId].includes(unmatchedPlaylistId) || [item.sourcePlaylistId, item.destinationPlaylistId].includes(targetPlaylistId))
     if (!mapping) return
     mapping.manualAliases = [...(mapping.manualAliases || []).filter((item) => item.canonicalKey !== alias.canonicalKey && item.sourceTrackId !== alias.sourceTrackId), alias]
-    await saveMergedPlaylistMappings(task._id, mappings)
+    await saveMergedPlaylistMappings(task._id, mappings, {replaceAliases: true, requireIdleLease: true})
 }
 
 // Add the chosen catalog track and alias both sides so later syncs treat them as one song.
@@ -363,6 +363,7 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
     let added = false
     let addedIds: {providerTrackId: string; providerItemId?: string} = {providerTrackId: chosen.track.trackId, providerItemId: existing?.itemId}
     if (!existing) {
+        await assertSyncTaskIdle(task)
         await targetAdapter.addTracks(targetAccount, placement.target.targetPlaylistId, [chosen.track.trackId], async (tracks) => {
             addedIds = tracks[0] || addedIds
         })
@@ -374,6 +375,7 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
         throw createError({statusCode: 502, statusMessage: "The selected track could not be added"})
     }
     const sharedKey = placement.snapshotItem?.canonicalKey || trackKey(liveUnmatched)
+    await assertSyncTaskIdle(task)
     if (task.mode === "account") {
         await saveAccountManualAlias(task, unmatched.playlistId, placement.target.targetPlaylistId, {
             sourceTrackId: placement.target.unmatchedSide === "source" ? liveUnmatched.trackId : addedLive.trackId,

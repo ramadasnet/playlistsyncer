@@ -2,7 +2,7 @@
 import {AlertTriangle, ArrowLeftRight, ArrowRight, CirclePause, ListMusic, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
 import type {ConnectedAccount, PlaylistSummary, SyncTaskSummary} from "~/types/api"
 import {formatSyncProgressMessage} from "~~/shared/sync-progress"
-import {isInitialSyncPending, isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
+import {isAwaitingFirstSync, isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
 import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders, type Provider, type SyncTaskDirection} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
@@ -208,7 +208,7 @@ function syncProgressMessage(task: SyncTaskSummary) {
     if (task.latestRun?.status === "running") {
         return formatSyncProgressMessage(task.mode, task.latestRun.progress)
     }
-    return "Processing initial sync..."
+    return "Sync in progress..."
 }
 
 function hasSharedName(task: SyncTaskSummary) {
@@ -262,7 +262,7 @@ watch(showDeleteConfirm, (open) => {
 })
 
 const progressPollMs = 3000
-const hasActiveSyncProgress = computed(() => tasks.value.some(isSyncInProgress))
+const shouldPollTasks = computed(() => tasks.value.some((task) => isSyncInProgress(task) || isAwaitingFirstSync(task)))
 const pendingDeleteIsRunning = computed(() => {
     const pending = taskPendingDelete.value
     if (!pending) return false
@@ -272,7 +272,7 @@ const pendingDeleteIsRunning = computed(() => {
 let progressPollTimer: ReturnType<typeof setInterval> | undefined
 
 watch(
-    hasActiveSyncProgress,
+    shouldPollTasks,
     (active) => {
         if (import.meta.server) return
         if (active) {
@@ -294,19 +294,6 @@ watch(
 onUnmounted(() => {
     if (progressPollTimer) clearInterval(progressPollTimer)
 })
-
-// Refresh the list while initial syncs are processing, so their results appear without a reload.
-let initialSyncPoll: ReturnType<typeof setInterval> | undefined
-watch(
-    () => tasks.value.some(isInitialSyncPending),
-    (pending) => {
-        if (import.meta.server) return
-        clearInterval(initialSyncPoll)
-        initialSyncPoll = pending ? setInterval(() => refreshTasks(), 10_000) : undefined
-    },
-    {immediate: true}
-)
-onBeforeUnmount(() => clearInterval(initialSyncPoll))
 </script>
 
 <template>

@@ -50,6 +50,8 @@ export interface SyncTaskSummary {
     lastRunAt?: string
     lastSuccessAt?: string
     lastError?: string
+    createdAt?: string
+    leaseExpiresAt?: string
     latestRun?: {
         status: SyncRunStatus
         additions: number

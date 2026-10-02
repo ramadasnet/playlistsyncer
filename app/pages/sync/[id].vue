@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
 import {ArrowLeft, ArrowLeftRight, ArrowRight, LoaderCircle, Search} from "lucide-vue-next"
+import {formatDuration} from "~~/shared/format-duration"
 import {formatSyncProgressMessage} from "~~/shared/sync-progress"
 import {formatRunPlaylistLabel, groupRunPlaylists, trackInRunPlaylist} from "~~/shared/sync-run-playlists"
 import {isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
@@ -126,18 +127,13 @@ function formatTrack(track: Pick<SyncRunTrack, "title" | "artists">) {
     return track.artists.length ? `${track.title} — ${track.artists.join(", ")}` : track.title
 }
 
-function formatDuration(ms?: number) {
-    if (!ms) return ""
-    const totalSeconds = Math.round(ms / 1000)
-    const minutes = Math.floor(totalSeconds / 60)
-    const seconds = totalSeconds % 60
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`
-}
-
 function runOptionLabel(run: SyncRunDetail) {
     const changes = [`+${run.additions}`, `-${run.removals}`]
     const counts = unmatchedCategoryCounts(run.skipped, run.unmatchedTracks.map(describedTrack))
-    return `${formatDate(run.startedAt)} · ${run.status.replace("_", " ")} · ${changes.join(" / ")}`
+    const parts = [formatDate(run.startedAt), run.status.replace("_", " "), changes.join(" / ")]
+    if (counts.unmatched) parts.push(`${counts.unmatched} unmatched`)
+    if (counts.unavailable) parts.push(`${counts.unavailable} unavailable`)
+    return parts.join(" · ")
 }
 
 function triggerLabel(trigger: SyncRunDetail["trigger"]) {

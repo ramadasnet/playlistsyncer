@@ -8,12 +8,11 @@ import {resolveEntitlement} from "../billing/entitlement"
 import {applyTaskEntitlement} from "../billing/task-entitlement"
 import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
+import {syncLeaseDurationMs} from "~~/shared/sync-task-activity"
 import {getServerConfig} from "../../utils/config"
 import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges} from "./safe-mode"
 import {saveMergedPlaylistMappings} from "./playlist-mappings"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
-
-const leaseDurationMs = 15 * 60 * 1000
 
 interface RecordedTrackChanges {
     addedTracks?: SyncRunTrackReference[]
@@ -501,7 +500,7 @@ export async function beginSyncTask(taskId: ObjectId, trigger: "created" | "manu
             status: {$in: ["active", "needs_attention"]},
             $or: [{leaseExpiresAt: {$exists: false}}, {leaseExpiresAt: {$lt: now}}]
         },
-        {$set: {leaseId, leaseExpiresAt: new Date(now.getTime() + leaseDurationMs)}},
+        {$set: {leaseId, leaseExpiresAt: new Date(now.getTime() + syncLeaseDurationMs)}},
         {returnDocument: "after"}
     )
     if (!task) {

@@ -161,6 +161,8 @@ export function serializeSyncTask(task: SyncTaskDocument, latestRun: LatestRunSu
         lastRunAt: task.lastRunAt,
         lastSuccessAt: task.lastSuccessAt,
         lastError: task.lastError,
+        createdAt: task.createdAt,
+        ...(task.leaseExpiresAt ? {leaseExpiresAt: task.leaseExpiresAt} : {}),
         latestRun
     }
 }

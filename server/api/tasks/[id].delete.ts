@@ -1,7 +1,7 @@
 // Delete a user's sync task and its recorded execution history.
 import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
-import {assertSyncTaskIdle} from "../../domain/sync/task-activity"
+import {assertSyncTaskIdle, idleLeaseFilter, throwIfSyncMutationMissed} from "../../domain/sync/task-activity"
 import logger from "../../utils/logger"
 import {parseObjectId} from "../../utils/object-id"
 
@@ -15,9 +15,9 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 404, statusMessage: "Sync task not found"})
     }
     await assertSyncTaskIdle(task)
-    const result = await db.syncTasks.deleteOne({_id: taskId, userId: user._id!})
+    const result = await db.syncTasks.deleteOne({_id: taskId, userId: user._id!, ...idleLeaseFilter()})
     if (!result.deletedCount) {
-        throw createError({statusCode: 404, statusMessage: "Sync task not found"})
+        await throwIfSyncMutationMissed(taskId, user._id!)
     }
     await Promise.all([db.syncSnapshots.deleteOne({taskId}), db.syncRuns.deleteMany({taskId})])
     logger.info("Tasks.delete", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`)

@@ -839,7 +839,7 @@ main {
     color: inherit;
     font: inherit;
     background: transparent;
-    overflow: hidden;
+    overflow: visible;
 }
 .overlay-dialog::backdrop {
     background: rgba(21, 24, 20, 0.55);
