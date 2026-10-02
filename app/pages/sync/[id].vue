@@ -44,6 +44,7 @@ const taskIsRunning = computed(() => Boolean(task.value && isSyncInProgress(task
 const sourceProvider = computed(() => data.value?.sourceProvider || undefined)
 const destinationProvider = computed(() => data.value?.destinationProvider || undefined)
 const canBrowseHistory = computed(() => Boolean(data.value?.canBrowseHistory))
+const showRunPicker = computed(() => runs.value.length > 1 && (canBrowseHistory.value || runs.value.some((run) => run.availableReverseSync)))
 const canViewHistory = computed(() => useAuthStore().user?.tier === "pro")
 const selectedRun = computed(() => runs.value.find((run) => run.id === selectedRunId.value) || runs.value[0])
 const pageTitle = computed(() => {
@@ -366,7 +367,7 @@ onUnmounted(() => {
             </div>
 
             <div class="run-detail-filters">
-                <label v-if="canBrowseHistory && runs.length > 1" class="run-history-picker">
+                <label v-if="showRunPicker" class="run-history-picker">
                     <span>Run history</span>
                     <select v-model="selectedRunId">
                         <option v-for="run in runs" :key="run.id" :value="run.id">{{ runOptionLabel(run) }}</option>

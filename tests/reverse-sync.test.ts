@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
 import type {SyncRunDocument, SyncTaskDocument} from "../shared/types/domain"
-import {availableReverseSync, reverseSyncRequestFor} from "../shared/reverse-sync"
+import {availableReverseSync, readSyncFailureReason, reverseSyncRequestFor} from "../shared/reverse-sync"
 import {serializeSyncRun} from "../server/domain/sync/history-visibility"
 
 const deletedSourceRestore = reverseSyncRequestFor("deleted-source")
@@ -45,8 +45,14 @@ describe("reverse sync offer", () => {
         expect(availableReverseSync(unrelated)).toBeUndefined()
         expect(serializeSyncRun(unrelated).availableReverseSync).toBeUndefined()
         expect(serializeSyncRun(deleted, task, undefined, [unrelated]).availableReverseSync).toEqual(deletedSourceRestore)
+        const partial = runDocument({status: "partial", startedAt: new Date(now.getTime() + 3000)})
         expect(serializeSyncRun(deleted, task, undefined, [succeeded]).availableReverseSync).toBeUndefined()
+        expect(serializeSyncRun(deleted, task, undefined, [partial]).availableReverseSync).toBeUndefined()
+        expect(availableReverseSync(deleted, [partial])).toBeUndefined()
         expect(serializeSyncRun(succeeded).reverseSync).toEqual(deletedSourceRestore)
         expect(serializeSyncRun(succeeded).availableReverseSync).toBeUndefined()
+        expect(readSyncFailureReason({data: {failureReason: "deleted-source"}})).toBe("deleted-source")
+        expect(readSyncFailureReason({data: {failureReason: "toString"}})).toBeUndefined()
+        expect(readSyncFailureReason({data: {failureReason: "constructor"}})).toBeUndefined()
     })
 })

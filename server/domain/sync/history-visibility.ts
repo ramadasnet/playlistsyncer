@@ -1,6 +1,6 @@
 // Control which synchronization history is visible at each account tier.
 import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
-import {availableReverseSync, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
+import {availableReverseSync, type ReverseSyncRequest, type ReverseSyncRunState, type SyncFailureReason} from "../../../shared/reverse-sync"
 
 export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt" | "progress">
 
@@ -46,6 +46,22 @@ export function canViewRunHistory(tier: AccountTier): boolean {
 // Free accounts get the latest run; PRO accounts can page through recent history.
 export function runHistoryLimitFor(tier: AccountTier) {
     return canViewRunHistory(tier) ? proRunHistoryLimit : 1
+}
+
+// Free accounts still need the failed run that can restore a deleted source, even when a later failure is newer.
+export function selectVisibleRuns<T extends ReverseSyncRunState>(runs: readonly T[], tier: AccountTier): T[] {
+    if (canViewRunHistory(tier)) {
+        return [...runs]
+    }
+    const latest = runs[0]
+    if (!latest) {
+        return []
+    }
+    const eligible = runs.find((run, index) => availableReverseSync(run, runs.slice(0, index)))
+    if (!eligible || eligible === latest) {
+        return [latest]
+    }
+    return [latest, eligible]
 }
 
 function trackSide(track: SyncRunTrackReference, task?: Pick<SyncTaskDocument, "source" | "destination">): SerializedRunTrack["side"] {

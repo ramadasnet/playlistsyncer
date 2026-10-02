@@ -13,7 +13,7 @@ import {assertReverseSyncAvailable} from "./reverse-sync"
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
 import {syncLeaseDurationMs} from "../../../shared/sync-task-activity"
 import {getServerConfig} from "../../utils/config"
-import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges} from "./safe-mode"
+import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges, safeModeWriteBlockedMessage} from "./safe-mode"
 import {saveMergedPlaylistMappings} from "./playlist-mappings"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
 
@@ -219,6 +219,40 @@ async function applyDesired(
     return {additions: additions.length, removals: removals.length, skipped, aliases: additions}
 }
 
+// Keep destination tracks that a reverse restore could not copy, so the next mirror does not delete them.
+function preserveRestoredTracks(desired: ReconciledTrack[], current: ProviderTrack[], preserved: SyncRunTrackReference[]): ReconciledTrack[] {
+    if (!preserved.length) {
+        return desired
+    }
+    const next = desired.map((track) => ({...track}))
+    const byKey = new Map(next.map((track) => [track.key, track]))
+    for (const track of current) {
+        const kept = preserved.some((item) => item.providerTrackId === track.trackId || (item.providerItemId && item.providerItemId === track.itemId))
+        if (!kept) {
+            continue
+        }
+        const key = trackKey(track)
+        const currentCount = current.filter((item) => trackKey(item) === key).length
+        const existing = byKey.get(key)
+        if (existing) {
+            existing.count = Math.max(existing.count, currentCount)
+            continue
+        }
+        const addition = {key, count: currentCount, reference: track}
+        next.push(addition)
+        byKey.set(key, addition)
+    }
+    return next
+}
+
+// Unmatched tracks from the latest completed reverse sync still have to stay on the destination.
+async function restoredTracksToKeep(taskId: ObjectId): Promise<SyncRunTrackReference[]> {
+    const db = await collections()
+    const runs = await db.syncRuns.find({taskId}).sort({startedAt: -1}).limit(20).toArray()
+    const restore = runs.find((run) => run.reverseSync && (run.status === "succeeded" || run.status === "partial"))
+    return restore?.unmatchedTracks || []
+}
+
 // Load a provider account while enforcing ownership.
 async function loadAccount(id: ObjectId, userId: ObjectId): Promise<ProviderAccountDocument> {
     const db = await collections()
@@ -349,7 +383,8 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         const aliasedSource = applyAliases(sourceItems, sourceAliases)
         const aliasedDestination = applyAliases(destinationItems, destinationAliases)
         if (oneWay) {
-            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, aliasedDestination, reconcileOneWay(aliasedSource).desired, recordChanges, task.destination.name, {
+            const desired = preserveRestoredTracks(reconcileOneWay(aliasedSource).desired, aliasedDestination, await restoredTracksToKeep(task._id!))
+            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, aliasedDestination, desired, recordChanges, task.destination.name, {
                 account: sourceAccount,
                 playlistId: task.source.playlistId,
                 playlistName: task.source.name
@@ -512,6 +547,15 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
     return {additions, removals, skipped, conflicts: 0}
 }
 
+// Remove a playlist created for a restore that did not finish, so a retry can start again.
+async function discardCreatedPlaylist(account: ProviderAccountDocument, playlistId: string) {
+    try {
+        await getProviderAdapter(account.provider).deletePlaylist(account, playlistId)
+    } catch (error) {
+        logger.error("Sync.reverse", account.provider, `Playlist ${playlistId}`, "Created playlist could not be removed", error)
+    }
+}
+
 // Copy one playlist onto the other in the case's direction. A deleted target is recreated only when the case asks for that.
 async function copyPlaylistOnce(task: SyncTaskDocument, recordChanges: RecordTrackChanges, syncCase: ReverseSyncCase) {
     const db = await collections()
@@ -527,39 +571,61 @@ async function copyPlaylistOnce(task: SyncTaskDocument, recordChanges: RecordTra
     const toRead = await readPlaylistItems(toAccount, toRef.playlistId)
     let toPlaylistId = toRef.playlistId
     let toItems: ProviderTrack[] = []
-    if (toRead.missing) {
-        if (!syncCase.recreateTarget) {
-            throw missingPlaylistError(toAccount.provider)
-        }
-        const created = await getProviderAdapter(toAccount.provider).createPlaylist(toAccount, toRef.name)
-        toPlaylistId = created.id
-        if (reverse) {
-            task.source = {...task.source, playlistId: created.id}
+    let createdPlaylistId: string | undefined
+    let committed = false
+    try {
+        if (toRead.missing) {
+            if (!syncCase.recreateTarget) {
+                throw missingPlaylistError(toAccount.provider)
+            }
+            if (isSafeModeEnabled()) {
+                logSafeModeCreatePlaylist(toAccount.provider, toRef.name)
+                throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
+            }
+            const created = await getProviderAdapter(toAccount.provider).createPlaylist(toAccount, toRef.name)
+            createdPlaylistId = created.id
+            toPlaylistId = created.id
+            logger.info("Sync.reverse", `Task ${task._id!.toHexString()}`, syncCase.reason, toAccount.provider, `Created playlist ${created.id}`)
+        } else if (syncCase.recreateTarget) {
+            throw createError({statusCode: 409, statusMessage: "The playlist to restore is already there"})
         } else {
-            task.destination = {...task.destination, playlistId: created.id}
+            toItems = toRead.items
         }
-        await db.syncTasks.updateOne({_id: task._id}, {$set: {source: task.source, destination: task.destination, updatedAt: new Date()}})
-        logger.info("Sync.reverse", `Task ${task._id!.toHexString()}`, syncCase.reason, toAccount.provider, `Created playlist ${created.id}`)
-    } else if (syncCase.recreateTarget) {
-        throw createError({statusCode: 409, statusMessage: "The playlist to restore is already there"})
-    } else {
-        toItems = toRead.items
+        const result = await applyDesired(toAccount, toPlaylistId, toItems, reconcileOneWay(fromRead.items).desired, recordChanges, toRef.name, {
+            account: fromAccount,
+            playlistId: fromRef.playlistId,
+            playlistName: fromRef.name
+        })
+        if (!isSafeModeEnabled()) {
+            const [verifiedFromRead, verifiedToRead] = await Promise.all([readPlaylistItems(fromAccount, fromRef.playlistId), readPlaylistItems(toAccount, toPlaylistId)])
+            if (verifiedFromRead.missing || verifiedToRead.missing) {
+                throw missingPlaylistError((verifiedToRead.missing ? toAccount : fromAccount).provider)
+            }
+            const verifiedFrom = verifiedFromRead.items
+            const verifiedTo = verifiedToRead.items
+            const aliases = new Map(result.aliases.map((item) => [item.trackId, item.canonicalKey]))
+            const withAliases = (items: ProviderTrack[]) => items.map((item) => ({...item, canonicalKey: aliases.get(item.itemId) || aliases.get(item.trackId) || item.canonicalKey}))
+            const sourceItems = reverse ? withAliases(verifiedTo) : verifiedFrom
+            const destinationItems = reverse ? verifiedFrom : withAliases(verifiedTo)
+            await db.syncSnapshots.updateOne({taskId: task._id!}, {$set: {sourceItems: sourceItems.map(toCanonical), destinationItems: destinationItems.map(toCanonical), createdAt: new Date()}}, {upsert: true})
+            if (createdPlaylistId) {
+                if (reverse) {
+                    task.source = {...task.source, playlistId: createdPlaylistId}
+                } else {
+                    task.destination = {...task.destination, playlistId: createdPlaylistId}
+                }
+                await db.syncTasks.updateOne({_id: task._id}, {$set: {source: task.source, destination: task.destination, updatedAt: new Date()}})
+                committed = true
+            }
+        }
+        logger.info("Sync.reverse", `Task ${task._id!.toHexString()}`, syncCase.reason, syncCase.direction, syncCase.cadence, `Additions ${result.additions}`, `Removals ${result.removals}`, `Unmatched ${result.skipped}`)
+        return {additions: result.additions, removals: result.removals, skipped: result.skipped, conflicts: 0}
+    } catch (error) {
+        if (createdPlaylistId && !committed) {
+            await discardCreatedPlaylist(toAccount, createdPlaylistId)
+        }
+        throw error
     }
-    const result = await applyDesired(toAccount, toPlaylistId, toItems, reconcileOneWay(fromRead.items).desired, recordChanges, toRef.name, {
-        account: fromAccount,
-        playlistId: fromRef.playlistId,
-        playlistName: fromRef.name
-    })
-    if (!isSafeModeEnabled()) {
-        const [verifiedFrom, verifiedTo] = await Promise.all([getProviderAdapter(fromAccount.provider).getPlaylistItems(fromAccount, fromRef.playlistId), getProviderAdapter(toAccount.provider).getPlaylistItems(toAccount, toPlaylistId)])
-        const aliases = new Map(result.aliases.map((item) => [item.trackId, item.canonicalKey]))
-        const withAliases = (items: ProviderTrack[]) => items.map((item) => ({...item, canonicalKey: aliases.get(item.itemId) || aliases.get(item.trackId) || item.canonicalKey}))
-        const sourceItems = reverse ? withAliases(verifiedTo) : verifiedFrom
-        const destinationItems = reverse ? verifiedFrom : withAliases(verifiedTo)
-        await db.syncSnapshots.updateOne({taskId: task._id!}, {$set: {sourceItems: sourceItems.map(toCanonical), destinationItems: destinationItems.map(toCanonical), createdAt: new Date()}}, {upsert: true})
-    }
-    logger.info("Sync.reverse", `Task ${task._id!.toHexString()}`, syncCase.reason, syncCase.direction, syncCase.cadence, `Additions ${result.additions}`, `Removals ${result.removals}`, `Unmatched ${result.skipped}`)
-    return {additions: result.additions, removals: result.removals, skipped: result.skipped, conflicts: 0}
 }
 
 // Run one registered reverse sync without changing the task's usual direction.

@@ -56,27 +56,26 @@ export interface ReverseSyncRunState {
     reverseSync?: ReverseSyncRequest
 }
 
+// True only for a reason registered on the case object itself, not one inherited from Object.
+export function isReverseSyncReason(value: unknown): value is ReverseSyncReason {
+    return typeof value === "string" && Object.prototype.hasOwnProperty.call(reverseSyncCases, value)
+}
+
 // Read a deleted-source marker attached to a provider failure.
 export function readSyncFailureReason(error: unknown): SyncFailureReason | undefined {
     if (!error || typeof error !== "object") {
         return undefined
     }
     const reason = (error as {data?: {failureReason?: unknown}}).data?.failureReason
-    if (typeof reason !== "string" || !(reason in reverseSyncCases)) {
-        return undefined
-    }
-    return reason as SyncFailureReason
+    return isReverseSyncReason(reason) ? reason : undefined
 }
 
 // Offer the registered plan when this failed run is still the case it recorded.
 export function availableReverseSync(run: ReverseSyncRunState, newerRuns: readonly ReverseSyncRunState[] = []): ReverseSyncRequest | undefined {
-    if (run.status !== "failed" || !run.failureReason) {
+    if (run.status !== "failed" || !isReverseSyncReason(run.failureReason)) {
         return undefined
     }
     const syncCase = reverseSyncCases[run.failureReason]
-    if (!syncCase) {
-        return undefined
-    }
     // A later completed run read the source playlist again, so the restore no longer applies.
     const superseded = newerRuns.some((newer) => newer.status === "succeeded" || newer.status === "partial")
     if (superseded) {

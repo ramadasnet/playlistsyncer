@@ -69,6 +69,11 @@ function fakeCollection<T>(docs: T[] = []): Collection<T> {
         for (const [key, value] of Object.entries(update.$set || {})) {
             ;(doc as Record<string, unknown>)[key] = value
         }
+        for (const [key, value] of Object.entries(update.$push || {})) {
+            const current = (doc as Record<string, unknown>)[key]
+            const items = value && typeof value === "object" && "$each" in value ? (value.$each as unknown[]) : [value]
+            ;(doc as Record<string, unknown>)[key] = [...(Array.isArray(current) ? current : []), ...items]
+        }
         for (const key of Object.keys(update.$unset || {})) {
             delete (doc as Record<string, unknown>)[key]
         }
@@ -418,6 +423,104 @@ describe("deleted source restore", () => {
             adapter.createPlaylist = originalCreatePlaylist
             if (originalSource) playlists["source-playlist"] = originalSource
             if (originalDestination) playlists["dest-playlist"] = originalDestination
+        }
+    })
+
+    test("discards a created playlist when the copy fails, so the restore can be retried", async () => {
+        const originalGetPlaylistItems = adapter.getPlaylistItems
+        const originalCreatePlaylist = adapter.createPlaylist
+        const originalAddTracks = adapter.addTracks
+        const originalDeletePlaylist = adapter.deletePlaylist
+        const originalSource = playlists["source-playlist"]
+        const originalDestination = playlists["dest-playlist"]
+        const originalPlaylist = {...task.source}
+        const deleted: string[] = []
+        task.source = {...task.source, name: "Road songs"}
+        delete playlists["source-playlist"]
+        playlists["dest-playlist"] = [track("B:0", "Song B")]
+        adapter.getPlaylistItems = async (account, playlistId) => {
+            if (!(playlistId in playlists)) throw missingPlaylist(account.provider)
+            return originalGetPlaylistItems(account, playlistId)
+        }
+        adapter.createPlaylist = async (account, name) => {
+            playlists["restored-source"] = []
+            return originalCreatePlaylist(account, name).then((playlist) => ({...playlist, id: "restored-source", name}))
+        }
+        adapter.deletePlaylist = async (_account, playlistId) => {
+            deleted.push(playlistId)
+            delete playlists[playlistId]
+        }
+        adapter.addTracks = async () => {
+            throw new Error("spotify API request failed (500)")
+        }
+
+        try {
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            await expect(runReverseSync(taskId, deletedSourceRestore)).rejects.toThrow("spotify API request failed (500)")
+            expect(deleted).toEqual(["restored-source"])
+            expect(task.source.playlistId).toBe("source-playlist")
+            expect((await storedRuns()).some((run) => run.failureReason === "deleted-source")).toBe(true)
+
+            adapter.addTracks = originalAddTracks
+            await runReverseSync(taskId, deletedSourceRestore)
+            expect(task.source.playlistId).toBe("restored-source")
+        } finally {
+            adapter.getPlaylistItems = originalGetPlaylistItems
+            adapter.createPlaylist = originalCreatePlaylist
+            adapter.addTracks = originalAddTracks
+            adapter.deletePlaylist = originalDeletePlaylist
+            task.source = originalPlaylist
+            if (originalSource) playlists["source-playlist"] = originalSource
+            if (originalDestination) playlists["dest-playlist"] = originalDestination
+            delete playlists["restored-source"]
+        }
+    })
+
+    test("keeps an unmatched target track after a partial restore", async () => {
+        const originalGetPlaylistItems = adapter.getPlaylistItems
+        const originalCreatePlaylist = adapter.createPlaylist
+        const originalSearchTrack = adapter.searchTrack
+        const originalSource = playlists["source-playlist"]
+        const originalDestination = playlists["dest-playlist"]
+        const originalDirection = task.direction
+        const originalPlaylist = {...task.source}
+        const removedBefore = removedCalls.length
+        task.direction = "one-way"
+        task.source = {...task.source, name: "Road songs"}
+        delete playlists["source-playlist"]
+        playlists["dest-playlist"] = [track("B:0", "Song B"), track("C:1", "Song C")]
+        adapter.getPlaylistItems = async (account, playlistId) => {
+            if (!(playlistId in playlists)) throw missingPlaylist(account.provider)
+            return originalGetPlaylistItems(account, playlistId)
+        }
+        adapter.createPlaylist = async (account, name) => {
+            playlists["restored-source"] = []
+            return originalCreatePlaylist(account, name).then((playlist) => ({...playlist, id: "restored-source", name}))
+        }
+        adapter.searchTrack = async (_account, reference) => (reference.title === "Song C" ? null : {...reference})
+
+        try {
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            const result = await runReverseSync(taskId, deletedSourceRestore)
+            expect(result.skipped).toBe(1)
+            expect(result.additions).toBe(1)
+            expect(task.source.playlistId).toBe("restored-source")
+            const restored = (await storedRuns()).filter((run) => run.reverseSync?.reason === "deleted-source").at(-1)
+            expect(restored?.status).toBe("partial")
+            expect(restored?.unmatchedTracks.map((item) => item.title)).toEqual(["Song C"])
+
+            await runSyncTask(taskId, "scheduled")
+            const removed = removedCalls.slice(removedBefore).flatMap((call) => call.itemIds)
+            expect(removed).not.toContain("C:1")
+        } finally {
+            adapter.getPlaylistItems = originalGetPlaylistItems
+            adapter.createPlaylist = originalCreatePlaylist
+            adapter.searchTrack = originalSearchTrack
+            task.direction = originalDirection
+            task.source = originalPlaylist
+            if (originalSource) playlists["source-playlist"] = originalSource
+            if (originalDestination) playlists["dest-playlist"] = originalDestination
+            delete playlists["restored-source"]
         }
     })
 })
