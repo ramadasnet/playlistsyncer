@@ -2,7 +2,7 @@
 import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
 import {availableReverseSync, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
 
-export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt">
+export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt" | "progress">
 
 export const proRunHistoryLimit = 50
 
@@ -32,6 +32,7 @@ export interface SerializedSyncRun {
     failureReason?: SyncFailureReason
     reverseSync?: ReverseSyncRequest
     availableReverseSync?: ReverseSyncRequest
+    progress?: SyncRunDocument["progress"]
     addedTracks: SerializedRunTrack[]
     removedTracks: SerializedRunTrack[]
     unmatchedTracks: SerializedRunTrack[]
@@ -111,6 +112,7 @@ export function serializeSyncRun(
         ...(run.failureReason ? {failureReason: run.failureReason} : {}),
         ...(run.reverseSync ? {reverseSync: run.reverseSync} : {}),
         ...(offer ? {availableReverseSync: offer} : {}),
+        ...(run.progress ? {progress: run.progress} : {}),
         addedTracks: run.addedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
         removedTracks: run.removedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
         unmatchedTracks: run.unmatchedTracks.map((track) => serializeRunTrack(track, task, snapshot))
@@ -172,6 +174,8 @@ export function serializeSyncTask(task: SyncTaskDocument, latestRun: LatestRunSu
         lastRunAt: task.lastRunAt,
         lastSuccessAt: task.lastSuccessAt,
         lastError: task.lastError,
+        createdAt: task.createdAt,
+        ...(task.leaseExpiresAt ? {leaseExpiresAt: task.leaseExpiresAt} : {}),
         latestRun
     }
 }

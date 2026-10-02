@@ -158,10 +158,19 @@ export interface PlaylistReference {
 }
 
 // Persistent mapping between source and destination account playlists.
+export interface ManualTrackAlias {
+    sourceTrackId: string
+    sourceItemId?: string
+    destinationTrackId: string
+    destinationItemId?: string
+    canonicalKey: string
+}
+
 export interface PlaylistMapping {
     sourcePlaylistId: string
     destinationPlaylistId: string
     name: string
+    manualAliases?: ManualTrackAlias[]
 }
 
 // Scheduled synchronization task and its execution state.
@@ -220,6 +229,13 @@ export interface SyncRunTrackReference {
     playlistName?: string
 }
 
+// Live counters written while a synchronization run is still in progress.
+export interface SyncRunProgress {
+    playlistsTotal?: number
+    playlistsCompleted?: number
+    tracksTotal?: number
+}
+
 // Execution result and audit information for one synchronization run.
 export interface SyncRunDocument {
     _id?: ObjectId
@@ -233,6 +249,7 @@ export interface SyncRunDocument {
     addedTracks: SyncRunTrackReference[]
     removedTracks: SyncRunTrackReference[]
     unmatchedTracks: SyncRunTrackReference[]
+    progress?: SyncRunProgress
     error?: string
     failureReason?: SyncFailureReason
     reverseSync?: ReverseSyncRequest

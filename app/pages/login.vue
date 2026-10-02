@@ -2,16 +2,24 @@
 import {ArrowRight} from "lucide-vue-next"
 import type {Provider} from "~~/shared/types/domain"
 
+// Mirror the server-side OAuth redirect allowlist for post-login navigation.
+function normalizeRedirect(value: unknown): string {
+    return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") ? value : "/sync"
+}
+
 definePageMeta({
-    middleware: () => {
+    middleware: (to) => {
         const user = useAuthStore().user
         if (!user) {
             return
         }
-        return navigateTo(user.email || user.tempEmail ? "/sync" : "/account")
+        const redirect = typeof to.query.redirect === "string" && to.query.redirect.startsWith("/") && !to.query.redirect.startsWith("//") ? to.query.redirect : "/sync"
+        return navigateTo(user.email || user.tempEmail ? redirect : "/account")
     }
 })
 
+const route = useRoute()
+const redirectAfter = computed(() => normalizeRedirect(route.query.redirect))
 const {enabledProviders} = await useEnabledProviders()
 
 const providerDetails: Record<Provider, string> = {
@@ -36,7 +44,7 @@ const providerDetails: Record<Provider, string> = {
                     <p>Use your existing account from any of the supported music providers to register or login. No extra fluff needed.</p>
                 </div>
                 <div class="login-list">
-                    <a v-for="provider in enabledProviders" :key="provider" class="login-option" :href="`/api/auth/${provider}`">
+                    <a v-for="provider in enabledProviders" :key="provider" class="login-option" :href="`/api/auth/${provider}?redirect=${encodeURIComponent(redirectAfter)}`">
                         <ProviderBadge :provider="provider" />
                         <span>{{ providerDetails[provider] }}</span>
                         <ArrowRight :size="19" />

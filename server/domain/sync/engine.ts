@@ -1,7 +1,7 @@
 // Execute playlist and account synchronization while recording resumable runs.
 import {randomUUID} from "node:crypto"
 import {ObjectId} from "mongodb"
-import type {CanonicalTrack, PlaylistMapping, ProviderAccountDocument, SyncRunTrackReference, SyncTaskDocument} from "~~/shared/types/domain"
+import type {CanonicalTrack, PlaylistMapping, ProviderAccountDocument, SyncRunProgress, SyncRunTrackReference, SyncTaskDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {resolveEntitlement} from "../billing/entitlement"
@@ -11,11 +11,11 @@ import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../
 import {readSyncFailureReason, reverseSyncCaseFor, type ReverseSyncCase, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
 import {assertReverseSyncAvailable} from "./reverse-sync"
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
+import {syncLeaseDurationMs} from "../../../shared/sync-task-activity"
 import {getServerConfig} from "../../utils/config"
 import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges} from "./safe-mode"
+import {saveMergedPlaylistMappings} from "./playlist-mappings"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
-
-const leaseDurationMs = 15 * 60 * 1000
 
 interface RecordedTrackChanges {
     addedTracks?: SyncRunTrackReference[]
@@ -24,6 +24,18 @@ interface RecordedTrackChanges {
 }
 
 type RecordTrackChanges = (changes: RecordedTrackChanges) => Promise<void>
+type ReportProgress = (progress: SyncRunProgress) => Promise<void>
+
+interface SyncRunContext {
+    task: SyncTaskDocument
+    taskId: ObjectId
+    leaseId: string
+    runId: ObjectId
+    trigger: "created" | "manual" | "scheduled"
+    startedAt: Date
+    taskLabel: string
+    reverseSync?: ReverseSyncRequest
+}
 
 // Store provider tracks in the snapshot's canonical representation.
 function toCanonical(track: ProviderTrack): CanonicalTrack {
@@ -251,7 +263,7 @@ async function describeTask(task: SyncTaskDocument): Promise<string> {
 }
 
 // Reconcile one playlist pair and refresh its matching snapshot.
-async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrackChanges) {
+async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrackChanges, reportProgress: ReportProgress) {
     const db = await collections()
     const sourceAccount = await loadAccount(task.source.providerAccountId, task.userId)
     const destinationAccount = await loadAccount(task.destination.providerAccountId, task.userId)
@@ -267,6 +279,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     }
     const sourceItems = sourceRead.items
     const destinationItems = destinationRead.items
+    await reportProgress({tracksTotal: Math.max(sourceItems.length, destinationItems.length)})
     const oneWay = task.direction === "one-way"
     logger.info(
         "Sync.execute",
@@ -405,16 +418,32 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
 }
 
 // Mirror one source playlist into its mapped destination playlist.
-async function mirrorPlaylist(sourceAccount: ProviderAccountDocument, destinationAccount: ProviderAccountDocument, sourcePlaylistId: string, destinationPlaylistId: string, playlistName: string, recordChanges: RecordTrackChanges) {
+async function mirrorPlaylist(
+    sourceAccount: ProviderAccountDocument,
+    destinationAccount: ProviderAccountDocument,
+    sourcePlaylistId: string,
+    destinationPlaylistId: string,
+    playlistName: string,
+    recordChanges: RecordTrackChanges,
+    manualAliases: PlaylistMapping["manualAliases"] = []
+) {
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
     const destinationAdapter = getProviderAdapter(destinationAccount.provider)
     const [sourceItems, destinationItems] = await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylistId), destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylistId)])
-    return applyDesired(destinationAccount, destinationPlaylistId, destinationItems, reconcileOneWay(sourceItems).desired, recordChanges, playlistName, {account: sourceAccount, playlistId: sourcePlaylistId, playlistName})
+    const aliases = new Map<string, string>()
+    for (const alias of manualAliases || []) {
+        aliases.set(alias.sourceTrackId, alias.canonicalKey)
+        if (alias.sourceItemId) aliases.set(alias.sourceItemId, alias.canonicalKey)
+        aliases.set(alias.destinationTrackId, alias.canonicalKey)
+        if (alias.destinationItemId) aliases.set(alias.destinationItemId, alias.canonicalKey)
+    }
+    const aliasedSource = aliases.size ? applyAliases(sourceItems, aliases) : sourceItems
+    const aliasedDestination = aliases.size ? applyAliases(destinationItems, aliases) : destinationItems
+    return applyDesired(destinationAccount, destinationPlaylistId, aliasedDestination, reconcileOneWay(aliasedSource).desired, recordChanges, playlistName, {account: sourceAccount, playlistId: sourcePlaylistId, playlistName})
 }
 
 // Synchronize every source playlist and maintain destination mappings.
-async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrackChanges) {
-    const db = await collections()
+async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrackChanges, reportProgress: ReportProgress) {
     const sourceAccount = await loadAccount(task.source.providerAccountId, task.userId)
     const destinationAccount = await loadAccount(task.destination.providerAccountId, task.userId)
     const sourceAdapter = getProviderAdapter(sourceAccount.provider)
@@ -423,10 +452,13 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
     const destinationById = new Map(destinationPlaylists.map((playlist) => [playlist.id, playlist]))
     const mappings: PlaylistMapping[] = [...(task.playlistMappings || [])]
     const claimedDestinationIds = new Set(mappings.map((mapping) => mapping.destinationPlaylistId))
-    const persistMappings = () => db.syncTasks.updateOne({_id: task._id!}, {$set: {playlistMappings: mappings, updatedAt: new Date()}})
+    // Re-read aliases at save time so a manual match is not replaced by this older copy.
+    const persistMappings = () => saveMergedPlaylistMappings(task._id!, mappings)
     let additions = 0
     let removals = 0
     let skipped = 0
+    let playlistsCompleted = 0
+    await reportProgress({playlistsTotal: sourcePlaylists.length, playlistsCompleted: 0})
 
     for (const sourcePlaylist of sourcePlaylists) {
         let mapping = mappings.find((item) => item.sourcePlaylistId === sourcePlaylist.id)
@@ -446,6 +478,8 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
                 additions += result.additions
                 removals += result.removals
                 skipped += result.skipped
+                playlistsCompleted += 1
+                await reportProgress({playlistsTotal: sourcePlaylists.length, playlistsCompleted})
                 continue
             }
             destinationPlaylist = await destinationAdapter.createPlaylist(destinationAccount, sourcePlaylist.name, sourcePlaylist.description)
@@ -466,10 +500,12 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
             mapping.name = sourcePlaylist.name
             await persistMappings()
         }
-        const result = await mirrorPlaylist(sourceAccount, destinationAccount, sourcePlaylist.id, destinationPlaylist.id, mapping.name, recordChanges)
+        const result = await mirrorPlaylist(sourceAccount, destinationAccount, sourcePlaylist.id, destinationPlaylist.id, mapping.name, recordChanges, mapping.manualAliases)
         additions += result.additions
         removals += result.removals
         skipped += result.skipped
+        playlistsCompleted += 1
+        await reportProgress({playlistsTotal: sourcePlaylists.length, playlistsCompleted})
     }
 
     logger.info("Sync.executeAccount", `Task ${task._id!.toHexString()}`, `Playlists ${sourcePlaylists.length}`, `Additions ${additions}`, `Removals ${removals}`, `Unmatched ${skipped}`)
@@ -543,15 +579,15 @@ async function executeReverseSync(task: SyncTaskDocument, recordChanges: RecordT
 }
 
 // Dispatch a task to playlist, account, or a registered reverse synchronization.
-async function execute(task: SyncTaskDocument, recordChanges: RecordTrackChanges, reverseSync?: ReverseSyncRequest) {
+async function execute(task: SyncTaskDocument, recordChanges: RecordTrackChanges, reportProgress: ReportProgress, reverseSync?: ReverseSyncRequest) {
     if (reverseSync) {
         return executeReverseSync(task, recordChanges, reverseSync)
     }
-    return task.mode === "account" ? executeAccount(task, recordChanges) : executePlaylist(task, recordChanges)
+    return task.mode === "account" ? executeAccount(task, recordChanges, reportProgress) : executePlaylist(task, recordChanges, reportProgress)
 }
 
-// Acquire a lease, execute one task, and persist its run outcome.
-export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled", reverseSync?: ReverseSyncRequest) {
+// Acquire a lease and create a running sync record before work starts.
+export async function beginSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled", reverseSync?: ReverseSyncRequest): Promise<SyncRunContext> {
     const db = await collections()
     const current = await db.syncTasks.findOne({_id: taskId})
     if (current) {
@@ -573,7 +609,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
             status: {$in: ["active", "needs_attention"]},
             $or: [{leaseExpiresAt: {$exists: false}}, {leaseExpiresAt: {$lt: now}}]
         },
-        {$set: {leaseId, leaseExpiresAt: new Date(now.getTime() + leaseDurationMs)}},
+        {$set: {leaseId, leaseExpiresAt: new Date(now.getTime() + syncLeaseDurationMs)}},
         {returnDocument: "after"}
     )
     if (!task) {
@@ -592,22 +628,33 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
         removedTracks: [],
         unmatchedTracks: [],
         ...(reverseSync ? {reverseSync} : {}),
+        progress: {},
         startedAt: now
     })
     logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Run ${run.insertedId.toHexString()}`, "Started")
+    return {task, taskId, leaseId, runId: run.insertedId, trigger, startedAt: now, taskLabel, ...(reverseSync ? {reverseSync} : {})}
+}
+
+// Execute a prepared run and persist its final outcome.
+export async function completeSyncTask(context: SyncRunContext) {
+    const db = await collections()
+    const {task, taskId, leaseId, runId, startedAt, taskLabel, reverseSync} = context
     const recordChanges: RecordTrackChanges = async ({addedTracks = [], removedTracks = [], unmatchedTracks = []}) => {
         if (addedTracks.length) {
-            await db.syncRuns.updateOne({_id: run.insertedId}, {$push: {addedTracks: {$each: addedTracks}}, $inc: {additions: addedTracks.length}})
+            await db.syncRuns.updateOne({_id: runId}, {$push: {addedTracks: {$each: addedTracks}}, $inc: {additions: addedTracks.length}})
         }
         if (removedTracks.length) {
-            await db.syncRuns.updateOne({_id: run.insertedId}, {$push: {removedTracks: {$each: removedTracks}}, $inc: {removals: removedTracks.length}})
+            await db.syncRuns.updateOne({_id: runId}, {$push: {removedTracks: {$each: removedTracks}}, $inc: {removals: removedTracks.length}})
         }
         if (unmatchedTracks.length) {
-            await db.syncRuns.updateOne({_id: run.insertedId}, {$push: {unmatchedTracks: {$each: unmatchedTracks}}})
+            await db.syncRuns.updateOne({_id: runId}, {$push: {unmatchedTracks: {$each: unmatchedTracks}}})
         }
     }
+    const reportProgress: ReportProgress = async (progress) => {
+        await db.syncRuns.updateOne({_id: runId}, {$set: {progress}})
+    }
     try {
-        const result = await execute(task, recordChanges, reverseSync)
+        const result = await execute(task, recordChanges, reportProgress, reverseSync)
         const user = await db.users.findOne({_id: task.userId})
         const proIntervalMs = proSyncIntervalMs(getServerConfig().proSyncIntervalMinutes)
         const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? proIntervalMs : 7 * 24 * 60 * 60 * 1000
@@ -625,7 +672,7 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
                 $unset: {leaseId: "", leaseExpiresAt: "", lastError: ""}
             }
         )
-        await db.syncRuns.updateOne({_id: run.insertedId}, {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}})
+        await db.syncRuns.updateOne({_id: runId}, {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}, $unset: {progress: ""}})
         if (!completed.matchedCount) {
             await db.syncTasks.updateOne(
                 {_id: taskId},
@@ -640,12 +687,12 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
             "Sync.run",
             `Task ${taskId.toHexString()}`,
             taskLabel,
-            `Run ${run.insertedId.toHexString()}`,
+            `Run ${runId.toHexString()}`,
             `Additions ${result.additions}`,
             `Removals ${result.removals}`,
             `Conflicts ${result.conflicts}`,
             `Unmatched ${result.skipped}`,
-            `Duration ${finishedAt.getTime() - now.getTime()}ms`
+            `Duration ${finishedAt.getTime() - startedAt.getTime()}ms`
         )
         return result
     } catch (error) {
@@ -659,13 +706,19 @@ export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual
                 $unset: {leaseId: "", leaseExpiresAt: ""}
             }
         )
-        await db.syncRuns.updateOne({_id: run.insertedId}, {$set: {status: "failed", error: message, finishedAt, ...(failureReason ? {failureReason} : {})}})
+        await db.syncRuns.updateOne({_id: runId}, {$set: {status: "failed", error: message, finishedAt, ...(failureReason ? {failureReason} : {})}, $unset: {progress: ""}})
         if (!failed.matchedCount) {
             await db.syncTasks.updateOne({_id: taskId}, {$set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt}})
         }
-        logger.error("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Run ${run.insertedId.toHexString()}`, `Duration ${finishedAt.getTime() - now.getTime()}ms`, error)
+        logger.error("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Run ${runId.toHexString()}`, `Duration ${finishedAt.getTime() - startedAt.getTime()}ms`, error)
         throw error
     }
+}
+
+// Acquire a lease, execute one task, and persist its run outcome.
+export async function runSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled") {
+    const context = await beginSyncTask(taskId, trigger)
+    return completeSyncTask(context)
 }
 
 // Start a registered reverse sync when that case still applies to the task's runs.
@@ -674,5 +727,6 @@ export async function runReverseSync(taskId: ObjectId, request: ReverseSyncReque
     const runs = await db.syncRuns.find({taskId}).sort({startedAt: -1}).limit(50).toArray()
     assertReverseSyncAvailable(runs, request)
     logger.info("Sync.reverse", `Task ${taskId.toHexString()}`, request.reason, request.direction, request.cadence)
-    return runSyncTask(taskId, "manual", request)
+    const context = await beginSyncTask(taskId, "manual", request)
+    return completeSyncTask(context)
 }
