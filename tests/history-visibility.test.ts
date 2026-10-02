@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
-import {canViewRunHistory, runHistoryLimitFor, serializeSyncRun, serializeSyncTask, unmatchedTracksFromSnapshot, withTrackDurations} from "../server/domain/sync/history-visibility"
+import {canViewRunHistory, runHistoryLimitFor, selectVisibleRuns, serializeSyncRun, serializeSyncTask, unmatchedTracksFromSnapshot, withTrackDurations} from "../server/domain/sync/history-visibility"
 import type {CanonicalTrack, SyncRunDocument, SyncTaskDocument} from "../shared/types/domain"
 
 const now = new Date("2026-09-11T12:00:00.000Z")
@@ -34,6 +34,16 @@ describe("run history visibility", () => {
         expect(canViewRunHistory("free")).toBe(false)
         expect(runHistoryLimitFor("pro")).toBe(50)
         expect(runHistoryLimitFor("free")).toBe(1)
+    })
+
+    test("keeps a deleted-source restore visible when a free account's latest run failed for another reason", () => {
+        const deleted = {status: "failed" as const, failureReason: "deleted-source" as const}
+        const later = {status: "failed" as const}
+        const succeeded = {status: "succeeded" as const}
+        expect(selectVisibleRuns([later, deleted], "free")).toEqual([later, deleted])
+        expect(selectVisibleRuns([deleted], "free")).toEqual([deleted])
+        expect(selectVisibleRuns([succeeded, deleted], "free")).toEqual([succeeded])
+        expect(selectVisibleRuns([later, deleted], "pro")).toEqual([later, deleted])
     })
 
     test("includes latest-run counts for every account", () => {

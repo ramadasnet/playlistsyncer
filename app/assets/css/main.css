@@ -942,6 +942,33 @@ main {
     color: var(--ink-soft);
     font-size: 0.76rem;
 }
+.run-restore {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 22px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--white);
+}
+.run-restore p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.84rem;
+}
+.run-restore .button {
+    width: 100%;
+}
+@media (min-width: 720px) {
+    .run-restore {
+        align-items: flex-start;
+    }
+    .run-restore .button {
+        width: auto;
+    }
+}
 .run-detail-panel {
     padding-top: 8px;
 }

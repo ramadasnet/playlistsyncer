@@ -43,6 +43,15 @@ async function authorizedFetch(account: ProviderAccountDocument, url: string, in
     )
 }
 
+// A playlist read failed because that playlist is no longer on the provider.
+export function isMissingPlaylistError(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+        return false
+    }
+    const record = error as {message?: unknown; statusMessage?: unknown}
+    return /API request failed \(404\)/.test(`${record.statusMessage || ""} ${record.message || ""}`)
+}
+
 // Add the current provider token, parse successful responses, and map errors.
 export async function providerFetch<T>(account: ProviderAccountDocument, url: string, init: RequestInit = {}): Promise<T> {
     let response = await authorizedFetch(account, url, init)

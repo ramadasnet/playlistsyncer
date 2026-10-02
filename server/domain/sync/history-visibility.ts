@@ -1,5 +1,6 @@
 // Control which synchronization history is visible at each account tier.
 import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
+import {availableReverseSync, type ReverseSyncRequest, type ReverseSyncRunState, type SyncFailureReason} from "../../../shared/reverse-sync"
 
 export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt" | "progress">
 
@@ -28,6 +29,9 @@ export interface SerializedSyncRun {
     startedAt: Date
     finishedAt?: Date
     error?: string
+    failureReason?: SyncFailureReason
+    reverseSync?: ReverseSyncRequest
+    availableReverseSync?: ReverseSyncRequest
     progress?: SyncRunDocument["progress"]
     addedTracks: SerializedRunTrack[]
     removedTracks: SerializedRunTrack[]
@@ -42,6 +46,22 @@ export function canViewRunHistory(tier: AccountTier): boolean {
 // Free accounts get the latest run; PRO accounts can page through recent history.
 export function runHistoryLimitFor(tier: AccountTier) {
     return canViewRunHistory(tier) ? proRunHistoryLimit : 1
+}
+
+// Free accounts still need the failed run that can restore a deleted source, even when a later failure is newer.
+export function selectVisibleRuns<T extends ReverseSyncRunState>(runs: readonly T[], tier: AccountTier): T[] {
+    if (canViewRunHistory(tier)) {
+        return [...runs]
+    }
+    const latest = runs[0]
+    if (!latest) {
+        return []
+    }
+    const eligible = runs.find((run, index) => availableReverseSync(run, runs.slice(0, index)))
+    if (!eligible || eligible === latest) {
+        return [latest]
+    }
+    return [latest, eligible]
 }
 
 function trackSide(track: SyncRunTrackReference, task?: Pick<SyncTaskDocument, "source" | "destination">): SerializedRunTrack["side"] {
@@ -87,7 +107,13 @@ export function serializeRunTrack(track: SyncRunTrackReference, task?: Pick<Sync
 }
 
 // Public representation of one synchronization run and its track lists.
-export function serializeSyncRun(run: SyncRunDocument, task?: Pick<SyncTaskDocument, "source" | "destination">, snapshot?: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">): SerializedSyncRun {
+export function serializeSyncRun(
+    run: SyncRunDocument,
+    task?: Pick<SyncTaskDocument, "source" | "destination">,
+    snapshot?: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">,
+    newerRuns: Pick<SyncRunDocument, "status" | "failureReason" | "reverseSync">[] = []
+): SerializedSyncRun {
+    const offer = availableReverseSync(run, newerRuns)
     return {
         id: run._id?.toHexString() || "",
         trigger: run.trigger,
@@ -99,6 +125,9 @@ export function serializeSyncRun(run: SyncRunDocument, task?: Pick<SyncTaskDocum
         startedAt: run.startedAt,
         finishedAt: run.finishedAt,
         error: run.error,
+        ...(run.failureReason ? {failureReason: run.failureReason} : {}),
+        ...(run.reverseSync ? {reverseSync: run.reverseSync} : {}),
+        ...(offer ? {availableReverseSync: offer} : {}),
         ...(run.progress ? {progress: run.progress} : {}),
         addedTracks: run.addedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
         removedTracks: run.removedTracks.map((track) => serializeRunTrack(track, task, snapshot)),

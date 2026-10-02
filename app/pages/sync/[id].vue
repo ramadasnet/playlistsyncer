@@ -1,12 +1,13 @@
 <!-- Run history for one sync task. -->
 
 <script setup lang="ts">
-import {ArrowLeft, ArrowLeftRight, ArrowRight, LoaderCircle, Search} from "lucide-vue-next"
+import {ArrowLeft, ArrowLeftRight, ArrowRight, LoaderCircle, Search, Undo2} from "lucide-vue-next"
 import {formatDuration} from "~~/shared/format-duration"
 import {formatSyncProgressMessage} from "~~/shared/sync-progress"
 import {formatRunPlaylistLabel, groupRunPlaylists, trackInRunPlaylist} from "~~/shared/sync-run-playlists"
 import {isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
 import {isUnavailableSyncTrack, unmatchedCategoryCounts} from "~~/shared/unavailable-tracks"
+import type {ReverseSyncReason} from "~~/shared/reverse-sync"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import type {SimilarTrackSuggestion, SyncRunDetail, SyncRunTrack, SyncTaskDetail} from "~/types/api"
 
@@ -18,6 +19,10 @@ const {data, error, pending, refresh} = await useFetch<SyncTaskDetail>(() => `/a
 
 const allPlaylistsKey = "__all__"
 const selectedRunId = ref("")
+const restoring = ref(false)
+const restoreError = ref("")
+const restoreMessage = ref("")
+let keepRestoreMessage = false
 const selectedPlaylistKey = ref(allPlaylistsKey)
 const suggestionState = ref<
     Record<
@@ -39,6 +44,7 @@ const taskIsRunning = computed(() => Boolean(task.value && isSyncInProgress(task
 const sourceProvider = computed(() => data.value?.sourceProvider || undefined)
 const destinationProvider = computed(() => data.value?.destinationProvider || undefined)
 const canBrowseHistory = computed(() => Boolean(data.value?.canBrowseHistory))
+const showRunPicker = computed(() => runs.value.length > 1 && (canBrowseHistory.value || runs.value.some((run) => run.availableReverseSync)))
 const canViewHistory = computed(() => useAuthStore().user?.tier === "pro")
 const selectedRun = computed(() => runs.value.find((run) => run.id === selectedRunId.value) || runs.value[0])
 const pageTitle = computed(() => {
@@ -136,10 +142,39 @@ function runOptionLabel(run: SyncRunDetail) {
     return parts.join(" · ")
 }
 
-function triggerLabel(trigger: SyncRunDetail["trigger"]) {
-    if (trigger === "created") return "First run"
-    if (trigger === "manual") return "Manual"
+function triggerLabel(run: SyncRunDetail) {
+    if (run.reverseSync?.reason === "deleted-source") return "Source restore"
+    if (run.trigger === "created") return "First run"
+    if (run.trigger === "manual") return "Manual"
     return "Scheduled"
+}
+
+function reverseSyncLabel(reason: ReverseSyncReason) {
+    if (reason === "deleted-source") return "Restore source playlist"
+    return "Run reverse sync"
+}
+
+function reverseSyncCopy(reason: ReverseSyncReason) {
+    if (reason === "deleted-source") return "The source playlist is missing. Restore it once by copying the target playlist back. Later syncs keep their usual direction."
+    return "Run a one-time reverse sync."
+}
+
+async function restoreSource() {
+    const plan = selectedRun.value?.availableReverseSync
+    if (!task.value || !plan || restoring.value || taskIsRunning.value) return
+    restoring.value = true
+    restoreError.value = ""
+    restoreMessage.value = ""
+    try {
+        await api(`/api/tasks/${task.value.id}/reverse-sync`, {method: "POST", body: plan})
+        await refresh()
+        keepRestoreMessage = true
+        restoreMessage.value = "The source playlist was restored from the target. Later syncs keep their usual direction."
+    } catch (caught) {
+        restoreError.value = statusMessage(caught, "The source playlist could not be restored")
+    } finally {
+        restoring.value = false
+    }
 }
 
 function unmatchedKey(track: SyncRunTrack, index: number) {
@@ -269,6 +304,12 @@ watch(
 
 watch(selectedRunId, () => {
     suggestionState.value = {}
+    if (keepRestoreMessage) {
+        keepRestoreMessage = false
+        return
+    }
+    restoreError.value = ""
+    restoreMessage.value = ""
 })
 
 watch(playlistOptions, (options) => {
@@ -326,7 +367,7 @@ onUnmounted(() => {
             </div>
 
             <div class="run-detail-filters">
-                <label v-if="canBrowseHistory && runs.length > 1" class="run-history-picker">
+                <label v-if="showRunPicker" class="run-history-picker">
                     <span>Run history</span>
                     <select v-model="selectedRunId">
                         <option v-for="run in runs" :key="run.id" :value="run.id">{{ runOptionLabel(run) }}</option>
@@ -345,11 +386,23 @@ onUnmounted(() => {
 
             <div class="run-detail-meta">
                 <span class="status-label" :class="`status-${selectedRun.status}`"><span />{{ selectedRun.status.replace("_", " ") }}</span>
-                <span>{{ triggerLabel(selectedRun.trigger) }}</span>
+                <span>{{ triggerLabel(selectedRun) }}</span>
                 <span>{{ formatDate(selectedRun.startedAt) }}</span>
                 <span v-if="selectedRun.status === 'running' && task">{{ formatSyncProgressMessage(task.mode, selectedRun.progress) }}</span>
             </div>
             <p v-if="selectedRun.error" class="dialog-error">{{ selectedRun.error }}</p>
+            <div v-if="selectedRun.availableReverseSync || restoreError || restoreMessage" class="run-restore">
+                <template v-if="selectedRun.availableReverseSync">
+                    <p id="restore-source-copy">{{ reverseSyncCopy(selectedRun.availableReverseSync.reason) }}</p>
+                    <button class="button button-primary" type="button" :disabled="restoring || taskIsRunning" aria-describedby="restore-source-copy" @click="restoreSource">
+                        <LoaderCircle v-if="restoring" class="spin" :size="16" />
+                        <Undo2 v-else :size="16" />
+                        {{ reverseSyncLabel(selectedRun.availableReverseSync.reason) }}
+                    </button>
+                </template>
+                <p v-if="restoreError" class="dialog-error" role="alert">{{ restoreError }}</p>
+                <p v-if="restoreMessage" role="status">{{ restoreMessage }}</p>
+            </div>
 
             <div class="run-detail-panel">
                 <section class="run-track-section">

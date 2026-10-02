@@ -1,5 +1,6 @@
 // Shared persistence and synchronization contracts used by client and server code.
 import type {ObjectId} from "mongodb"
+import type {ReverseSyncRequest, SyncFailureReason} from "../reverse-sync"
 
 // Providers recognized by the application and their feature flags.
 export const providers = ["spotify", "tidal", "youtube", "soundcloud", "amazon"] as const
@@ -250,6 +251,8 @@ export interface SyncRunDocument {
     unmatchedTracks: SyncRunTrackReference[]
     progress?: SyncRunProgress
     error?: string
+    failureReason?: SyncFailureReason
+    reverseSync?: ReverseSyncRequest
     startedAt: Date
     finishedAt?: Date
 }

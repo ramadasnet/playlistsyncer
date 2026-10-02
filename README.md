@@ -45,6 +45,7 @@ Sync runs are retained for 180 days and webhook event records for 90 days.
 
 - The first selected playlist is always master. Sync tasks will mirror changes made to the second playlist.
 - Tracks added or removed from the second playlist are never synced back to the master, and might be overwritten.
+- If the source playlist is deleted, the failed run can restore it once by copying the target playlist back. That restore does not change the task's usual direction.
 
 ### Full sync
 
