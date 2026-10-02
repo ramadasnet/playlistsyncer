@@ -25,7 +25,8 @@ export default defineEventHandler(async (event) => {
                           removals: 1,
                           conflicts: 1,
                           skipped: 1,
-                          startedAt: 1
+                          startedAt: 1,
+                          progress: 1
                       }
                   }
               )

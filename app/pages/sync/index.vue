@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {AlertTriangle, ArrowLeftRight, ArrowRight, CirclePause, ListMusic, LoaderCircle, Play, Plus, RefreshCw, Trash2, X} from "lucide-vue-next"
 import type {ConnectedAccount, PlaylistSummary, SyncTaskSummary} from "~/types/api"
+import {formatSyncProgressMessage} from "~~/shared/sync-progress"
+import {isAwaitingFirstSync, isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
 import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders, type Provider, type SyncTaskDirection} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
@@ -22,8 +24,6 @@ const loadingPlaylists = ref(false)
 const busyTask = ref("")
 const submitting = ref(false)
 const errorMessage = ref("")
-const showDetails = ref(false)
-const detailsTask = ref<SyncTaskSummary | null>(null)
 const showDeleteConfirm = ref(false)
 const taskPendingDelete = ref<SyncTaskSummary | null>(null)
 const deleteError = ref("")
@@ -204,9 +204,11 @@ function isOneWay(task: SyncTaskSummary) {
     return task.direction === "one-way"
 }
 
-// Active tasks that never finished a run are still processing their first sync.
-function isInitialSyncPending(task: SyncTaskSummary) {
-    return task.status === "active" && !task.lastRunAt
+function syncProgressMessage(task: SyncTaskSummary) {
+    if (task.latestRun?.status === "running") {
+        return formatSyncProgressMessage(task.mode, task.latestRun.progress)
+    }
+    return "Sync in progress..."
 }
 
 function hasSharedName(task: SyncTaskSummary) {
@@ -215,11 +217,6 @@ function hasSharedName(task: SyncTaskSummary) {
 
 function isEntitlementLocked(task: SyncTaskSummary) {
     return Boolean(task.entitlementLocked) || task.pauseReason === "entitlement"
-}
-
-function openDetails(task: SyncTaskSummary) {
-    detailsTask.value = task
-    showDetails.value = true
 }
 
 function taskPairLabel(task: SyncTaskSummary) {
@@ -243,15 +240,11 @@ function closeDeleteConfirm() {
 // Remove the task only after the confirmation dialog is accepted.
 async function confirmDelete() {
     const task = taskPendingDelete.value
-    if (!task || deletingTask.value) return
+    if (!task || deletingTask.value || pendingDeleteIsRunning.value) return
     deletingTask.value = true
     deleteError.value = ""
     try {
         await api(`/api/tasks/${task.id}`, {method: "DELETE"})
-        if (detailsTask.value?.id === task.id) {
-            showDetails.value = false
-            detailsTask.value = null
-        }
         showDeleteConfirm.value = false
         await refreshTasks()
     } catch (error) {
@@ -268,26 +261,39 @@ watch(showDeleteConfirm, (open) => {
     taskPendingDelete.value = null
 })
 
-async function onManualMatch() {
-    await refreshTasks()
-    const currentId = detailsTask.value?.id
-    if (currentId) {
-        detailsTask.value = tasks.value.find((task) => task.id === currentId) || detailsTask.value
-    }
-}
+const progressPollMs = 3000
+const shouldPollTasks = computed(() => tasks.value.some((task) => isSyncInProgress(task) || isAwaitingFirstSync(task)))
+const pendingDeleteIsRunning = computed(() => {
+    const pending = taskPendingDelete.value
+    if (!pending) return false
+    const fresh = tasks.value.find((task) => task.id === pending.id) || pending
+    return isSyncInProgress(fresh)
+})
+let progressPollTimer: ReturnType<typeof setInterval> | undefined
 
-// Refresh the list while initial syncs are processing, so their results appear without a reload.
-let initialSyncPoll: ReturnType<typeof setInterval> | undefined
 watch(
-    () => tasks.value.some(isInitialSyncPending),
-    (pending) => {
+    shouldPollTasks,
+    (active) => {
         if (import.meta.server) return
-        clearInterval(initialSyncPoll)
-        initialSyncPoll = pending ? setInterval(() => refreshTasks(), 10_000) : undefined
+        if (active) {
+            if (!progressPollTimer) {
+                progressPollTimer = setInterval(() => {
+                    refreshTasks()
+                }, progressPollMs)
+            }
+            return
+        }
+        if (progressPollTimer) {
+            clearInterval(progressPollTimer)
+            progressPollTimer = undefined
+        }
     },
     {immediate: true}
 )
-onBeforeUnmount(() => clearInterval(initialSyncPoll))
+
+onUnmounted(() => {
+    if (progressPollTimer) clearInterval(progressPollTimer)
+})
 </script>
 
 <template>
@@ -397,33 +403,25 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
                         <ProviderBadge :provider="providerFor(task.destination.providerAccountId)" />
                     </div>
                     <div class="task-actions">
-                        <button
-                            class="icon-button"
-                            :class="{'has-alert': Boolean(task.latestRun?.skipped)}"
-                            type="button"
-                            title="View run details"
-                            aria-haspopup="dialog"
-                            :aria-expanded="showDetails && detailsTask?.id === task.id"
-                            @click="openDetails(task)"
-                        >
+                        <NuxtLink class="icon-button" :class="{'has-alert': Boolean(task.latestRun?.skipped)}" :to="`/sync/${task.id}`" title="View run details">
                             <ListMusic :size="18" />
-                        </button>
+                        </NuxtLink>
                         <button
                             v-if="!isEntitlementLocked(task)"
                             class="icon-button"
                             type="button"
-                            :title="runTitle(task)"
-                            :disabled="busyTask === task.id || task.status === 'paused' || !!manualSyncAvailableAt(task)"
+                            :title="isSyncInProgress(task) ? syncTaskBusyMessage : runTitle(task)"
+                            :disabled="busyTask === task.id || isSyncInProgress(task) || task.status === 'paused' || !!manualSyncAvailableAt(task)"
                             @click="taskAction(task, 'run')"
                         >
-                            <LoaderCircle v-if="busyTask === task.id" class="spin" :size="18" /><Play v-else :size="18" />
+                            <LoaderCircle v-if="busyTask === task.id || isSyncInProgress(task)" class="spin" :size="18" /><Play v-else :size="18" />
                         </button>
                         <button
                             v-if="!isEntitlementLocked(task)"
                             class="icon-button"
                             type="button"
-                            :title="task.status === 'paused' ? 'Resume' : 'Pause'"
-                            :disabled="busyTask === task.id"
+                            :title="isSyncInProgress(task) ? syncTaskBusyMessage : task.status === 'paused' ? 'Resume' : 'Pause'"
+                            :disabled="busyTask === task.id || isSyncInProgress(task)"
                             @click="taskAction(task, task.status === 'paused' ? 'resume' : 'pause')"
                         >
                             <Play v-if="task.status === 'paused'" :size="18" /><CirclePause v-else :size="18" />
@@ -431,10 +429,10 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
                         <button
                             class="icon-button danger"
                             type="button"
-                            title="Delete task"
+                            :title="isSyncInProgress(task) ? syncTaskBusyMessage : 'Delete task'"
                             aria-haspopup="dialog"
                             :aria-expanded="showDeleteConfirm && taskPendingDelete?.id === task.id"
-                            :disabled="busyTask === task.id"
+                            :disabled="busyTask === task.id || isSyncInProgress(task)"
                             @click="openDeleteConfirm(task)"
                         >
                             <Trash2 :size="18" />
@@ -442,17 +440,17 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
                     </div>
                 </div>
                 <div class="task-meta">
-                    <span class="status-label" :class="`status-${task.status}`"><span />{{ task.status.replace("_", " ") }}</span>
+                    <span class="status-label" :class="`status-${isSyncInProgress(task) ? 'running' : task.status}`"><span />{{ isSyncInProgress(task) ? "running" : task.status.replace("_", " ") }}</span>
                     <span>{{ isOneWay(task) ? "One-way" : "Two-way" }}</span>
                     <span>{{ task.status === "paused" ? "Paused" : `Next ${formatDate(task.nextRunAt)}` }}</span>
-                    <span v-if="isInitialSyncPending(task)">Processing initial sync...</span>
+                    <span v-if="isSyncInProgress(task)" class="task-progress"><LoaderCircle class="spin" :size="14" />{{ syncProgressMessage(task) }}</span>
                     <template v-else>
                         <span>Last {{ formatDate(task.lastSuccessAt) }}</span>
                         <span v-if="task.latestRun"
                             >Changes +{{ task.latestRun.additions }} / −{{ task.latestRun.removals }}<template v-if="task.latestRun.conflicts"> · {{ task.latestRun.conflicts }} conflict</template></span
                         >
                     </template>
-                    <span v-if="task.latestRun?.skipped" class="task-unmatched">{{ task.latestRun.skipped }} unmatched</span>
+                    <span v-if="!isSyncInProgress(task) && task.latestRun?.skipped" class="task-unmatched">{{ task.latestRun.skipped }} unmatched</span>
                 </div>
                 <p v-if="isEntitlementLocked(task)" class="task-entitlement-note">
                     A PRO subscription is needed to enable this sync task.
@@ -468,13 +466,6 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
             <button v-if="canCreate" class="button button-primary" type="button" @click="openCreate"><Plus :size="17" />Create your first sync task</button>
             <NuxtLink v-else class="button button-secondary" to="/account">Manage connections</NuxtLink>
         </section>
-        <SyncTaskRunDialog
-            v-model="showDetails"
-            :task="detailsTask"
-            :source-provider="providerFor(detailsTask?.source.providerAccountId || '')"
-            :destination-provider="providerFor(detailsTask?.destination.providerAccountId || '')"
-            @matched="onManualMatch"
-        />
         <OverlayDialog v-model="showDeleteConfirm" title="Delete sync task" :busy="deletingTask">
             <p v-if="taskPendingDelete" class="confirm-dialog-copy">
                 Delete <strong>{{ taskPairLabel(taskPendingDelete) }}</strong
@@ -483,7 +474,7 @@ onBeforeUnmount(() => clearInterval(initialSyncPoll))
             <p v-if="deleteError" class="dialog-error" role="alert">{{ deleteError }}</p>
             <div class="dialog-actions">
                 <button class="button button-secondary" type="button" :disabled="deletingTask" @click="closeDeleteConfirm">Cancel</button>
-                <button class="button button-danger" type="button" :disabled="deletingTask" @click="confirmDelete">
+                <button class="button button-danger" type="button" :disabled="deletingTask || pendingDeleteIsRunning" @click="confirmDelete">
                     <LoaderCircle v-if="deletingTask" class="spin" :size="17" />
                     Delete task
                 </button>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="PlaylistSyncer">
+    <rect width="64" height="64" rx="14" fill="#1d6b45" />
+    <path fill="#ffffff" fill-rule="evenodd" d="M11 16h11c8 0 13 5 13 12s-5 12-13 12h-4v8h-7V16ZM18 22v12l11-6-11-6Z" />
+    <path fill="#b9f46e" d="M53 16H43c-7 0-11 4-11 10 0 5 3 8 9 10l3 1c3 1 4 2 4 3 0 2-2 3-5 3H32v7h11c8 0 12-4 12-10 0-5-3-8-9-10l-3-1c-3-1-4-2-4-3 0-2 2-3 4-3h10v-7Z" />
+</svg>

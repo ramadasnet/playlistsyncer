@@ -4,6 +4,7 @@ import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {applyTaskEntitlement, entitlementEditBlockedMessage, isEntitlementLocked, retainedFreeTierTask} from "../../domain/billing/task-entitlement"
+import {assertSyncTaskIdle, idleLeaseFilter, throwIfSyncMutationMissed} from "../../domain/sync/task-activity"
 import logger from "../../utils/logger"
 import {parseObjectId} from "../../utils/object-id"
 
@@ -20,6 +21,7 @@ export default defineEventHandler(async (event) => {
     if (!task) {
         throw createError({statusCode: 404, statusMessage: "Sync task not found"})
     }
+    await assertSyncTaskIdle(task)
     if (isEntitlementLocked(task)) {
         logger.warn("Tasks.update", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`, "Entitlement lock")
         throw createError({statusCode: 403, statusMessage: entitlementEditBlockedMessage})
@@ -33,14 +35,14 @@ export default defineEventHandler(async (event) => {
         }
     }
     const result = await db.syncTasks.updateOne(
-        {_id: taskId, userId: user._id!},
+        {_id: taskId, userId: user._id!, ...idleLeaseFilter()},
         {
             $set: {...body, ...(body.status === "paused" ? {pauseReason: "user" as const} : {}), updatedAt: new Date()},
             ...(body.status === "active" ? {$unset: {pauseReason: ""}} : {})
         }
     )
     if (!result.matchedCount) {
-        throw createError({statusCode: 404, statusMessage: "Sync task not found"})
+        await throwIfSyncMutationMissed(taskId, user._id!)
     }
     logger.info("Tasks.update", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`, `Status ${body.status}`)
     return {ok: true}
