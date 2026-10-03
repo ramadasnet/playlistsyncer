@@ -4,7 +4,7 @@ import type {H3Event} from "h3"
 import {getServerConfig} from "../utils/config"
 
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
-const externalRoutes = ["/api/jobs/", "/api/webhooks/"]
+const externalRoutes = ["/api/webhooks/"]
 const csrfCookie = "ps_csrf"
 const csrfHeader = "x-csrf-token"
 

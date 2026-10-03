@@ -1,4 +1,5 @@
 // Process a bounded batch of scheduler-due synchronization tasks.
+import {defineEventHandler} from "h3"
 import {collections} from "../../data/collections"
 import {runSyncTask} from "../../domain/sync/engine"
 import logger from "../../utils/logger"

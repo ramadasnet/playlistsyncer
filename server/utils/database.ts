@@ -2,6 +2,7 @@
 import {MongoClient, type Db} from "mongodb"
 import {getServerConfig, requireConfig} from "./config"
 import logger from "./logger"
+import {firestoreMongoOptions, firestoreUriDatabase} from "./mongodb"
 
 let client: MongoClient | undefined
 let database: Db | undefined
@@ -13,12 +14,18 @@ export async function getDatabase(): Promise<Db> {
     }
 
     const config = getServerConfig()
+    const uri = requireConfig("mongodbUri")
+    const uriDatabase = firestoreUriDatabase(uri)
+    if (uriDatabase && uriDatabase !== config.mongodbDatabase) {
+        logger.warn("Database.connect", `PLS_MONGODB_DATABASE is ${config.mongodbDatabase}`, `Firestore URI database is ${uriDatabase}`)
+    }
     logger.info("Database.connect", `Database ${config.mongodbDatabase}`)
-    client = new MongoClient(requireConfig("mongodbUri"), {
+    client = new MongoClient(uri, {
         appName: "playlistsync",
         maxPoolSize: 20,
         minPoolSize: 1,
-        serverSelectionTimeoutMS: 5000
+        serverSelectionTimeoutMS: 5000,
+        ...firestoreMongoOptions(uri)
     })
     try {
         await client.connect()
@@ -31,6 +38,11 @@ export async function getDatabase(): Promise<Db> {
         client = undefined
         throw error
     }
+}
+
+// Confirm the database accepts a command. Firestore does not implement ping; connectionStatus is supported by both servers.
+export async function assertDatabaseReachable(database: Db): Promise<void> {
+    await database.command({connectionStatus: 1}, {timeoutMS: 3000})
 }
 
 // Close the MongoDB client and clear cached connection state.

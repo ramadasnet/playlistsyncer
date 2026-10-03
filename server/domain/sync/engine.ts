@@ -1,5 +1,7 @@
 // Execute playlist and account synchronization while recording resumable runs.
+import {AsyncLocalStorage} from "node:async_hooks"
 import {randomUUID} from "node:crypto"
+import {clearInterval, setInterval} from "node:timers"
 import {ObjectId} from "mongodb"
 import type {CanonicalTrack, PlaylistMapping, ProviderAccountDocument, SyncRunProgress, SyncRunTrackReference, SyncTaskDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
@@ -11,10 +13,11 @@ import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../
 import {readSyncFailureReason, reverseSyncCaseFor, type ReverseSyncCase, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
 import {assertReverseSyncAvailable} from "./reverse-sync"
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
-import {syncLeaseDurationMs} from "../../../shared/sync-task-activity"
+import {extendedLeaseExpiry, initialSyncLeaseMs, syncLeaseDurationMs, syncLeaseExtensionMs} from "../../../shared/sync-task-activity"
 import {getServerConfig} from "../../utils/config"
 import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges, safeModeWriteBlockedMessage} from "./safe-mode"
 import {saveMergedPlaylistMappings} from "./playlist-mappings"
+import {accountSnapshotPlaylistBatchSize, saveAccountSnapshotBatches} from "./snapshot-batches"
 import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey, type ReconciledTrack} from "./reconcile"
 
 interface RecordedTrackChanges {
@@ -35,6 +38,88 @@ interface SyncRunContext {
     startedAt: Date
     taskLabel: string
     reverseSync?: ReverseSyncRequest
+}
+
+// Renew often enough that a 5-minute extension lands before the previous window lapses.
+const syncLeaseHeartbeatMs = 60 * 1000
+
+interface SyncLeaseHold {
+    assertHeld(): void
+    extend(): Promise<void>
+    applyInitial(playlistCount: number): Promise<void>
+    stop(): void
+}
+
+const syncLeaseHold = new AsyncLocalStorage<SyncLeaseHold>()
+
+// Stop a run that no longer owns its lease before it writes to a provider again.
+function assertSyncLeaseHeld() {
+    syncLeaseHold.getStore()?.assertHeld()
+}
+
+// Move the lease forward by 5 minutes when this run still owns it and the current window is ending.
+async function extendSyncLease(taskId: ObjectId, leaseId: string, now = new Date()): Promise<boolean> {
+    const db = await collections()
+    const task = await db.syncTasks.findOne({_id: taskId, leaseId}, {projection: {leaseExpiresAt: 1}})
+    if (!task) return false
+    const next = extendedLeaseExpiry(task.leaseExpiresAt, now)
+    if (!next) return true
+    const updated = await db.syncTasks.updateOne({_id: taskId, leaseId, leaseExpiresAt: {$lt: next}}, {$set: {leaseExpiresAt: next}})
+    if (updated.matchedCount) {
+        logger.info("Sync.lease", `Task ${taskId.toHexString()}`, `Extended by ${syncLeaseExtensionMs / 60000}m until ${next.toISOString()}`)
+    }
+    return true
+}
+
+// Raise a full-sync lease to 15 minutes plus 5 minutes per playlist after the first, without shortening it.
+async function applyInitialSyncLease(taskId: ObjectId, leaseId: string, playlistCount: number, now = new Date()): Promise<boolean> {
+    const db = await collections()
+    const owned = await db.syncTasks.findOne({_id: taskId, leaseId}, {projection: {_id: 1}})
+    if (!owned) return false
+    const expiresAt = new Date(now.getTime() + initialSyncLeaseMs(playlistCount))
+    await db.syncTasks.updateOne({_id: taskId, leaseId, $or: [{leaseExpiresAt: {$exists: false}}, {leaseExpiresAt: {$lt: expiresAt}}]}, {$set: {leaseExpiresAt: expiresAt}})
+    logger.info("Sync.lease", `Task ${taskId.toHexString()}`, `Initial lease ${initialSyncLeaseMs(playlistCount) / 60000}m`, `Playlists ${playlistCount}`)
+    return true
+}
+
+// Keep the lease alive for this run and remember when another run has taken it.
+function startSyncLeaseHold(taskId: ObjectId, leaseId: string): SyncLeaseHold {
+    let lost = false
+    const lose = () => {
+        lost = true
+    }
+    const heartbeat = setInterval(() => {
+        void extendSyncLease(taskId, leaseId)
+            .then((held) => {
+                if (!held) lose()
+            })
+            .catch((error) => {
+                logger.error("Sync.lease", error, `Task ${taskId.toHexString()}`, "Lease extension failed")
+            })
+    }, syncLeaseHeartbeatMs)
+    heartbeat.unref()
+    return {
+        assertHeld() {
+            if (lost) throw createError({statusCode: 409, statusMessage: "Sync lease was lost"})
+        },
+        async extend() {
+            const held = await extendSyncLease(taskId, leaseId)
+            if (!held) {
+                lose()
+                throw createError({statusCode: 409, statusMessage: "Sync lease was lost"})
+            }
+        },
+        async applyInitial(playlistCount: number) {
+            const held = await applyInitialSyncLease(taskId, leaseId, playlistCount)
+            if (!held) {
+                lose()
+                throw createError({statusCode: 409, statusMessage: "Sync lease was lost"})
+            }
+        },
+        stop() {
+            clearInterval(heartbeat)
+        }
+    }
 }
 
 // Store provider tracks in the snapshot's canonical representation.
@@ -134,6 +219,7 @@ async function applyDesired(
     for (const desiredTrack of desired) {
         const missing = desiredTrack.count - (currentByKey.get(desiredTrack.key)?.length || 0)
         for (let count = 0; count < missing; count++) {
+            assertSyncLeaseHeld()
             const match = await adapter.searchTrack(account, desiredTrack.reference)
             if (match) {
                 additions.push({
@@ -170,6 +256,7 @@ async function applyDesired(
         })
         return {additions: additions.length, removals: removals.length, skipped, aliases: additions}
     }
+    assertSyncLeaseHeld()
     if (removals.length) {
         await adapter.removePlaylistItems(account, playlistId, removals, async (removedItemIds) => {
             const removedIds = new Set(removedItemIds)
@@ -183,6 +270,7 @@ async function applyDesired(
             })
         })
     }
+    assertSyncLeaseHeld()
     if (additions.length) {
         await adapter.addTracks(
             account,
@@ -474,7 +562,23 @@ async function mirrorPlaylist(
     }
     const aliasedSource = aliases.size ? applyAliases(sourceItems, aliases) : sourceItems
     const aliasedDestination = aliases.size ? applyAliases(destinationItems, aliases) : destinationItems
-    return applyDesired(destinationAccount, destinationPlaylistId, aliasedDestination, reconcileOneWay(aliasedSource).desired, recordChanges, playlistName, {account: sourceAccount, playlistId: sourcePlaylistId, playlistName})
+    const result = await applyDesired(destinationAccount, destinationPlaylistId, aliasedDestination, reconcileOneWay(aliasedSource).desired, recordChanges, playlistName, {account: sourceAccount, playlistId: sourcePlaylistId, playlistName})
+    const verifiedAliases = new Map(aliases)
+    for (const alias of result.aliases) verifiedAliases.set(alias.trackId, alias.canonicalKey)
+    const withKey = (items: ProviderTrack[]) => items.map((item) => ({...item, canonicalKey: verifiedAliases.get(item.itemId) || verifiedAliases.get(item.trackId) || item.canonicalKey || trackKey(item)}))
+    const [verifiedSource, verifiedDestination] = isSafeModeEnabled()
+        ? [aliasedSource, aliasedDestination]
+        : await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylistId), destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylistId)])
+    return {
+        ...result,
+        snapshotPlaylist: {
+            sourcePlaylistId,
+            destinationPlaylistId,
+            name: playlistName,
+            sourceItems: withKey(verifiedSource).map(toCanonical),
+            destinationItems: withKey(verifiedDestination).map(toCanonical)
+        }
+    }
 }
 
 // Synchronize every source playlist and maintain destination mappings.
@@ -493,9 +597,12 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
     let removals = 0
     let skipped = 0
     let playlistsCompleted = 0
+    const snapshotPlaylists = []
+    await syncLeaseHold.getStore()?.applyInitial(sourcePlaylists.length)
     await reportProgress({playlistsTotal: sourcePlaylists.length, playlistsCompleted: 0})
 
     for (const sourcePlaylist of sourcePlaylists) {
+        assertSyncLeaseHeld()
         let mapping = mappings.find((item) => item.sourcePlaylistId === sourcePlaylist.id)
         let destinationPlaylist: ProviderPlaylist | undefined = mapping ? destinationById.get(mapping.destinationPlaylistId) : undefined
         if (!destinationPlaylist) {
@@ -539,11 +646,23 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
         additions += result.additions
         removals += result.removals
         skipped += result.skipped
+        snapshotPlaylists.push(result.snapshotPlaylist)
         playlistsCompleted += 1
         await reportProgress({playlistsTotal: sourcePlaylists.length, playlistsCompleted})
     }
 
-    logger.info("Sync.executeAccount", `Task ${task._id!.toHexString()}`, `Playlists ${sourcePlaylists.length}`, `Additions ${additions}`, `Removals ${removals}`, `Unmatched ${skipped}`)
+    if (!isSafeModeEnabled()) {
+        await saveAccountSnapshotBatches(task._id!, snapshotPlaylists)
+    }
+    logger.info(
+        "Sync.executeAccount",
+        `Task ${task._id!.toHexString()}`,
+        `Playlists ${sourcePlaylists.length}`,
+        `Snapshot batches ${Math.ceil(snapshotPlaylists.length / accountSnapshotPlaylistBatchSize)}`,
+        `Additions ${additions}`,
+        `Removals ${removals}`,
+        `Unmatched ${skipped}`
+    )
     return {additions, removals, skipped, conflicts: 0}
 }
 
@@ -668,7 +787,7 @@ export async function beginSyncTask(taskId: ObjectId, trigger: "created" | "manu
     if (isSafeModeEnabled()) {
         logger.warn("Sync.safeMode", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "PLS_SAFE_MODE is enabled; music providers will not be written")
     }
-    logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Trigger ${trigger}`, ...(reverseSync ? [reverseSync.direction, reverseSync.cadence, reverseSync.reason] : []), "Acquiring lease")
+    logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Trigger ${trigger}`, ...(reverseSync ? [reverseSync.direction, reverseSync.cadence, reverseSync.reason] : []), `Lease ${syncLeaseDurationMs / 60000}m`)
     const task = await db.syncTasks.findOneAndUpdate(
         {
             _id: taskId,
@@ -717,10 +836,13 @@ export async function completeSyncTask(context: SyncRunContext) {
         }
     }
     const reportProgress: ReportProgress = async (progress) => {
+        assertSyncLeaseHeld()
         await db.syncRuns.updateOne({_id: runId}, {$set: {progress}})
+        await syncLeaseHold.getStore()?.extend()
     }
+    const leaseHold = startSyncLeaseHold(taskId, leaseId)
     try {
-        const result = await execute(task, recordChanges, reportProgress, reverseSync)
+        const result = await syncLeaseHold.run(leaseHold, async () => execute(task, recordChanges, reportProgress, reverseSync))
         const user = await db.users.findOne({_id: task.userId})
         const proIntervalMs = proSyncIntervalMs(getServerConfig().proSyncIntervalMinutes)
         const nextRunMs = user && resolveEntitlement(user).tier === "pro" ? proIntervalMs : 7 * 24 * 60 * 60 * 1000
@@ -740,13 +862,17 @@ export async function completeSyncTask(context: SyncRunContext) {
         )
         await db.syncRuns.updateOne({_id: runId}, {$set: {...result, status: result.skipped || result.conflicts ? "partial" : "succeeded", finishedAt}, $unset: {progress: ""}})
         if (!completed.matchedCount) {
-            await db.syncTasks.updateOne(
-                {_id: taskId},
+            // Release only the lease this run still holds. A newer run's lease stays in place.
+            const released = await db.syncTasks.updateOne(
+                {_id: taskId, leaseId},
                 {
                     $set: {lastRunAt: finishedAt, lastSuccessAt: finishedAt, updatedAt: finishedAt},
                     $unset: {leaseId: "", leaseExpiresAt: "", lastError: ""}
                 }
             )
+            if (!released.matchedCount) {
+                logger.warn("Sync.lease", `Task ${taskId.toHexString()}`, "Lease was no longer held; task lock was left unchanged")
+            }
         }
         const log = result.skipped || result.conflicts ? logger.warn : logger.info
         log(
@@ -774,10 +900,12 @@ export async function completeSyncTask(context: SyncRunContext) {
         )
         await db.syncRuns.updateOne({_id: runId}, {$set: {status: "failed", error: message, finishedAt, ...(failureReason ? {failureReason} : {})}, $unset: {progress: ""}})
         if (!failed.matchedCount) {
-            await db.syncTasks.updateOne({_id: taskId}, {$set: {lastRunAt: finishedAt, lastError: message, updatedAt: finishedAt}})
+            logger.warn("Sync.lease", `Task ${taskId.toHexString()}`, "Lease was no longer held; task lock was left unchanged")
         }
         logger.error("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Run ${runId.toHexString()}`, `Duration ${finishedAt.getTime() - startedAt.getTime()}ms`, error)
         throw error
+    } finally {
+        leaseHold.stop()
     }
 }
 

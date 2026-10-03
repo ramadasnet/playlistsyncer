@@ -52,7 +52,7 @@ Sync runs are retained for 180 days and webhook event records for 90 days.
 - If the user selects `ALL Playlists` as the source, a full sync will consider the first provider the master and the second provider the mirror.
 - Each source playlist is matched to its durable destination mapping, then by an unclaimed playlist with the same name, or created as a new playlist if it doesn't exist.
 - When a previously mapped source playlist disappears, its destination and mapping are retained. That destination is not reused for another source playlist with the same name, and synchronization resumes if the original source returns.
-- Every execution acquires a 15-minute database lease and records additions, removals, conflicts, skipped tracks, and failures. This prevents overlapping manual and scheduled runs of the same task.
+- Every execution acquires a database lease and records additions, removals, conflicts, skipped tracks, and failures. A single playlist starts with 15 minutes. A full sync starts with 15 minutes plus 5 minutes for each additional playlist. While the run is still working, the lease is extended by 5 minutes at a time. This prevents overlapping manual and scheduled runs of the same task.
 
 ## Plans and scheduling
 
@@ -72,7 +72,7 @@ An already authenticated user may explicitly link another provider account, but 
 
 The music providers have strict rate limits, and these are set via environment variables per provider.
 
-Provider API requests retry rate limits up to 5 times and honor cooldowns up to 5 minutes; longer cooldowns fail with 429 instead of queueing. The limiter coordinates a single app instance, so running the service in multiple instances might trigger 429 more often.
+Provider API requests retry rate limits up to 5 times and honor cooldowns up to 5 minutes; longer cooldowns fail with 429 instead of queueing. The limiter is in memory for each process. The website and the jobs process do not share it, so running both, or more than one instance of either, might trigger 429 more often.
 
 ## Logging
 
@@ -91,6 +91,7 @@ Application settings use the `PLS_` prefix.
 | `NODE_ENV`                            | Runtime mode; production enables secure cookies and production logging.                                                                      | Runtime-dependent; Docker sets `production`                                                             |
 | `HOST`                                | Address the production HTTP server binds to.                                                                                                 | Runtime-dependent; Docker sets `0.0.0.0`                                                                |
 | `PORT`                                | Port the production HTTP server listens on.                                                                                                  | Runtime-dependent; Docker sets `3007`                                                                   |
+| `PLS_JOBS_PORT`                       | Port the separate scheduled-jobs HTTP server listens on.                                                                                     | `3008`                                                                                                  |
 | `NITRO_PRESET`                        | Nuxt build output target.                                                                                                                    | `bun` (also set by the build script)                                                                    |
 | `PLS_APP_URL`                         | Base app URL including http(s); used for OAuth callbacks and origin checks.                                                                 | `http://localhost:3007`                                                                                 |
 | `PLS_APP_NAME`                        | Public application name.                                                                                                                     | `PlaylistSyncer`                                                                                        |
@@ -238,6 +239,12 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
+Start the scheduled-jobs process in a second terminal. It listens on `PLS_JOBS_PORT` (`3008` by default) and is not part of the website process:
+
+```bash
+bun run jobs
+```
+
 Open the origin configured in `PLS_APP_URL` (`http://localhost:3007` by default). The app can render public pages without credentials; authentication, billing, and playlist APIs require their respective environment values.
 
 Please note that `nuxt dev` does not run a persistent TypeScript checker and has the DevTools disabled to minimize memory usage. Use `bun run typecheck` or `bun run check`, and the `PLS_DEVTOOLS=true` env variable setting if you want to enable those. Local MongoDB is started with a 256MB WiredTiger cache, also to minimize memory usage.
@@ -258,12 +265,14 @@ docker compose up --build
 
 ## Scheduled jobs
 
+Scheduled work runs in its own HTTP process (`bun run jobs`), not in the website process. The paths, bearer token, and responses are unchanged. Point the scheduler at the jobs listener (`PLS_JOBS_PORT`, `3008` by default), not at `PLS_APP_URL`. Keep that port reachable by the scheduler and closed to the public internet.
+
 ### Triggering sync tasks
 
 Invoke the portable due-task endpoint from Cloud Scheduler, EventBridge Scheduler, cron, or any HTTPS scheduler:
 
 ```bash
-curl -X POST "$PLS_APP_URL/api/jobs/sync-due" \
+curl -X POST "http://127.0.0.1:${PLS_JOBS_PORT:-3008}/api/jobs/sync-due" \
 	-H "Authorization: Bearer $PLS_SCHEDULER_SECRET"
 ```
 
@@ -272,7 +281,7 @@ Schedule the endpoint independently from `PLS_TASKSYNC_INTERVAL`, which sets eac
 Send weekly PRO playlist summaries with the same bearer token:
 
 ```bash
-curl -X POST "$PLS_APP_URL/api/jobs/weekly-sync-summary" \
+curl -X POST "http://127.0.0.1:${PLS_JOBS_PORT:-3008}/api/jobs/weekly-sync-summary" \
 	-H "Authorization: Bearer $PLS_SCHEDULER_SECRET"
 ```
 
@@ -280,11 +289,18 @@ Call it at least once a week; hourly is safe because each opted-in PRO account i
 
 ## Runtime endpoints
 
-- `GET /api/health`: HTTP 200 with `status: "ok"` only when MongoDB responds to a ping; HTTP 503 with `status: "unhealthy"` otherwise
-- `POST /api/jobs/sync-due`: authenticated scheduled batch
-- `POST /api/jobs/weekly-sync-summary`: authenticated weekly PRO sync summary emails
+Website process:
+
+- `GET /api/health`: HTTP 200 with `status: "ok"` only when MongoDB accepts a connection check; HTTP 503 with `status: "unhealthy"` otherwise
 - `POST /api/webhooks/creem`: Creem-signed subscription events
+
+Jobs process (`PLS_JOBS_PORT`):
+
+- `GET /api/health`: same MongoDB connection check as the website process
+- `POST /api/jobs/sync-due`: authenticated scheduled batch
+- `POST /api/jobs/sync-task/:id`: authenticated run of one task
+- `POST /api/jobs/weekly-sync-summary`: authenticated weekly PRO sync summary emails
 
 ## Deployment notes
 
-The production image listens on `0.0.0.0:$PORT`, runs as the image's non-root `bun` user, and contains no environment files or secrets. Supply environment variables through the target platform's secret manager. MongoDB should be a replica set for production resilience, configured with TLS, authentication, backups, and network access restricted to the service.
+The production image listens on `0.0.0.0:$PORT` for the website and can start the jobs process with `bun run jobs` on `0.0.0.0:$PLS_JOBS_PORT`. Both run as the image's non-root `bun` user. The image contains no environment files or secrets. Supply environment variables through the target platform's secret manager. MongoDB should be a replica set for production resilience, configured with TLS, authentication, backups, and network access restricted to the service.

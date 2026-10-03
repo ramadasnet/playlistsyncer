@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test"
 import {idleLeaseFilter} from "../server/domain/sync/task-activity"
-import {isAwaitingFirstSync, isInitialSyncPending, isSyncInProgress, syncLeaseDurationMs} from "../shared/sync-task-activity"
+import {extendedLeaseExpiry, initialSyncLeaseMs, isAwaitingFirstSync, isInitialSyncPending, isSyncInProgress, syncLeaseDurationMs, syncLeaseExtensionMs} from "../shared/sync-task-activity"
 
 const now = Date.parse("2026-10-01T12:00:00.000Z")
 
@@ -36,5 +36,21 @@ describe("sync task activity", () => {
     test("requires the lease to be missing or expired before a mutation", () => {
         const at = new Date(now)
         expect(idleLeaseFilter(at)).toEqual({$or: [{leaseExpiresAt: {$exists: false}}, {leaseExpiresAt: {$lte: at}}]})
+    })
+
+    test("gives a single playlist 15 minutes and adds 5 minutes for each further playlist", () => {
+        expect(initialSyncLeaseMs(0)).toBe(syncLeaseDurationMs)
+        expect(initialSyncLeaseMs(1)).toBe(syncLeaseDurationMs)
+        expect(initialSyncLeaseMs(2)).toBe(syncLeaseDurationMs + syncLeaseExtensionMs)
+        expect(initialSyncLeaseMs(4)).toBe(syncLeaseDurationMs + 3 * syncLeaseExtensionMs)
+    })
+
+    test("extends a lease by 5 minutes only when less than 5 minutes remain", () => {
+        const at = new Date(now)
+        expect(extendedLeaseExpiry(new Date(now + syncLeaseExtensionMs + 1), at)).toBeUndefined()
+        expect(extendedLeaseExpiry(new Date(now + syncLeaseExtensionMs), at)).toBeUndefined()
+        expect(extendedLeaseExpiry(new Date(now + 60_000), at)?.getTime()).toBe(now + 60_000 + syncLeaseExtensionMs)
+        expect(extendedLeaseExpiry(new Date(now - 1), at)?.getTime()).toBe(now + syncLeaseExtensionMs)
+        expect(extendedLeaseExpiry(undefined, at)?.getTime()).toBe(now + syncLeaseExtensionMs)
     })
 })

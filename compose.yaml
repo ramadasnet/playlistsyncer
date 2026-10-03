@@ -1,45 +1,61 @@
 services:
-  app:
-    container_name: playlistsyncer-app
-    restart: unless-stopped
-    build: .
-    env_file: .env
-    environment:
-      HOST: 0.0.0.0
-      PLS_MONGODB_URI: mongodb://mongodb:27017/playlistsync
-      PORT: 3007
-    ports:
-      - "3007:3007"
-    depends_on:
-      mongodb:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "bun",
-          "-e",
-          "const response = await fetch('http://localhost:3007/api/health'); process.exit(response.ok ? 0 : 1)",
-        ]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 10s
+    app:
+        container_name: playlistsyncer-app
+        restart: unless-stopped
+        build: .
+        env_file: .env
+        environment:
+            HOST: 0.0.0.0
+            PLS_MONGODB_URI: mongodb://mongodb:27017/playlistsync
+            PORT: 3007
+        ports:
+            - "3007:3007"
+        depends_on:
+            mongodb:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:3007/api/health'); process.exit(response.ok ? 0 : 1)"]
+            interval: 10s
+            timeout: 10s
+            retries: 10
+            start_period: 10s
 
-  mongodb:
-    container_name: playlistsyncer-db
-    restart: unless-stopped
-    image: mongo:latest
-    command: ["mongod", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb-data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
-      timeout: 4s
-      retries: 10
+    jobs:
+        container_name: playlistsyncer-jobs
+        restart: unless-stopped
+        build: .
+        command: ["bun", "run", "jobs"]
+        env_file: .env
+        environment:
+            HOST: 0.0.0.0
+            PLS_MONGODB_URI: mongodb://mongodb:27017/playlistsync
+            PLS_JOBS_PORT: 3008
+        ports:
+            - "3008:3008"
+        depends_on:
+            mongodb:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:3008/api/health'); process.exit(response.ok ? 0 : 1)"]
+            interval: 10s
+            timeout: 10s
+            retries: 10
+            start_period: 10s
+
+    mongodb:
+        container_name: playlistsyncer-db
+        restart: unless-stopped
+        image: mongo:latest
+        command: ["mongod", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+        ports:
+            - "27017:27017"
+        volumes:
+            - mongodb-data:/data/db
+        healthcheck:
+            test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+            interval: 10s
+            timeout: 4s
+            retries: 10
 
 volumes:
-  mongodb-data:
+    mongodb-data:

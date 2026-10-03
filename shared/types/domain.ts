@@ -208,10 +208,21 @@ export interface CanonicalTrack {
     providerTrackId: string
 }
 
-// Last known source and destination state for a sync task.
+// Tracks from one playlist pair inside a full-sync snapshot batch.
+export interface AccountSnapshotPlaylist {
+    sourcePlaylistId: string
+    destinationPlaylistId: string
+    name: string
+    sourceItems: CanonicalTrack[]
+    destinationItems: CanonicalTrack[]
+}
+
+// Last known playlist state for a sync task. A playlist task uses the track arrays. A full sync uses batches of playlist pairs.
 export interface SyncSnapshotDocument {
     _id?: ObjectId
     taskId: ObjectId
+    batch?: number
+    playlists?: AccountSnapshotPlaylist[]
     sourceItems: CanonicalTrack[]
     destinationItems: CanonicalTrack[]
     createdAt: Date

@@ -93,6 +93,11 @@ export function resolveAppUrl(environment: Record<string, string | undefined>): 
 
 let cachedConfig: ServerConfig | undefined
 
+// Drop the cached configuration so a test can observe environment changes.
+export function clearServerConfigCache(): void {
+    cachedConfig = undefined
+}
+
 // Load configuration once so every request observes the same validated values.
 export function getServerConfig(): ServerConfig {
     if (!cachedConfig) {

@@ -7,6 +7,7 @@ import type {UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig, requireConfig} from "../../utils/config"
 import logger from "../../utils/logger"
+import {isDuplicateKeyError} from "../../utils/mongodb"
 import {sendMail, type OutboundEmail} from "../mail/send"
 import {hashOpaqueToken} from "./session"
 
@@ -138,10 +139,6 @@ export function evaluateCancelPendingEmail(user: Pick<UserDocument, "tempEmail">
     return {ok: true}
 }
 
-function isDuplicateKey(error: unknown): boolean {
-    return Boolean(error && typeof error === "object" && "code" in error && error.code === 11000)
-}
-
 // Reserve an email, send its confirmation message, and expose dev-only links.
 export async function requestEmailConfirmation(
     user: UserDocument,
@@ -181,7 +178,7 @@ export async function requestEmailConfirmation(
     try {
         await db.users.updateOne({_id: user._id}, pendingEmailUpdate(prepared, now))
     } catch (error) {
-        if (isDuplicateKey(error)) {
+        if (isDuplicateKeyError(error)) {
             throw createError({statusCode: 409, statusMessage: "This email is already registered"})
         }
         throw error
@@ -229,7 +226,7 @@ export async function confirmEmail(token: string, options: {now?: Date; secret?:
     try {
         await db.users.updateOne({_id: user._id}, confirmedEmailUpdate(evaluation.email, now))
     } catch (error) {
-        if (isDuplicateKey(error)) {
+        if (isDuplicateKeyError(error)) {
             throw createError({statusCode: 409, statusMessage: "This email is already registered"})
         }
         throw error

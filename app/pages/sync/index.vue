@@ -374,8 +374,10 @@ onUnmounted(() => {
                 </label>
             </fieldset>
             <div class="builder-footer">
-                <p v-if="syncAllPlaylists">Playlists are matched by name. Missing playlists are created and removed master playlists are deleted from the mirrored account.</p>
-                <p v-else-if="effectiveDirection === 'one-way'">Later runs copy the master's additions and removals onto the mirror playlist only.</p>
+                <p v-if="syncAllPlaylists" class="builder-warning">
+                    Playlists are matched by name. Missing playlists are created. Existing playlists on the target will be overwritten. Playlists deleted from the master will not be deleted from the target.
+                </p>
+                <p v-else-if="effectiveDirection === 'one-way'" class="builder-warning">The target playlist will be fully cleared once the sync starts.</p>
                 <p v-else>The first run copies missing source tracks. Later runs reconcile changes in both directions.</p>
                 <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create sync task</button>
             </div>

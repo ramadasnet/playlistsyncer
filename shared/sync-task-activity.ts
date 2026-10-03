@@ -1,7 +1,24 @@
 // Shared busy check so the task list and the API refuse the same in-progress syncs.
 
 export const syncLeaseDurationMs = 15 * 60 * 1000
+export const syncLeaseExtensionMs = 5 * 60 * 1000
 export const syncTaskBusyMessage = "This sync task is still running"
+
+// A single playlist gets 15 minutes. Each playlist after the first adds 5 minutes.
+export function initialSyncLeaseMs(playlistCount: number): number {
+    const count = Math.max(0, Math.floor(playlistCount))
+    return syncLeaseDurationMs + Math.max(0, count - 1) * syncLeaseExtensionMs
+}
+
+// Add one 5-minute increment when the current lease ends inside the next extension window.
+export function extendedLeaseExpiry(current: Date | undefined, now: Date, extensionMs = syncLeaseExtensionMs): Date | undefined {
+    const nowMs = now.getTime()
+    const currentMs = current?.getTime()
+    const currentIsFuture = currentMs !== undefined && Number.isFinite(currentMs) && currentMs > nowMs
+    if (currentIsFuture && currentMs >= nowMs + extensionMs) return undefined
+    const base = currentIsFuture ? currentMs : nowMs
+    return new Date(base + extensionMs)
+}
 
 // Read a stored timestamp whether the API sent a string or Mongo returned a Date.
 function timestamp(value: unknown) {

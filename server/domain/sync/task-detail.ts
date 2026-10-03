@@ -3,6 +3,7 @@ import type {ObjectId} from "mongodb"
 import type {AccountTier, Provider} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {canViewRunHistory, proRunHistoryLimit, selectVisibleRuns, serializeSyncRun, serializeSyncTask} from "./history-visibility"
+import {combinedSnapshot} from "./snapshot-batches"
 import {fillMissingRunTrackDurations} from "./track-durations"
 
 async function providerFor(accountId: ObjectId, userId: ObjectId): Promise<Provider | null> {
@@ -16,12 +17,13 @@ export async function loadSyncTaskDetail(userId: ObjectId, taskId: ObjectId, tie
     const db = await collections()
     const task = await db.syncTasks.findOne({_id: taskId, userId})
     if (!task) return null
-    const [sourceProvider, destinationProvider, runs, snapshot] = await Promise.all([
+    const [sourceProvider, destinationProvider, runs, snapshots] = await Promise.all([
         providerFor(task.source.providerAccountId, userId),
         providerFor(task.destination.providerAccountId, userId),
         db.syncRuns.find({taskId}).sort({startedAt: -1}).limit(proRunHistoryLimit).toArray(),
-        db.syncSnapshots.findOne({taskId})
+        db.syncSnapshots.find({taskId}).toArray()
     ])
+    const snapshot = combinedSnapshot(snapshots)
     const visibleRuns = selectVisibleRuns(runs, tier)
     const runsWithDurations = await fillMissingRunTrackDurations(userId, visibleRuns, [task.source.providerAccountId, task.destination.providerAccountId])
     const latest = runsWithDurations[0]
