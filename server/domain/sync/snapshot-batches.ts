@@ -34,5 +34,5 @@ export async function saveAccountSnapshotBatches(taskId: ObjectId, playlists: Ac
     for (const [batch, playlistsInBatch] of batches.entries()) {
         await db.syncSnapshots.updateOne({taskId, batch}, {$set: {playlists: playlistsInBatch, sourceItems: [], destinationItems: [], createdAt: new Date()}}, {upsert: true})
     }
-    await db.syncSnapshots.deleteMany({taskId, $or: [{batch: {$gte: batches.length}}, {batch: {$exists: false}}]})
+    await db.syncSnapshots.deleteMany({taskId, batch: {$gte: batches.length}})
 }

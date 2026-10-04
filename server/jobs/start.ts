@@ -27,7 +27,7 @@ export async function startJobsServer(): Promise<Server> {
     if (!config.mongodbUri) {
         throw new Error("PLS_MONGODB_URI is not configured")
     }
-    // Only this process creates indexes, so the website does not race the same migration.
+    // Only this process creates indexes, so the website does not race the same startup.
     logger.info("Jobs.startup", "Ensuring MongoDB indexes")
     await ensureIndexes()
     logger.info("Jobs.startup", "MongoDB indexes ready")
