@@ -3,6 +3,7 @@ import type {ObjectId} from "mongodb"
 import type {AccountTier, Provider} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {canViewRunHistory, proRunHistoryLimit, selectVisibleRuns, serializeSyncRun, serializeSyncTask} from "./history-visibility"
+import {snapshotDurationsForTracks, tracksMissingDuration} from "./snapshot-batches"
 import {fillMissingRunTrackDurations} from "./track-durations"
 
 async function providerFor(accountId: ObjectId, userId: ObjectId): Promise<Provider | null> {
@@ -16,14 +17,15 @@ export async function loadSyncTaskDetail(userId: ObjectId, taskId: ObjectId, tie
     const db = await collections()
     const task = await db.syncTasks.findOne({_id: taskId, userId})
     if (!task) return null
-    const [sourceProvider, destinationProvider, runs, snapshots] = await Promise.all([
+    const [sourceProvider, destinationProvider, runs] = await Promise.all([
         providerFor(task.source.providerAccountId, userId),
         providerFor(task.destination.providerAccountId, userId),
-        db.syncRuns.find({taskId}).sort({startedAt: -1}).limit(proRunHistoryLimit).toArray(),
-        db.syncSnapshots.find({taskId}).toArray()
+        db.syncRuns.find({taskId}).sort({startedAt: -1}).limit(proRunHistoryLimit).toArray()
     ])
     const visibleRuns = selectVisibleRuns(runs, tier)
     const runsWithDurations = await fillMissingRunTrackDurations(userId, visibleRuns, [task.source.providerAccountId, task.destination.providerAccountId])
+    // Only the tracks still missing a length are looked up, so the page does not load every playlist in the account snapshot.
+    const snapshots = await snapshotDurationsForTracks(taskId, tracksMissingDuration(runsWithDurations))
     const latest = runsWithDurations[0]
     return {
         task: serializeSyncTask(

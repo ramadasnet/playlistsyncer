@@ -1,6 +1,6 @@
 // Store a full-sync snapshot as several documents so one field stays within Firestore's limit.
-import type {ObjectId} from "mongodb"
-import type {AccountSnapshotPlaylist, CanonicalTrack, SyncSnapshotDocument} from "~~/shared/types/domain"
+import type {Document, ObjectId} from "mongodb"
+import type {AccountSnapshotPlaylist, CanonicalTrack, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 
 // Thirty playlists stay under the 4 MiB field limit for ordinary track metadata.
@@ -48,6 +48,92 @@ export function combinedSnapshot(snapshots: SyncSnapshotDocument[]): Pick<SyncSn
         destinationItems.push(...snapshot.destinationItems, ...(snapshot.playlists || []).flatMap((playlist) => playlist.destinationItems))
     }
     return {sourceItems, destinationItems}
+}
+
+type SnapshotDurationItem = Pick<CanonicalTrack, "providerTrackId" | "providerItemId" | "durationMs">
+
+// Run tracks that still need a length from the snapshot.
+export function tracksMissingDuration(runs: readonly Pick<SyncRunDocument, "addedTracks" | "removedTracks" | "unmatchedTracks">[]): Pick<SyncRunTrackReference, "providerTrackId" | "providerItemId">[] {
+    return runs.flatMap((run) =>
+        [...run.addedTracks, ...run.removedTracks, ...run.unmatchedTracks].flatMap((track) => {
+            if (track.durationMs || (!track.providerTrackId && !track.providerItemId)) return []
+            return [{providerTrackId: track.providerTrackId, ...(track.providerItemId ? {providerItemId: track.providerItemId} : {})}]
+        })
+    )
+}
+
+// Build the aggregation that returns durations for the requested tracks only.
+export function snapshotDurationPipeline(taskId: ObjectId, trackIds: readonly string[], itemIds: readonly string[]): Document[] {
+    const idMatches = [...(trackIds.length ? [{$in: ["$$item.providerTrackId", [...trackIds]]}] : []), ...(itemIds.length ? [{$in: ["$$item.providerItemId", [...itemIds]]}] : [])]
+    if (!idMatches.length) return [{$match: {_id: null}}]
+    return [
+        {$match: {taskId}},
+        {$sort: {batch: 1}},
+        {
+            $project: {
+                items: {
+                    $map: {
+                        input: {
+                            $filter: {
+                                input: {
+                                    $concatArrays: [
+                                        {$ifNull: ["$sourceItems", []]},
+                                        {$ifNull: ["$destinationItems", []]},
+                                        {
+                                            $reduce: {
+                                                input: {$ifNull: ["$playlists", []]},
+                                                initialValue: [],
+                                                in: {
+                                                    $concatArrays: ["$$value", {$ifNull: ["$$this.sourceItems", []]}, {$ifNull: ["$$this.destinationItems", []]}]
+                                                }
+                                            }
+                                        }
+                                    ]
+                                },
+                                as: "item",
+                                cond: {$and: [{$gt: ["$$item.durationMs", 0]}, idMatches.length === 1 ? idMatches[0] : {$or: idMatches}]}
+                            }
+                        },
+                        as: "item",
+                        in: {providerTrackId: "$$item.providerTrackId", providerItemId: "$$item.providerItemId", durationMs: "$$item.durationMs"}
+                    }
+                }
+            }
+        },
+        {$match: {"items.0": {$exists: true}}}
+    ]
+}
+
+// Turn matched snapshot rows into the track list duration lookup expects.
+export function snapshotForDurations(items: readonly SnapshotDurationItem[]): Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems"> | undefined {
+    const sourceItems = items.flatMap((item) => {
+        if (!item.durationMs || item.durationMs <= 0 || !item.providerTrackId) return []
+        return [
+            {
+                occurrenceId: item.providerItemId || item.providerTrackId,
+                canonicalKey: item.providerTrackId,
+                title: "",
+                artists: [],
+                providerItemId: item.providerItemId || "",
+                providerTrackId: item.providerTrackId,
+                durationMs: item.durationMs
+            }
+        ]
+    })
+    if (!sourceItems.length) return undefined
+    return {sourceItems, destinationItems: []}
+}
+
+// Read durations for the displayed tracks. Tracks that already have a length are not queried.
+export async function snapshotDurationsForTracks(taskId: ObjectId, tracks: readonly Pick<SyncRunTrackReference, "providerTrackId" | "providerItemId">[]): Promise<SyncSnapshotDocument[]> {
+    const trackIds = [...new Set(tracks.map((track) => track.providerTrackId).filter(Boolean))]
+    const itemIds = [...new Set(tracks.flatMap((track) => (track.providerItemId ? [track.providerItemId] : [])))]
+    if (!trackIds.length && !itemIds.length) return []
+    const db = await collections()
+    const matches = await db.syncSnapshots.aggregate<{items?: SnapshotDurationItem[]}>(snapshotDurationPipeline(taskId, trackIds, itemIds)).toArray()
+    const lookup = snapshotForDurations(matches.flatMap((match) => match.items || []))
+    if (!lookup) return []
+    return [{taskId, sourceItems: lookup.sourceItems, destinationItems: [], createdAt: new Date()}]
 }
 
 // Replace a task's full-sync snapshot with batches of at most 30 playlists.

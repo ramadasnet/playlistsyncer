@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
 import type {AccountSnapshotPlaylist, SyncSnapshotDocument} from "../shared/types/domain"
-import {accountSnapshotBatches, accountSnapshotPlaylistBatchSize, combinedSnapshot, snapshotItemsForPlaylist} from "../server/domain/sync/snapshot-batches"
+import {accountSnapshotBatches, accountSnapshotPlaylistBatchSize, combinedSnapshot, snapshotDurationPipeline, snapshotForDurations, snapshotItemsForPlaylist, tracksMissingDuration} from "../server/domain/sync/snapshot-batches"
 
 function playlist(index: number): AccountSnapshotPlaylist {
     return {
@@ -53,5 +53,36 @@ describe("full sync snapshot batches", () => {
         ]
         expect(snapshotItemsForPlaylist(snapshots, "source-a", "source")).toEqual([track])
         expect(snapshotItemsForPlaylist(snapshots, "missing", "source")).toEqual([])
+    })
+
+    test("asks the snapshot only for displayed tracks that still have no length", () => {
+        const accountId = new ObjectId()
+        const withLength = {providerAccountId: accountId, playlistId: "dst", providerTrackId: "known", providerItemId: "item-known", title: "Known", artists: ["Ada"], durationMs: 1000}
+        const missing = {providerAccountId: accountId, playlistId: "dst", providerTrackId: "missing", providerItemId: "item-missing", title: "Missing", artists: ["Bea"]}
+        const runs = [{addedTracks: [withLength, missing], removedTracks: [], unmatchedTracks: []}]
+        expect(tracksMissingDuration(runs)).toEqual([{providerTrackId: "missing", providerItemId: "item-missing"}])
+        const taskId = new ObjectId()
+        const pipeline = snapshotDurationPipeline(taskId, ["missing"], ["item-missing"])
+        expect(pipeline[0]).toEqual({$match: {taskId}})
+        expect(JSON.stringify(pipeline)).toContain("missing")
+        expect(JSON.stringify(pipeline)).not.toContain("known")
+        expect(
+            snapshotForDurations([
+                {providerTrackId: "missing", providerItemId: "item-missing", durationMs: 180000},
+                {providerTrackId: "silent", providerItemId: "item-silent", durationMs: 0}
+            ])?.sourceItems
+        ).toEqual([
+            {
+                occurrenceId: "item-missing",
+                canonicalKey: "missing",
+                title: "",
+                artists: [],
+                providerItemId: "item-missing",
+                providerTrackId: "missing",
+                durationMs: 180000
+            }
+        ])
+        expect(snapshotForDurations([])).toBeUndefined()
+        expect(snapshotDurationPipeline(taskId, [], [])).toEqual([{$match: {_id: null}}])
     })
 })
