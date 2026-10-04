@@ -13,6 +13,8 @@ services:
         depends_on:
             mongodb:
                 condition: service_healthy
+            jobs:
+                condition: service_healthy
         healthcheck:
             test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:3007/api/health'); process.exit(response.ok ? 0 : 1)"]
             interval: 10s
@@ -31,7 +33,7 @@ services:
             PLS_MONGODB_URI: mongodb://mongodb:27017/playlistsync
             PLS_JOBS_PORT: 3008
         ports:
-            - "3008:3008"
+            - "127.0.0.1:3008:3008"
         depends_on:
             mongodb:
                 condition: service_healthy

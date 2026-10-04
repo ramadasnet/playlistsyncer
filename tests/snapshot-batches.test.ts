@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
 import type {AccountSnapshotPlaylist, SyncSnapshotDocument} from "../shared/types/domain"
-import {accountSnapshotBatches, accountSnapshotPlaylistBatchSize, combinedSnapshot} from "../server/domain/sync/snapshot-batches"
+import {accountSnapshotBatches, accountSnapshotPlaylistBatchSize, combinedSnapshot, snapshotItemsForPlaylist} from "../server/domain/sync/snapshot-batches"
 
 function playlist(index: number): AccountSnapshotPlaylist {
     return {
@@ -37,5 +37,21 @@ describe("full sync snapshot batches", () => {
         ]
         expect(combinedSnapshot(snapshots)?.sourceItems.map((item) => item.title)).toEqual(["A"])
         expect(combinedSnapshot([])).toBeUndefined()
+    })
+
+    test("reads playlist tracks from full-sync batches", () => {
+        const track = {occurrenceId: "a", canonicalKey: "meta:a:artist", title: "A", artists: ["Artist"], providerItemId: "a", providerTrackId: "track-a"}
+        const snapshots = [
+            {
+                taskId: new ObjectId(),
+                batch: 0,
+                playlists: [{...playlist(0), sourcePlaylistId: "source-a", destinationPlaylistId: "dest-a", sourceItems: [track], destinationItems: []}],
+                sourceItems: [],
+                destinationItems: [],
+                createdAt: new Date()
+            }
+        ]
+        expect(snapshotItemsForPlaylist(snapshots, "source-a", "source")).toEqual([track])
+        expect(snapshotItemsForPlaylist(snapshots, "missing", "source")).toEqual([])
     })
 })

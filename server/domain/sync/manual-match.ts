@@ -6,6 +6,7 @@ import logger from "../../utils/logger"
 import {getProviderAdapter, type ProviderTrack} from "../providers"
 import {rankSimilarTracks} from "../providers/matching"
 import {unmatchedTracksFromSnapshot} from "./history-visibility"
+import {combinedSnapshot, loadTaskSnapshots, snapshotItemsForPlaylist} from "./snapshot-batches"
 import {saveMergedPlaylistMappings} from "./playlist-mappings"
 import {isSafeModeEnabled, safeModeWriteBlockedMessage} from "./safe-mode"
 import {assertSyncTaskIdle} from "./task-activity"
@@ -200,8 +201,9 @@ async function resolveUnmatchedReference(task: SyncTaskDocument, identity: Unmat
     const runId = identity.runId && ObjectId.isValid(identity.runId) ? new ObjectId(identity.runId) : undefined
     const run: SyncRunDocument | null = runId ? await db.syncRuns.findOne({_id: runId, taskId: task._id}) : await db.syncRuns.findOne({taskId: task._id, status: {$ne: "running"}}, {sort: {startedAt: -1}})
     const fromRun = run?.unmatchedTracks.find((track) => unmatchedTrackMatches(track, identity))
-    const snapshot = await db.syncSnapshots.findOne({taskId: task._id})
-    const fromSnapshot = snapshot ? unmatchedTracksFromSnapshot(snapshot, task).find((track) => unmatchedTrackMatches(track, identity)) : undefined
+    const snapshots = await loadTaskSnapshots(task._id!)
+    const flattened = combinedSnapshot(snapshots)
+    const fromSnapshot = flattened ? unmatchedTracksFromSnapshot(flattened, task).find((track) => unmatchedTrackMatches(track, identity)) : undefined
     const unmatched = fromSnapshot || fromRun
     if (!unmatched) {
         throw createError({statusCode: 404, statusMessage: "Unmatched track was not found"})
@@ -219,8 +221,8 @@ function flippedMatchTarget(target: MatchTarget, unmatchedPlaylistId: string, un
 }
 
 async function locateUnmatchedPlacement(task: SyncTaskDocument, identity: UnmatchedTrackIdentity, unmatched: SyncRunTrackReference) {
-    const db = await collections()
-    const snapshot = await db.syncSnapshots.findOne({taskId: task._id})
+    const snapshots = await loadTaskSnapshots(task._id!)
+    const flattened = combinedSnapshot(snapshots)
     let target: MatchTarget
     try {
         target = resolveMatchTarget(task, unmatched.playlistId)
@@ -236,19 +238,20 @@ async function locateUnmatchedPlacement(task: SyncTaskDocument, identity: Unmatc
         const account = await loadAccount(accountId, task.userId)
         const live = (await getProviderAdapter(account.provider).getPlaylistItems(account, candidate.playlistId)).find((track) => liveTrackMatches(track, identity))
         if (live) {
-            const snapshotItems = candidate.target.unmatchedSide === "source" ? snapshot?.sourceItems || [] : snapshot?.destinationItems || []
-            return {target: candidate.target, unmatchedAccount: account, live, playlistId: candidate.playlistId, snapshot, snapshotItem: findSnapshotItem(snapshotItems, identity)}
+            const snapshotItems = snapshotItemsForPlaylist(snapshots, candidate.playlistId, candidate.target.unmatchedSide)
+            return {target: candidate.target, unmatchedAccount: account, live, playlistId: candidate.playlistId, snapshot: flattened, snapshotItem: findSnapshotItem(snapshotItems, identity)}
         }
     }
     const fallback = candidates[0]
     const unmatchedAccount = await loadAccount((fallback?.target.unmatchedSide || target.unmatchedSide) === "source" ? task.source.providerAccountId : task.destination.providerAccountId, task.userId)
-    const snapshotItems = (fallback?.target.unmatchedSide || target.unmatchedSide) === "source" ? snapshot?.sourceItems || [] : snapshot?.destinationItems || []
+    const side = (fallback?.target.unmatchedSide || target.unmatchedSide) === "source" ? "source" : "destination"
+    const snapshotItems = snapshotItemsForPlaylist(snapshots, fallback?.playlistId || unmatched.playlistId, side)
     return {
         target: fallback?.target || target,
         unmatchedAccount,
         live: undefined as ProviderTrack | undefined,
         playlistId: fallback?.playlistId || unmatched.playlistId,
-        snapshot,
+        snapshot: flattened,
         snapshotItem: findSnapshotItem(snapshotItems, identity)
     }
 }
@@ -386,7 +389,7 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
         })
     } else {
         const aliases = manualMatchAliases(
-            placement.snapshot,
+            placement.snapshot ?? null,
             {providerItemId: liveUnmatched.itemId, providerTrackId: liveUnmatched.trackId},
             {providerItemId: addedLive.itemId || addedIds.providerItemId, providerTrackId: addedLive.trackId},
             sharedKey

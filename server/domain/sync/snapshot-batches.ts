@@ -1,6 +1,6 @@
 // Store a full-sync snapshot as several documents so one field stays within Firestore's limit.
 import type {ObjectId} from "mongodb"
-import type {AccountSnapshotPlaylist, SyncSnapshotDocument} from "~~/shared/types/domain"
+import type {AccountSnapshotPlaylist, CanonicalTrack, SyncSnapshotDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 
 // Thirty playlists stay under the 4 MiB field limit for ordinary track metadata.
@@ -13,6 +13,29 @@ export function accountSnapshotBatches<T>(playlists: T[], size = accountSnapshot
         batches.push(playlists.slice(index, index + size))
     }
     return batches
+}
+
+// Read every snapshot document stored for one sync task.
+export async function loadTaskSnapshots(taskId: ObjectId): Promise<SyncSnapshotDocument[]> {
+    const db = await collections()
+    return db.syncSnapshots.find({taskId}).toArray()
+}
+
+// Return snapshot tracks for one playlist on either side of a sync task.
+export function snapshotItemsForPlaylist(snapshots: readonly SyncSnapshotDocument[], playlistId: string, side: "source" | "destination"): CanonicalTrack[] {
+    for (const snapshot of snapshots) {
+        for (const playlist of snapshot.playlists || []) {
+            const id = side === "source" ? playlist.sourcePlaylistId : playlist.destinationPlaylistId
+            if (id === playlistId) {
+                return side === "source" ? playlist.sourceItems : playlist.destinationItems
+            }
+        }
+    }
+    const single = snapshots.find((snapshot) => !snapshot.playlists?.length)
+    if (single) {
+        return side === "source" ? single.sourceItems : single.destinationItems
+    }
+    return []
 }
 
 // Flatten playlist and full-sync batches into the track arrays duration lookup expects.

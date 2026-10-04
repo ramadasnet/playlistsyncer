@@ -67,8 +67,10 @@ async function extendSyncLease(taskId: ObjectId, leaseId: string, now = new Date
     const updated = await db.syncTasks.updateOne({_id: taskId, leaseId, leaseExpiresAt: {$lt: next}}, {$set: {leaseExpiresAt: next}})
     if (updated.matchedCount) {
         logger.info("Sync.lease", `Task ${taskId.toHexString()}`, `Extended by ${syncLeaseExtensionMs / 60000}m until ${next.toISOString()}`)
+        return true
     }
-    return true
+    const stillOwned = await db.syncTasks.findOne({_id: taskId, leaseId}, {projection: {_id: 1}})
+    return Boolean(stillOwned)
 }
 
 // Raise a full-sync lease to 15 minutes plus 5 minutes per playlist after the first, without shortening it.
@@ -77,9 +79,13 @@ async function applyInitialSyncLease(taskId: ObjectId, leaseId: string, playlist
     const owned = await db.syncTasks.findOne({_id: taskId, leaseId}, {projection: {_id: 1}})
     if (!owned) return false
     const expiresAt = new Date(now.getTime() + initialSyncLeaseMs(playlistCount))
-    await db.syncTasks.updateOne({_id: taskId, leaseId, $or: [{leaseExpiresAt: {$exists: false}}, {leaseExpiresAt: {$lt: expiresAt}}]}, {$set: {leaseExpiresAt: expiresAt}})
-    logger.info("Sync.lease", `Task ${taskId.toHexString()}`, `Initial lease ${initialSyncLeaseMs(playlistCount) / 60000}m`, `Playlists ${playlistCount}`)
-    return true
+    const updated = await db.syncTasks.updateOne({_id: taskId, leaseId, $or: [{leaseExpiresAt: {$exists: false}}, {leaseExpiresAt: {$lt: expiresAt}}]}, {$set: {leaseExpiresAt: expiresAt}})
+    if (updated.matchedCount) {
+        logger.info("Sync.lease", `Task ${taskId.toHexString()}`, `Initial lease ${initialSyncLeaseMs(playlistCount) / 60000}m`, `Playlists ${playlistCount}`)
+        return true
+    }
+    const stillOwned = await db.syncTasks.findOne({_id: taskId, leaseId}, {projection: {_id: 1}})
+    return Boolean(stillOwned)
 }
 
 // Keep the lease alive for this run and remember when another run has taken it.

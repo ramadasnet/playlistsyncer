@@ -27,7 +27,7 @@ The service has two plans, Free and PRO:
 
 - Main web server: API + frontend
 - Scheduler web server: endpoints to trigger scheduled functions (using GCP Cloud Scheduler)
-- Mongo Atlas: database
+- MongoDB: local MongoDB, MongoDB Atlas, Firestore-compatible API, or Amazon DocumentDB
 
 ## Deployment
 

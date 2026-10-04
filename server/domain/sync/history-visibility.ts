@@ -71,10 +71,18 @@ function trackSide(track: SyncRunTrackReference, task?: Pick<SyncTaskDocument, "
     return undefined
 }
 
-function snapshotDuration(track: SyncRunTrackReference, snapshot?: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">) {
-    if (!snapshot) return undefined
-    const items = [...snapshot.sourceItems, ...snapshot.destinationItems]
-    return items.find((item) => item.providerTrackId === track.providerTrackId || (track.providerItemId && item.providerItemId === track.providerItemId))?.durationMs
+function snapshotDuration(track: SyncRunTrackReference, snapshots?: readonly SyncSnapshotDocument[]) {
+    if (!snapshots?.length) return undefined
+    const findDuration = (items: CanonicalTrack[]) => items.find((item) => item.providerTrackId === track.providerTrackId || (track.providerItemId && item.providerItemId === track.providerItemId))?.durationMs
+    for (const snapshot of snapshots) {
+        const direct = findDuration(snapshot.sourceItems) ?? findDuration(snapshot.destinationItems)
+        if (direct) return direct
+        for (const playlist of snapshot.playlists || []) {
+            const nested = findDuration(playlist.sourceItems) ?? findDuration(playlist.destinationItems)
+            if (nested) return nested
+        }
+    }
+    return undefined
 }
 
 // Copy catalog durations onto stored run tracks that were saved without length.
@@ -87,12 +95,12 @@ export function withTrackDurations(tracks: SyncRunTrackReference[], durations: M
 }
 
 // Public label for a stored run track.
-export function serializeRunTrack(track: SyncRunTrackReference, task?: Pick<SyncTaskDocument, "source" | "destination">, snapshot?: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">): SerializedRunTrack {
+export function serializeRunTrack(track: SyncRunTrackReference, task?: Pick<SyncTaskDocument, "source" | "destination">, snapshots?: readonly SyncSnapshotDocument[]): SerializedRunTrack {
     const title = track.title.trim() || "Unknown track"
     const artists = track.artists.map((artist) => artist.trim()).filter(Boolean)
     const playlistName = track.playlistName?.trim()
     const side = trackSide(track, task)
-    const durationMs = track.durationMs || snapshotDuration(track, snapshot)
+    const durationMs = track.durationMs || snapshotDuration(track, snapshots)
     return {
         title,
         artists,
@@ -110,7 +118,7 @@ export function serializeRunTrack(track: SyncRunTrackReference, task?: Pick<Sync
 export function serializeSyncRun(
     run: SyncRunDocument,
     task?: Pick<SyncTaskDocument, "source" | "destination">,
-    snapshot?: Pick<SyncSnapshotDocument, "sourceItems" | "destinationItems">,
+    snapshots?: readonly SyncSnapshotDocument[],
     newerRuns: Pick<SyncRunDocument, "status" | "failureReason" | "reverseSync">[] = []
 ): SerializedSyncRun {
     const offer = availableReverseSync(run, newerRuns)
@@ -129,9 +137,9 @@ export function serializeSyncRun(
         ...(run.reverseSync ? {reverseSync: run.reverseSync} : {}),
         ...(offer ? {availableReverseSync: offer} : {}),
         ...(run.progress ? {progress: run.progress} : {}),
-        addedTracks: run.addedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
-        removedTracks: run.removedTracks.map((track) => serializeRunTrack(track, task, snapshot)),
-        unmatchedTracks: run.unmatchedTracks.map((track) => serializeRunTrack(track, task, snapshot))
+        addedTracks: run.addedTracks.map((track) => serializeRunTrack(track, task, snapshots)),
+        removedTracks: run.removedTracks.map((track) => serializeRunTrack(track, task, snapshots)),
+        unmatchedTracks: run.unmatchedTracks.map((track) => serializeRunTrack(track, task, snapshots))
     }
 }
 
