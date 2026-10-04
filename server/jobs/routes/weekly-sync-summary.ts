@@ -1,4 +1,5 @@
 // Send due weekly synchronization summaries from a scheduler request.
+import {defineEventHandler} from "h3"
 import {collections} from "../../data/collections"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {sendMail} from "../../domain/mail/send"

@@ -8,6 +8,7 @@ import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
 import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
+import {isDuplicateKeyError} from "../../utils/mongodb"
 import {decryptSecret, encryptSecret} from "../../utils/secrets"
 import {getOAuthProvider, type OAuthProfile} from "./providers"
 import {isProviderEnabled} from "../../utils/provider-availability"
@@ -174,7 +175,7 @@ async function assignVerifiedProviderEmail(user: UserDocument, profile: OAuthPro
         logger.info("OAuth.assignEmail", `User ${user._id!.toHexString()}`, "Assigned verified provider email")
         return {...user, email, tempEmail: undefined}
     } catch (error) {
-        if (error && typeof error === "object" && "code" in error && error.code === 11000) {
+        if (isDuplicateKeyError(error)) {
             return user
         }
         throw error

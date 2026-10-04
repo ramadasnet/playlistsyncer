@@ -6,6 +6,7 @@ import {collections} from "../../data/collections"
 import {getServerConfig, requireConfig} from "../../utils/config"
 import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
+import {isDuplicateKeyError} from "../../utils/mongodb"
 import {applyTaskEntitlement} from "./task-entitlement"
 
 let creemClient: Creem | undefined
@@ -65,7 +66,7 @@ export async function processCreemEvent(event: WebhookEventEntity): Promise<void
     try {
         await db.webhookEvents.insertOne({eventId: event.id, type: event.eventType, status: "processing", processedAt: new Date()})
     } catch (error) {
-        if (error && typeof error === "object" && "code" in error && error.code === 11000) {
+        if (isDuplicateKeyError(error)) {
             const existing = await db.webhookEvents.findOne({eventId: event.id})
             if (!existing || existing.status === "processed" || !existing.status) {
                 logger.info("Creem.processEvent", `Event ${event.id}`, `Type ${event.eventType}`, "Duplicate ignored")

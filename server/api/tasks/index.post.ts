@@ -5,9 +5,11 @@ import {collections} from "../../data/collections"
 import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {getProviderAdapter} from "../../domain/providers"
+import {accountSyncPairField} from "../../domain/sync/account-sync-pair"
 import {runSyncTask} from "../../domain/sync/engine"
 import {isSafeModeEnabled, logSafeModeCreatePlaylist, safeModeWriteBlockedMessage} from "../../domain/sync/safe-mode"
 import logger from "../../utils/logger"
+import {isDuplicateKeyError} from "../../utils/mongodb"
 import {parseObjectId} from "../../utils/object-id"
 import {accountSyncConflictMessage, accountSyncProviderPairKey, findAccountSyncBetweenProviders, type SyncTaskDirection} from "~~/shared/types/domain"
 
@@ -83,16 +85,16 @@ export default defineEventHandler(async (event) => {
     }
     const direction: SyncTaskDirection = body.mode === "account" ? "one-way" : body.direction
     const now = new Date()
-    // The unique index on {userId, accountSyncPairKey} (for mode "account") is the source of truth for provider-pair
-    // uniqueness; the earlier read-then-check is only a fast path for a friendlier error message.
-    const accountSyncPairKey = body.mode === "account" ? accountSyncProviderPairKey(sourceAccount.provider, destinationAccount.provider) : undefined
+    // The single-field sparse unique index on accountSyncPairKey is the source of truth for one full
+    // sync per user and provider pair. The earlier read is only a fast path for a friendlier error.
+    const accountSyncPairKey = accountSyncProviderPairKey(sourceAccount.provider, destinationAccount.provider)
     let result: {insertedId: ObjectId}
     try {
         result = await db.syncTasks.insertOne({
             userId: user._id!,
             mode: body.mode,
             direction,
-            accountSyncPairKey,
+            ...accountSyncPairField(body.mode, user._id!.toHexString(), accountSyncPairKey),
             source: {providerAccountId: sourceAccountId, playlistId: body.source.playlistId, name: body.source.name},
             destination: {
                 providerAccountId: destinationAccountId,
@@ -105,7 +107,7 @@ export default defineEventHandler(async (event) => {
             updatedAt: now
         })
     } catch (error) {
-        if (error && typeof error === "object" && "code" in error && error.code === 11000) {
+        if (isDuplicateKeyError(error)) {
             logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, `Account sync already exists between ${sourceAccount.provider} and ${destinationAccount.provider}`)
             throw createError({statusCode: 409, statusMessage: accountSyncConflictMessage({sourceProvider: sourceAccount.provider, destinationProvider: destinationAccount.provider})})
         }

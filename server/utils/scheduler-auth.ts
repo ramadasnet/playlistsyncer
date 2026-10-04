@@ -1,6 +1,6 @@
 // Authenticate internal scheduler requests without exposing the secret directly.
 import {createHash, timingSafeEqual} from "node:crypto"
-import type {H3Event} from "h3"
+import {createError, getHeader, type H3Event} from "h3"
 import {requireConfig} from "./config"
 
 // Require a bearer token that matches the configured scheduler secret.

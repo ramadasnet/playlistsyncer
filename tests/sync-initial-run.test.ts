@@ -1,4 +1,22 @@
-import {describe, expect, mock, test} from "bun:test"
+import {describe, expect, mock, test as bunTest} from "bun:test"
+
+// These cases share one task, adapter, and database, so they cannot overlap.
+let exclusive = Promise.resolve()
+const test: typeof bunTest = ((name, fn) => {
+    return bunTest(name, async () => {
+        const turn = exclusive
+        let release = () => undefined
+        exclusive = new Promise((resolve) => {
+            release = resolve
+        })
+        await turn
+        try {
+            await fn()
+        } finally {
+            release()
+        }
+    })
+}) as typeof bunTest
 import {ObjectId, type Collection} from "mongodb"
 import type {ProviderAccountDocument, SyncRunDocument, SyncTaskDocument, UserDocument} from "../shared/types/domain"
 import {reverseSyncRequestFor} from "../shared/reverse-sync"
@@ -98,6 +116,13 @@ function fakeCollection<T>(docs: T[] = []): Collection<T> {
             const index = store.findIndex((doc) => matches(doc, filter))
             if (index >= 0) store.splice(index, 1)
             return {acknowledged: true, deletedCount: index >= 0 ? 1 : 0}
+        },
+        deleteMany: async (filter: Record<string, unknown>) => {
+            const before = store.length
+            for (let index = store.length - 1; index >= 0; index -= 1) {
+                if (matches(store[index]!, filter)) store.splice(index, 1)
+            }
+            return {acknowledged: true, deletedCount: before - store.length}
         },
         updateOne: async (filter: Record<string, unknown>, update: Record<string, Record<string, unknown>>, options?: {upsert?: boolean}) => {
             let doc = store.find((item) => matches(item, filter))
@@ -259,6 +284,7 @@ describe("whole-account playlist mappings", () => {
         const deleted: string[] = []
         const readItems: string[] = []
         let created = 0
+        let fullSyncLeaseMs = 0
 
         user.tier = "pro"
         adapter.listPlaylists = async (account) => (account._id?.equals(sourceAccountId) ? [...sources] : [...destinations])
@@ -272,6 +298,11 @@ describe("whole-account playlist mappings", () => {
         }
         adapter.getPlaylistItems = async (account, playlistId) => {
             readItems.push(playlistId)
+            if (sources.length >= 2) {
+                const stored = await db.syncTasks.findOne({_id: accountTaskId})
+                const remaining = stored?.leaseExpiresAt ? stored.leaseExpiresAt.getTime() - Date.now() : 0
+                fullSyncLeaseMs = Math.max(fullSyncLeaseMs, remaining)
+            }
             return originalGetPlaylistItems(account, playlistId)
         }
         await db.syncTasks.insertOne(accountTask)
@@ -292,9 +323,15 @@ describe("whole-account playlist mappings", () => {
 
             sources = [{id: "old-source", name: "Road trip", itemCount: 0}, ...sources]
             await runSyncTask(accountTaskId, "manual")
+            expect(fullSyncLeaseMs).toBeGreaterThan(19 * 60 * 1000)
+            expect(fullSyncLeaseMs).toBeLessThan(21 * 60 * 1000)
             expect(created).toBe(1)
             expect(readItems).toContain("orphan")
             expect(accountTask.playlistMappings?.[0]).toEqual(orphanMapping)
+            const snapshots = await db.syncSnapshots.find({taskId: accountTaskId}).toArray()
+            expect(snapshots).toHaveLength(1)
+            expect(snapshots[0]?.batch).toBe(0)
+            expect(snapshots[0]?.playlists?.map((playlist) => playlist.sourcePlaylistId)).toEqual(["old-source", "new-source"])
         } finally {
             user.tier = originalTier
             adapter.listPlaylists = originalListPlaylists

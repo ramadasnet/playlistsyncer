@@ -1,4 +1,5 @@
 // Validate route identifiers before passing them to MongoDB.
+import {createError} from "h3"
 import {ObjectId} from "mongodb"
 
 // Parse a string identifier or throw a client-facing validation error.

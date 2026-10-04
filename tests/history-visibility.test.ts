@@ -111,20 +111,23 @@ describe("run history visibility", () => {
         }
 
         expect(
-            serializeSyncRun(run, task, {
-                sourceItems: [],
-                destinationItems: [
-                    {
-                        occurrenceId: "dst-1",
-                        canonicalKey: "canonical:added",
-                        title: "Added Song",
-                        artists: ["Ada"],
-                        durationMs: 201_000,
-                        providerItemId: "dst-1",
-                        providerTrackId: "sp-1"
-                    }
-                ]
-            }).addedTracks
+            serializeSyncRun(run, task, [
+                {
+                    sourceItems: [],
+                    destinationItems: [
+                        {
+                            occurrenceId: "dst-1",
+                            canonicalKey: "canonical:added",
+                            title: "Added Song",
+                            artists: ["Ada"],
+                            durationMs: 201_000,
+                            providerItemId: "dst-1",
+                            providerTrackId: "sp-1"
+                        }
+                    ],
+                    createdAt: now
+                }
+            ]).addedTracks
         ).toEqual([{title: "Added Song", artists: ["Ada"], playlistId: "dst", providerTrackId: "sp-1", providerAccountId: accountId.toHexString(), durationMs: 201_000}])
     })
 

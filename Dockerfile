@@ -16,6 +16,12 @@ ENV HOST=0.0.0.0
 ENV PORT=3007
 ENV PLS_JSON_LOGGING=true
 COPY --from=builder --chown=bun:bun /app/.output ./.output
+COPY --from=builder --chown=bun:bun /app/server ./server
+COPY --from=builder --chown=bun:bun /app/shared ./shared
+COPY --from=builder --chown=bun:bun /app/node_modules ./node_modules
+COPY --from=builder --chown=bun:bun /app/package.json ./package.json
+COPY --from=builder --chown=bun:bun /app/tsconfig.json ./tsconfig.json
 USER bun
 EXPOSE 3007
+EXPOSE 3008
 CMD ["bun", "run", ".output/server/index.mjs"]

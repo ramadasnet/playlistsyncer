@@ -23,6 +23,13 @@ The service has two plans, Free and PRO:
 - Platform agnostic, should run anywhere using Docker
 - Creem is used for billing and payments
 
+## Architecture
+
+- Main web server: API + frontend
+- Scheduler web server: endpoints to trigger scheduled functions (using GCP Cloud Scheduler)
+- MongoDB: local MongoDB, MongoDB Atlas, Firestore-compatible API, or Amazon DocumentDB
+
 ## Deployment
 
 - Always run `bun update` to update to the latest dependencies before each deployment.
+- Deployment is done via Docker Compose.

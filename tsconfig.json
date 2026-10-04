@@ -1,5 +1,11 @@
 {
     // https://nuxt.com/docs/guide/concepts/typescript
+    "compilerOptions": {
+        // Bun reads this file when starting the jobs process, which runs outside Nitro.
+        "paths": {
+            "~~/*": ["./*"]
+        }
+    },
     "files": [],
     "references": [
         {

@@ -1,11 +1,11 @@
 // Report health only when the web server can reach its required database.
-import {getDatabase} from "../utils/database"
+import {assertDatabaseReachable, getDatabase} from "../utils/database"
 import logger from "../utils/logger"
 
 export default defineEventHandler(async (event) => {
     try {
         const database = await getDatabase()
-        await database.command({ping: 1}, {timeoutMS: 3000})
+        await assertDatabaseReachable(database)
         return {status: "ok", timestamp: new Date().toISOString()}
     } catch (error) {
         logger.error("Health.check", error, "MongoDB is unavailable")

@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
     if (!result.deletedCount) {
         await throwIfSyncMutationMissed(taskId, user._id!)
     }
-    await Promise.all([db.syncSnapshots.deleteOne({taskId}), db.syncRuns.deleteMany({taskId})])
+    await Promise.all([db.syncSnapshots.deleteMany({taskId}), db.syncRuns.deleteMany({taskId})])
     logger.info("Tasks.delete", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`)
     return {ok: true}
 })
