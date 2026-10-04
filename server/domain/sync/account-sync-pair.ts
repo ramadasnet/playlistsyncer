@@ -1,8 +1,13 @@
-// Keep full-sync identity fields compatible with a sparse unique index.
+// Keep full-sync identity fields compatible with a single-field sparse unique index.
 import type {SyncTaskMode} from "~~/shared/types/domain"
 
-// Omit the pair key for playlist tasks. The sparse unique index then ignores them, matching the old partial index.
-export function accountSyncPairField(mode: SyncTaskMode, pairKey: string): {accountSyncPairKey: string} | Record<string, never> {
+// Build the stored pair key. It includes the user so the unique index is per account, not global.
+export function accountSyncPairStorageKey(userId: string, pairKey: string): string {
+    return `${userId}:${pairKey}`
+}
+
+// Omit the pair key for playlist tasks. A single-field sparse index then skips them.
+export function accountSyncPairField(mode: SyncTaskMode, userId: string, pairKey: string): {accountSyncPairKey: string} | Record<string, never> {
     if (mode !== "account") return {}
-    return {accountSyncPairKey: pairKey}
+    return {accountSyncPairKey: accountSyncPairStorageKey(userId, pairKey)}
 }

@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test"
-import {accountSyncPairField} from "../server/domain/sync/account-sync-pair"
+import {accountSyncPairField, accountSyncPairStorageKey} from "../server/domain/sync/account-sync-pair"
 import {firestoreMongoOptions, firestoreUriDatabase, isDuplicateKeyError, isFirestoreMongoUri} from "../server/utils/mongodb"
 
 const firestoreUri = "mongodb://f116f93a-519c-208a-9a72-3ef6c9a1f081.nam5.firestore.goog:443/playlistsync?loadBalanced=true&tls=true&retryWrites=false"
@@ -18,9 +18,10 @@ describe("Firestore MongoDB compatibility", () => {
         expect(firestoreMongoOptions(firestoreUri)).toEqual({retryWrites: false, tls: true})
     })
 
-    test("stores the provider pair only on a full sync", () => {
-        expect(accountSyncPairField("playlist", "spotify:youtube")).toEqual({})
-        expect(accountSyncPairField("account", "spotify:youtube")).toEqual({accountSyncPairKey: "spotify:youtube"})
+    test("stores a per-user provider pair only on a full sync", () => {
+        expect(accountSyncPairStorageKey("user", "spotify:youtube")).toBe("user:spotify:youtube")
+        expect(accountSyncPairField("playlist", "user", "spotify:youtube")).toEqual({})
+        expect(accountSyncPairField("account", "user", "spotify:youtube")).toEqual({accountSyncPairKey: "user:spotify:youtube"})
     })
 
     test("recognizes MongoDB duplicate-key errors", () => {

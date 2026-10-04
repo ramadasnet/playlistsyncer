@@ -3,7 +3,8 @@ import type {Collection, IndexDescriptionInfo} from "mongodb"
 import type {OAuthTransactionDocument, ProviderAccountDocument, SessionDocument, SyncRunDocument, SyncSnapshotDocument, SyncTaskDocument, UserDocument, WebhookEventDocument} from "~~/shared/types/domain"
 import {getDatabase} from "../utils/database"
 
-const accountSyncPairIndex = "userId_1_accountSyncPairKey_1"
+const accountSyncPairIndex = "accountSyncPairKey_1"
+const legacyAccountSyncPairIndex = "userId_1_accountSyncPairKey_1"
 const snapshotTaskIndex = "taskId_1"
 const snapshotBatchIndex = "taskId_1_batch_1"
 
@@ -92,19 +93,50 @@ async function ensureSnapshotIndex(syncSnapshots: Collection<SyncSnapshotDocumen
     }
 }
 
-// Replace the partial unique pair index with a sparse one. Firestore cannot build partial indexes.
+// One full sync per user and provider pair. Playlist tasks omit the key, so a single-field sparse index skips them.
+// A compound sparse index would still include those tasks because every task has userId. Firestore cannot build partial indexes.
 async function ensureAccountSyncPairIndex(syncTasks: Collection<SyncTaskDocument>): Promise<void> {
-    const existing = (await listIndexes(syncTasks)).find((index) => index.name === accountSyncPairIndex)
-    if (existing?.partialFilterExpression || !existing) {
+    const indexes = await listIndexes(syncTasks)
+    const legacy = indexes.find((index) => index.name === legacyAccountSyncPairIndex)
+    const ready = indexes.some((index) => index.name === accountSyncPairIndex && index.unique && index.sparse)
+    if (legacy || !ready) {
         await syncTasks.updateMany({accountSyncPairKey: {$type: "null"}}, {$unset: {accountSyncPairKey: ""}})
+        await prefixAccountSyncPairKeys(syncTasks)
     }
-    if (existing?.partialFilterExpression) {
-        await syncTasks.dropIndex(accountSyncPairIndex)
+    if (legacy) {
+        await dropIndexIfPresent(syncTasks, legacyAccountSyncPairIndex)
     }
     try {
-        await syncTasks.createIndex({userId: 1, accountSyncPairKey: 1}, {name: accountSyncPairIndex, unique: true, sparse: true})
+        await syncTasks.createIndex({accountSyncPairKey: 1}, {name: accountSyncPairIndex, unique: true, sparse: true})
     } catch (error) {
-        const alreadyExists = Boolean(error && typeof error === "object" && "code" in error && error.code === 68)
+        const alreadyExists = mongoErrorCode(error) === 68
         if (!alreadyExists) throw error
     }
+}
+
+// Prefix keys stored before the user id was part of the value, so two users can share a provider pair.
+async function prefixAccountSyncPairKeys(syncTasks: Collection<SyncTaskDocument>): Promise<void> {
+    const tasks = await syncTasks.find({accountSyncPairKey: {$type: "string"}}, {projection: {userId: 1, accountSyncPairKey: 1}}).toArray()
+    for (const task of tasks) {
+        const key = task.accountSyncPairKey
+        const prefix = `${task.userId.toHexString()}:`
+        if (!key || key.startsWith(prefix)) continue
+        await syncTasks.updateOne({_id: task._id}, {$set: {accountSyncPairKey: `${prefix}${key}`}})
+    }
+}
+
+// Drop an index that another startup may already have removed.
+async function dropIndexIfPresent(collection: Collection, name: string): Promise<void> {
+    try {
+        await collection.dropIndex(name)
+    } catch (error) {
+        const gone = mongoErrorCode(error) === 27
+        if (!gone) throw error
+    }
+}
+
+// Read a MongoDB server error code when the driver attached one.
+function mongoErrorCode(error: unknown): number | undefined {
+    if (!error || typeof error !== "object" || !("code" in error) || typeof error.code !== "number") return undefined
+    return error.code
 }

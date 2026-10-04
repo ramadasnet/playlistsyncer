@@ -85,8 +85,8 @@ export default defineEventHandler(async (event) => {
     }
     const direction: SyncTaskDirection = body.mode === "account" ? "one-way" : body.direction
     const now = new Date()
-    // The sparse unique index on {userId, accountSyncPairKey} is the source of truth for provider-pair
-    // uniqueness; the earlier read-then-check is only a fast path for a friendlier error message.
+    // The single-field sparse unique index on accountSyncPairKey is the source of truth for one full
+    // sync per user and provider pair. The earlier read is only a fast path for a friendlier error.
     const accountSyncPairKey = accountSyncProviderPairKey(sourceAccount.provider, destinationAccount.provider)
     let result: {insertedId: ObjectId}
     try {
@@ -94,7 +94,7 @@ export default defineEventHandler(async (event) => {
             userId: user._id!,
             mode: body.mode,
             direction,
-            ...accountSyncPairField(body.mode, accountSyncPairKey),
+            ...accountSyncPairField(body.mode, user._id!.toHexString(), accountSyncPairKey),
             source: {providerAccountId: sourceAccountId, playlistId: body.source.playlistId, name: body.source.name},
             destination: {
                 providerAccountId: destinationAccountId,
