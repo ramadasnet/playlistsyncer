@@ -4,7 +4,7 @@ import {collections} from "../../data/collections"
 import {beginSyncTask, completeSyncTask} from "../../domain/sync/engine"
 import logger from "../../utils/logger"
 import {requireScheduler} from "../../utils/scheduler-auth"
-import {isShuttingDown, trackSyncRun} from "../../utils/shutdown"
+import {isShuttingDown, startTrackedSyncRun} from "../../utils/shutdown"
 
 // Require scheduler authentication, isolate failures per task, and stop starting tasks once shutdown begins.
 export default defineEventHandler(async (event) => {
@@ -24,8 +24,8 @@ export default defineEventHandler(async (event) => {
             break
         }
         try {
-            const context = await beginSyncTask(task._id!, "scheduled")
-            results.push({id: task._id!.toHexString(), ok: true, result: await trackSyncRun(context.runId, completeSyncTask(context))})
+            const {finished} = await startTrackedSyncRun(() => beginSyncTask(task._id!, "scheduled"), completeSyncTask)
+            results.push({id: task._id!.toHexString(), ok: true, result: await finished})
         } catch (error) {
             logger.error("Jobs.syncDue", `Task ${task._id!.toHexString()}`, error)
             results.push({

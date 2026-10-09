@@ -7,7 +7,7 @@ import {beginSyncTask, completeSyncTask} from "../../../domain/sync/engine"
 import {assertReverseSyncAvailable} from "../../../domain/sync/reverse-sync"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
-import {trackSyncRun} from "../../../utils/shutdown"
+import {startTrackedSyncRun} from "../../../utils/shutdown"
 
 const reverseSyncSchema = z.object({
     direction: z.enum(reverseSyncDirections),
@@ -32,9 +32,9 @@ export default defineEventHandler(async (event) => {
     const runs = await db.syncRuns.find({taskId}).sort({startedAt: -1}).limit(50).toArray()
     assertReverseSyncAvailable(runs, parsed.data)
     logger.info("Tasks.reverseSync", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`, parsed.data.reason, parsed.data.direction, parsed.data.cadence)
-    const context = await beginSyncTask(taskId, "manual", parsed.data)
+    const {context, finished} = await startTrackedSyncRun(() => beginSyncTask(taskId, "manual", parsed.data), completeSyncTask)
     event.waitUntil(
-        trackSyncRun(context.runId, completeSyncTask(context)).catch((error) => {
+        finished.catch((error) => {
             logger.error("Tasks.reverseSyncBackground", `Task ${taskId.toHexString()}`, `Run ${context.runId.toHexString()}`, error)
         })
     )

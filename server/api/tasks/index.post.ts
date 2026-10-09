@@ -11,7 +11,7 @@ import {isSafeModeEnabled, logSafeModeCreatePlaylist, safeModeWriteBlockedMessag
 import logger from "../../utils/logger"
 import {isDuplicateKeyError} from "../../utils/mongodb"
 import {parseObjectId} from "../../utils/object-id"
-import {trackSyncRun} from "../../utils/shutdown"
+import {startTrackedSyncRun} from "../../utils/shutdown"
 import {accountSyncConflictMessage, accountSyncProviderPairKey, findAccountSyncBetweenProviders, type SyncTaskDirection} from "~~/shared/types/domain"
 
 const taskSchema = z.object({
@@ -116,8 +116,8 @@ export default defineEventHandler(async (event) => {
     }
     logger.info("Tasks.create", `Task ${result.insertedId.toHexString()}`, `User ${user._id!.toHexString()}`, `${accounts[0]!.provider} to ${accounts[1]!.provider}`, direction)
     event.waitUntil(
-        beginSyncTask(result.insertedId, "created")
-            .then((context) => trackSyncRun(context.runId, completeSyncTask(context)))
+        startTrackedSyncRun(() => beginSyncTask(result.insertedId, "created"), completeSyncTask)
+            .then(({finished}) => finished)
             .catch((error) => {
                 logger.error("Tasks.createRun", `Task ${result.insertedId.toHexString()}`, error)
             })

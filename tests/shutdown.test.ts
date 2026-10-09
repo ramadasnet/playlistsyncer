@@ -1,35 +1,53 @@
 import {afterEach, describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
-import {drainSyncRuns, isShuttingDown, resetShutdownState, trackSyncRun} from "../server/utils/shutdown"
+import {drainSyncRuns, isShuttingDown, resetShutdownState, startTrackedSyncRun} from "../server/utils/shutdown"
 
-// A run whose completion the test controls.
-function controlledRun() {
-    let finish!: () => void
-    let fail!: (error: Error) => void
-    const run = new Promise<void>((resolve, reject) => {
-        finish = resolve
-        fail = reject
+// A promise whose settlement the test controls.
+function controlled<T = void>() {
+    let resolve!: (value: T) => void
+    let reject!: (error: Error) => void
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res
+        reject = rej
     })
-    return {run, finish, fail}
+    return {promise, resolve, reject}
+}
+
+// Start a tracked run whose begin resolves at once and whose completion the test controls.
+async function startRun(runId = new ObjectId()) {
+    const run = controlled()
+    const started = await startTrackedSyncRun(
+        async () => ({runId}),
+        () => run.promise
+    )
+    started.finished.catch(() => undefined)
+    return {runId, ...run}
+}
+
+// Record the run IDs a drain marks failed.
+function recordFailures() {
+    const failed: ObjectId[][] = []
+    return {
+        failed,
+        failRuns: async (runIds: ObjectId[]) => {
+            failed.push(runIds)
+            return runIds.length
+        }
+    }
 }
 
 afterEach(() => resetShutdownState())
 
 describe("shutdown drain", () => {
     test("waits for tracked runs that finish before the deadline", async () => {
-        const first = controlledRun()
-        const second = controlledRun()
-        trackSyncRun(new ObjectId(), first.run)
-        trackSyncRun(new ObjectId(), second.run).catch(() => undefined)
-        const failed: ObjectId[][] = []
-        setTimeout(() => first.finish(), 20)
-        setTimeout(() => second.fail(new Error("provider error")), 40)
+        const first = await startRun()
+        const second = await startRun()
+        const {failed, failRuns} = recordFailures()
+        setTimeout(() => first.resolve(), 20)
+        setTimeout(() => second.reject(new Error("provider error")), 40)
 
         const started = Date.now()
-        await drainSyncRuns(2000, async (runIds) => {
-            failed.push(runIds)
-            return runIds.length
-        })
+        await drainSyncRuns(2000, failRuns)
 
         expect(isShuttingDown()).toBe(true)
         expect(Date.now() - started).toBeLessThan(1000)
@@ -37,44 +55,64 @@ describe("shutdown drain", () => {
     })
 
     test("marks only the runs still going at the deadline as failed", async () => {
-        const finished = controlledRun()
-        const stuck = controlledRun()
-        const finishedId = new ObjectId()
-        const stuckId = new ObjectId()
-        trackSyncRun(finishedId, finished.run)
-        trackSyncRun(stuckId, stuck.run)
-        finished.finish()
-        const failed: ObjectId[][] = []
+        const finished = await startRun()
+        const stuck = await startRun()
+        finished.resolve()
+        const {failed, failRuns} = recordFailures()
 
-        await drainSyncRuns(50, async (runIds) => {
-            failed.push(runIds)
-            return runIds.length
-        })
+        await drainSyncRuns(50, failRuns)
 
-        expect(failed).toEqual([[stuckId]])
+        expect(failed).toEqual([[stuck.runId]])
     })
 
-    test("waits for a run that registers while draining", async () => {
-        const late = controlledRun()
-        const failed: ObjectId[][] = []
-        const early = controlledRun()
-        trackSyncRun(new ObjectId(), early.run)
-        setTimeout(() => {
-            trackSyncRun(new ObjectId(), late.run)
-            early.finish()
-        }, 10)
-        setTimeout(() => late.finish(), 40)
+    test("waits for a run whose start is still writing its running row", async () => {
+        const begin = controlled<{runId: ObjectId}>()
+        const runId = new ObjectId()
+        const starting = startTrackedSyncRun(
+            () => begin.promise,
+            () => new Promise(() => undefined)
+        )
+        const {failed, failRuns} = recordFailures()
+        setTimeout(() => begin.resolve({runId}), 20)
 
-        await drainSyncRuns(2000, async (runIds) => {
-            failed.push(runIds)
-            return runIds.length
+        await drainSyncRuns(200, failRuns)
+
+        await starting
+        expect(failed).toEqual([[runId]])
+    })
+
+    test("refuses to start runs once shutdown has begun", async () => {
+        await drainSyncRuns(0)
+        let begun = false
+
+        await expect(
+            startTrackedSyncRun(
+                async () => {
+                    begun = true
+                    return {runId: new ObjectId()}
+                },
+                async () => undefined
+            )
+        ).rejects.toThrow("Server is shutting down")
+        expect(begun).toBe(false)
+    })
+
+    test("bounds the failure write by the shutdown budget", async () => {
+        await startRun()
+        let writeBudgetMs = 0
+
+        const started = Date.now()
+        await drainSyncRuns(400, (_runIds, budgetMs) => {
+            writeBudgetMs = budgetMs
+            return new Promise<number>(() => undefined)
         })
 
-        expect(failed).toEqual([])
+        expect(writeBudgetMs).toBe(100)
+        expect(Date.now() - started).toBeLessThan(600)
     })
 
     test("finishes shutdown even when the failure cannot be saved", async () => {
-        trackSyncRun(new ObjectId(), controlledRun().run)
+        await startRun()
 
         await drainSyncRuns(10, async () => {
             throw new Error("database unavailable")
