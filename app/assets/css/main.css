@@ -961,6 +961,14 @@ main {
 .run-restore .button {
     width: 100%;
 }
+.run-playlist-issues {
+    margin-bottom: 22px;
+    font-size: 0.84rem;
+}
+.run-playlist-issues ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+}
 @media (min-width: 720px) {
     .run-restore {
         align-items: flex-start;

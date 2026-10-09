@@ -404,6 +404,21 @@ onUnmounted(() => {
                 <span v-if="selectedRun.status === 'running' && task">{{ formatSyncProgressMessage(task.mode, selectedRun.progress) }}</span>
             </div>
             <p v-if="selectedRun.error" class="dialog-error">{{ selectedRun.error }}</p>
+            <div v-if="selectedRun.failedPlaylists?.length" class="run-playlist-issues">
+                <p class="dialog-error">These playlists could not be synced in this run. The others were synced.</p>
+                <ul>
+                    <li v-for="playlist in selectedRun.failedPlaylists" :key="playlist.sourcePlaylistId">
+                        <strong>{{ playlist.name }}</strong
+                        ><template v-if="playlist.error">: {{ playlist.error }}</template>
+                    </li>
+                </ul>
+            </div>
+            <div v-if="selectedRun.missingSourcePlaylists?.length" class="run-playlist-issues">
+                <p class="run-track-note">These playlists are no longer on {{ sourceProvider ? providerDisplayNames[sourceProvider] : "the master account" }}. Their copies on the target were kept.</p>
+                <ul>
+                    <li v-for="playlist in selectedRun.missingSourcePlaylists" :key="playlist.sourcePlaylistId">{{ playlist.name }}</li>
+                </ul>
+            </div>
             <div v-if="selectedRun.availableReverseSync || restoreError || restoreMessage" class="run-restore">
                 <template v-if="selectedRun.availableReverseSync">
                     <p id="restore-source-copy">{{ reverseSyncCopy(selectedRun.availableReverseSync.reason) }}</p>

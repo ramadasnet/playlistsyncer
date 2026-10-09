@@ -211,6 +211,13 @@ function syncProgressMessage(task: SyncTaskSummary) {
     return "Sync in progress..."
 }
 
+// A running sync, then a failed latest run, take precedence over the stored task status.
+function taskStatus(task: SyncTaskSummary) {
+    if (isSyncInProgress(task)) return "running"
+    if (task.status !== "paused" && task.latestRun?.status === "failed") return "failed"
+    return task.status
+}
+
 function hasSharedName(task: SyncTaskSummary) {
     return task.source.name === task.destination.name
 }
@@ -378,7 +385,7 @@ onUnmounted(() => {
                     Playlists are matched by name. Missing playlists are created. Existing playlists on the target will be overwritten. Playlists deleted from the master will not be deleted from the target.
                 </p>
                 <p v-else-if="effectiveDirection === 'one-way'" class="builder-warning">The target playlist will be fully cleared once the sync starts.</p>
-                <p v-else>The first run copies missing source tracks. Later runs reconcile changes in both directions.</p>
+                <p v-else>The first run adds each playlist's missing tracks to the other. Later runs reconcile changes in both directions.</p>
                 <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create sync task</button>
             </div>
         </section>
@@ -442,7 +449,7 @@ onUnmounted(() => {
                     </div>
                 </div>
                 <div class="task-meta">
-                    <span class="status-label" :class="`status-${isSyncInProgress(task) ? 'running' : task.status}`"><span />{{ isSyncInProgress(task) ? "running" : task.status.replace("_", " ") }}</span>
+                    <span class="status-label" :class="`status-${taskStatus(task)}`"><span />{{ taskStatus(task).replace("_", " ") }}</span>
                     <span>{{ isOneWay(task) ? "One-way" : "Two-way" }}</span>
                     <span>{{ task.status === "paused" ? "Paused" : `Next ${formatDate(task.nextRunAt)}` }}</span>
                     <span v-if="isSyncInProgress(task)" class="task-progress"><LoaderCircle class="spin" :size="14" />{{ syncProgressMessage(task) }}</span>
