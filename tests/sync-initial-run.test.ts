@@ -88,6 +88,9 @@ function fakeCollection<T>(docs: T[] = []): Collection<T> {
         for (const [key, value] of Object.entries(update.$set || {})) {
             ;(doc as Record<string, unknown>)[key] = value
         }
+        for (const [key, value] of Object.entries(update.$inc || {})) {
+            ;(doc as Record<string, unknown>)[key] = (((doc as Record<string, unknown>)[key] as number) || 0) + (value as number)
+        }
         for (const [key, value] of Object.entries(update.$push || {})) {
             const current = (doc as Record<string, unknown>)[key]
             const items = value && typeof value === "object" && "$each" in value ? (value.$each as unknown[]) : [value]

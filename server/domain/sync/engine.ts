@@ -36,6 +36,8 @@ interface RecordedTrackChanges {
     addedTracks?: SyncRunTrackReference[]
     removedTracks?: SyncRunTrackReference[]
     unmatchedTracks?: SyncRunTrackReference[]
+    failedPlaylists?: SyncRunPlaylistIssue[]
+    missingSourcePlaylists?: SyncRunPlaylistIssue[]
 }
 
 type RecordTrackChanges = (changes: RecordedTrackChanges) => Promise<void>
@@ -199,6 +201,12 @@ function pairMatchingTracks(source: ProviderTrack[], destination: ProviderTrack[
         }
     }
     return destination.map((track) => (paired.has(track) ? {...track, canonicalKey: paired.get(track)} : track))
+}
+
+// Keys the snapshot holds on both sides. A key only one side had, such as an unmatched track, can still pair with a copy an interrupted run added.
+function matchedSnapshotKeys(sourceItems: CanonicalTrack[], destinationItems: CanonicalTrack[]): Set<string> {
+    const destinationKeys = new Set(destinationItems.map((item) => item.canonicalKey))
+    return new Set(sourceItems.map((item) => item.canonicalKey).filter((key) => destinationKeys.has(key)))
 }
 
 // Item and track id aliases for destination tracks that were paired with a source track.
@@ -486,13 +494,21 @@ async function describeTask(task: SyncTaskDocument): Promise<string> {
     return `${sourceAccount?.provider ?? "?"} "${task.source.name}" -> ${destinationAccount?.provider ?? "?"} "${task.destination.name}"`
 }
 
+// Refuse to write a playlist pair when an older task already writes one of its written playlists.
+async function assertPlaylistsNotOwnedElsewhere(task: SyncTaskDocument, sourceAccount: ProviderAccountDocument, destinationAccount: ProviderAccountDocument) {
+    if ((await playlistsWrittenByOtherTasks(task, destinationAccount._id!)).older.has(task.destination.playlistId)) {
+        throw playlistOwnedElsewhereError(destinationAccount, "destination")
+    }
+    if (task.direction === "two-way" && (await playlistsWrittenByOtherTasks(task, sourceAccount._id!)).older.has(task.source.playlistId)) {
+        throw playlistOwnedElsewhereError(sourceAccount, "source")
+    }
+}
+
 interface SyncResult {
     additions: number
     removals: number
     skipped: number
     conflicts: number
-    failedPlaylists?: SyncRunPlaylistIssue[]
-    missingSourcePlaylists?: SyncRunPlaylistIssue[]
 }
 
 type ApplyResult = Awaited<ReturnType<typeof applyDesired>>
@@ -505,6 +521,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     const sourceAccount = await loadAccount(task.source.providerAccountId, task.userId)
     const destinationAccount = await loadAccount(task.destination.providerAccountId, task.userId)
     const destinationAdapter = getProviderAdapter(destinationAccount.provider)
+    await assertPlaylistsNotOwnedElsewhere(task, sourceAccount, destinationAccount)
     const [sourceRead, destinationRead, snapshot] = await Promise.all([readPlaylistItems(sourceAccount, task.source.playlistId), readPlaylistItems(destinationAccount, task.destination.playlistId), db.syncSnapshots.findOne({taskId: task._id!})])
     const [sourceItems, destinationItems] = playlistItemsOrThrow(sourceAccount, sourceRead, destinationAccount, destinationRead)
     await reportProgress({tracksTotal: Math.max(sourceItems.length, destinationItems.length)})
@@ -568,7 +585,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         }
     } else {
         const aliasedSource = withoutUnknownUnavailable(applyAliases(sourceItems, aliasMap(snapshot.sourceItems)))
-        const knownKeys = new Set([...snapshot.sourceItems, ...snapshot.destinationItems].map((item) => item.canonicalKey))
+        const knownKeys = matchedSnapshotKeys(snapshot.sourceItems, snapshot.destinationItems)
         pairedDestination = pairMatchingTracks(aliasedSource, withoutUnknownUnavailable(applyAliases(destinationItems, aliasMap(snapshot.destinationItems))), knownKeys)
         if (oneWay) {
             const desired = preserveRestoredTracks(reconcileOneWay(aliasedSource).desired, pairedDestination, await restoredTracksToKeep(task._id!, snapshot))
@@ -648,7 +665,7 @@ async function mirrorPlaylist(
     const sameDestination = snapshot?.destinationPlaylistId === destinationPlaylistId
     const sourceAliases = new Map([...aliasMap(snapshot?.sourceItems || []), ...manual])
     const destinationAliases = new Map([...aliasMap(sameDestination ? snapshot.destinationItems : []), ...manual])
-    const knownKeys = new Set(sameDestination ? [...snapshot.sourceItems, ...snapshot.destinationItems].map((item) => item.canonicalKey) : [])
+    const knownKeys = sameDestination ? matchedSnapshotKeys(snapshot.sourceItems, snapshot.destinationItems) : new Set<string>()
     const aliasedSource = withoutUnknownUnavailable(applyAliases(sourceItems, sourceAliases))
     const aliasedDestination = pairMatchingTracks(aliasedSource, withoutUnknownUnavailable(applyAliases(destinationItems, destinationAliases)), knownKeys)
     const result = await applyDesired(destinationAccount, destinationPlaylistId, aliasedDestination, reconcileOneWay(aliasedSource).desired, recordChanges, playlistName, {account: sourceAccount, playlistId: sourcePlaylistId, playlistName})
@@ -672,20 +689,38 @@ async function mirrorPlaylist(
     }
 }
 
+interface OtherTaskWrites {
+    // Every playlist another task writes to, so name matching never claims one.
+    any: Set<string>
+    // Playlists an older task writes to. The oldest writer keeps the playlist, which also settles tasks created at the same moment.
+    older: Set<string>
+}
+
 // Playlists on one provider account that the user's other tasks write to.
-async function playlistsWrittenByOtherTasks(task: SyncTaskDocument, providerAccountId: ObjectId): Promise<Set<string>> {
+async function playlistsWrittenByOtherTasks(task: SyncTaskDocument, providerAccountId: ObjectId): Promise<OtherTaskWrites> {
     const db = await collections()
     const others = await db.syncTasks.find({userId: task.userId}).toArray()
-    return new Set(
-        others.flatMap((other) => {
-            if (other._id?.equals(task._id!)) return []
-            if (other.mode === "account") {
-                return other.destination.providerAccountId.equals(providerAccountId) ? (other.playlistMappings || []).map((mapping) => mapping.destinationPlaylistId) : []
-            }
-            const written = other.direction === "two-way" ? [other.source, other.destination] : [other.destination]
-            return written.filter((side) => side.providerAccountId.equals(providerAccountId)).map((side) => side.playlistId)
-        })
-    )
+    const writes: OtherTaskWrites = {any: new Set(), older: new Set()}
+    for (const other of others) {
+        if (other._id?.equals(task._id!)) continue
+        const sides =
+            other.mode === "account"
+                ? other.destination.providerAccountId.equals(providerAccountId)
+                    ? (other.playlistMappings || []).map((mapping) => mapping.destinationPlaylistId)
+                    : []
+                : (other.direction === "two-way" ? [other.source, other.destination] : [other.destination]).filter((side) => side.providerAccountId.equals(providerAccountId)).map((side) => side.playlistId)
+        const [otherCreated, taskCreated] = [other.createdAt?.getTime() ?? 0, task.createdAt?.getTime() ?? 0]
+        const older = otherCreated < taskCreated || (otherCreated === taskCreated && other._id!.toHexString() < task._id!.toHexString())
+        for (const playlistId of sides) {
+            writes.any.add(playlistId)
+            if (older) writes.older.add(playlistId)
+        }
+    }
+    return writes
+}
+
+function playlistOwnedElsewhereError(account: ProviderAccountDocument, side: "source" | "destination") {
+    return createError({statusCode: 409, statusMessage: `An older sync task already writes to the ${providerDisplayNames[account.provider]} ${side} playlist`})
 }
 
 // Errors that stop the whole full sync instead of only the playlist being synced.
@@ -713,11 +748,15 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
     const destinationById = new Map(destinationPlaylists.map((playlist) => [playlist.id, playlist]))
     const mappings: PlaylistMapping[] = [...(task.playlistMappings || [])]
     // Name matching skips playlists another task already writes to, so two tasks never undo each other.
-    const claimedDestinationIds = new Set([...mappings.map((mapping) => mapping.destinationPlaylistId), ...writtenElsewhere])
+    const claimedDestinationIds = new Set([...mappings.map((mapping) => mapping.destinationPlaylistId), ...writtenElsewhere.any])
     const sourceIds = new Set(sourcePlaylists.map((playlist) => playlist.id))
     const missingSourcePlaylists: SyncRunPlaylistIssue[] = mappings
         .filter((mapping) => !sourceIds.has(mapping.sourcePlaylistId))
         .map((mapping) => ({sourcePlaylistId: mapping.sourcePlaylistId, destinationPlaylistId: mapping.destinationPlaylistId, name: mapping.name}))
+    if (missingSourcePlaylists.length) {
+        await recordChanges({missingSourcePlaylists})
+    }
+    // Issues are saved on the run as they happen, so they stay visible even when the run fails.
     const failedPlaylists: SyncRunPlaylistIssue[] = []
     let firstFailure: unknown
     // Re-read aliases at save time so a manual match is not replaced by this older copy.
@@ -749,6 +788,10 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
             destinationPlaylists.push(destinationPlaylist)
             destinationById.set(destinationPlaylist.id, destinationPlaylist)
         }
+        // An existing mapping can point at a playlist an older task also writes. That task keeps it.
+        if (writtenElsewhere.older.has(destinationPlaylist.id)) {
+            throw playlistOwnedElsewhereError(destinationAccount, "destination")
+        }
         claimedDestinationIds.add(destinationPlaylist.id)
         if (!mapping) {
             mapping = {
@@ -779,7 +822,9 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
             if (stopsAccountSync(error)) throw error
             firstFailure ??= error
             logger.warn("Sync.executeAccount", `Task ${task._id!.toHexString()}`, `Playlist ${sourcePlaylist.id}`, sourcePlaylist.name, "Skipped after an error", error)
-            failedPlaylists.push({sourcePlaylistId: sourcePlaylist.id, name: sourcePlaylist.name, error: errorMessage(error)})
+            const issue = {sourcePlaylistId: sourcePlaylist.id, name: sourcePlaylist.name, error: errorMessage(error)}
+            failedPlaylists.push(issue)
+            await recordChanges({failedPlaylists: [issue]})
             // Keep the last snapshot of this pair so its aliases survive until it syncs again.
             const previous = snapshotPlaylistsById.get(sourcePlaylist.id)
             if (previous) snapshotPlaylists.push(previous)
@@ -806,14 +851,7 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
         `Removals ${removals}`,
         `Unmatched ${skipped}`
     )
-    return {
-        additions,
-        removals,
-        skipped,
-        conflicts: 0,
-        ...(failedPlaylists.length ? {failedPlaylists} : {}),
-        ...(missingSourcePlaylists.length ? {missingSourcePlaylists} : {})
-    }
+    return {additions, removals, skipped, conflicts: 0}
 }
 
 // Remove a playlist created for a restore that did not finish, so a retry can start again.
@@ -1019,7 +1057,13 @@ export async function beginSyncTask(taskId: ObjectId, trigger: "created" | "manu
 export async function completeSyncTask(context: SyncRunContext) {
     const db = await collections()
     const {task, taskId, leaseId, runId, startedAt, taskLabel, reverseSync} = context
-    const recordChanges: RecordTrackChanges = async ({addedTracks = [], removedTracks = [], unmatchedTracks = []}) => {
+    const recordChanges: RecordTrackChanges = async ({addedTracks = [], removedTracks = [], unmatchedTracks = [], failedPlaylists = [], missingSourcePlaylists = []}) => {
+        if (failedPlaylists.length) {
+            await db.syncRuns.updateOne({_id: runId}, {$push: {failedPlaylists: {$each: failedPlaylists}}})
+        }
+        if (missingSourcePlaylists.length) {
+            await db.syncRuns.updateOne({_id: runId}, {$push: {missingSourcePlaylists: {$each: missingSourcePlaylists}}})
+        }
         if (addedTracks.length) {
             await db.syncRuns.updateOne({_id: runId}, {$push: {addedTracks: {$each: addedTracks}}, $inc: {additions: addedTracks.length}})
         }
@@ -1037,10 +1081,15 @@ export async function completeSyncTask(context: SyncRunContext) {
     }
     const leaseHold = startSyncLeaseHold(taskId, leaseId)
     try {
-        const result: SyncResult = await syncLeaseHold.run(leaseHold, async () => execute(task, recordChanges, reportProgress, reverseSync))
+        const executed: SyncResult = await syncLeaseHold.run(leaseHold, async () => execute(task, recordChanges, reportProgress, reverseSync))
+        // Additions and removals were counted as each write landed, including writes of a playlist that later failed.
+        // Safe mode writes nothing, so its planned counts are kept.
+        const recorded = await db.syncRuns.findOne({_id: runId})
+        const result: SyncResult = isSafeModeEnabled() ? executed : {...executed, additions: recorded?.additions ?? 0, removals: recorded?.removals ?? 0}
+        const failedPlaylists = recorded?.failedPlaylists || []
         const nextRunMs = await scheduledIntervalMs(task.userId)
         const finishedAt = new Date()
-        const warning = result.failedPlaylists?.length ? failedPlaylistsMessage(result.failedPlaylists) : undefined
+        const warning = failedPlaylists.length ? failedPlaylistsMessage(failedPlaylists) : undefined
         const completed = await db.syncTasks.updateOne(
             {_id: taskId, leaseId, pauseReason: {$ne: "entitlement"}},
             {
@@ -1055,7 +1104,7 @@ export async function completeSyncTask(context: SyncRunContext) {
                 $unset: {leaseId: "", leaseExpiresAt: "", consecutiveFailures: "", ...(warning ? {} : {lastError: ""})}
             }
         )
-        const partial = result.skipped || result.conflicts || result.failedPlaylists?.length
+        const partial = result.skipped || result.conflicts || failedPlaylists.length
         await db.syncRuns.updateOne({_id: runId}, {$set: {...result, status: partial ? "partial" : "succeeded", finishedAt}, $unset: {progress: ""}})
         if (!completed.matchedCount) {
             // Release only the lease this run still holds. A newer run's lease stays in place.
