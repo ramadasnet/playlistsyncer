@@ -1,4 +1,4 @@
-import {afterAll, describe, expect, spyOn, test as bunTest} from "bun:test"
+import {afterAll, beforeEach, describe, expect, spyOn, test as bunTest} from "bun:test"
 
 // These cases share one task, adapter, and database, so they cannot overlap.
 let exclusive = Promise.resolve()
@@ -237,6 +237,19 @@ const adapterSpy = spyOn(providers, "getProviderAdapter").mockImplementation(() 
 afterAll(() => {
     collectionsSpy.mockRestore()
     adapterSpy.mockRestore()
+})
+
+// Every test starts from the same task and an empty run history, whatever order the tests run in.
+const initialTask = {...task, source: {...task.source}, destination: {...task.destination}}
+beforeEach(async () => {
+    for (const key of Object.keys(task)) {
+        if (!(key in initialTask)) delete (task as unknown as Record<string, unknown>)[key]
+    }
+    Object.assign(task, initialTask, {source: {...initialTask.source}, destination: {...initialTask.destination}})
+    await db.syncRuns.deleteMany({})
+    await db.syncSnapshots.deleteMany({})
+    addedCalls.length = 0
+    removedCalls.length = 0
 })
 
 const testGlobals = globalThis as {createError?: (input: {statusCode?: number; statusMessage?: string; data?: unknown}) => Error}
