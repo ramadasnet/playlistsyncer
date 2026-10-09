@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import {ArrowRight} from "lucide-vue-next"
 import type {Provider} from "~~/shared/types/domain"
-
-// Mirror the server-side OAuth redirect allowlist for post-login navigation.
-function normalizeRedirect(value: unknown): string {
-    return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") ? value : "/sync"
-}
+import {normalizeRedirect} from "~~/shared/redirect"
 
 definePageMeta({
     middleware: (to) => {
@@ -13,8 +9,7 @@ definePageMeta({
         if (!user) {
             return
         }
-        const redirect = typeof to.query.redirect === "string" && to.query.redirect.startsWith("/") && !to.query.redirect.startsWith("//") ? to.query.redirect : "/sync"
-        return navigateTo(user.email || user.tempEmail ? redirect : "/account")
+        return navigateTo(user.email || user.tempEmail ? normalizeRedirect(to.query.redirect) : "/account")
     }
 })
 

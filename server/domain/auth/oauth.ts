@@ -3,6 +3,7 @@ import {createHash, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
 import {truncateDisplayName} from "../../../shared/display-name"
+import {normalizeRedirect} from "../../../shared/redirect"
 import type {Provider, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
@@ -21,11 +22,6 @@ const oauthCookieOptions = {httpOnly: true, secure: process.env.NODE_ENV === "pr
 // Build the callback URL registered for a provider.
 function callbackUrl(provider: Provider): string {
     return `${getServerConfig().appUrl}/api/auth/${provider}/callback`
-}
-
-// Accept only safe local redirects after authentication.
-function normalizeRedirect(value: unknown): string {
-    return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") ? value : "/sync"
 }
 
 // Create a PKCE OAuth transaction and return the provider authorization URL.
