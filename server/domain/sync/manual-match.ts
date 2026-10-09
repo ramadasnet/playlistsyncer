@@ -9,7 +9,7 @@ import {unmatchedTracksFromSnapshot} from "./history-visibility"
 import {combinedSnapshot, loadTaskSnapshots, snapshotItemsForPlaylist} from "./snapshot-batches"
 import {saveMergedPlaylistMappings} from "./playlist-mappings"
 import {isSafeModeEnabled, safeModeWriteBlockedMessage} from "./safe-mode"
-import {assertSyncTaskIdle} from "./task-activity"
+import {assertSyncTaskIdle, withTaskLease} from "./task-activity"
 import {trackKey} from "./reconcile"
 
 export interface UnmatchedTrackIdentity {
@@ -336,88 +336,98 @@ async function saveAccountManualAlias(task: SyncTaskDocument, unmatchedPlaylistI
     const mapping = mappings.find((item) => [item.sourcePlaylistId, item.destinationPlaylistId].includes(unmatchedPlaylistId) || [item.sourcePlaylistId, item.destinationPlaylistId].includes(targetPlaylistId))
     if (!mapping) return
     mapping.manualAliases = [...(mapping.manualAliases || []).filter((item) => item.canonicalKey !== alias.canonicalKey && item.sourceTrackId !== alias.sourceTrackId), alias]
-    await saveMergedPlaylistMappings(task._id, mappings, {replaceAliases: true, requireIdleLease: true})
+    // The caller holds the task lease, so no sync can write the mappings meanwhile.
+    await saveMergedPlaylistMappings(task._id, mappings, {replaceAliases: true})
+}
+
+// Give a snapshot row the shared key, or add the row when the snapshot does not have that track yet.
+export function linkSnapshotRow(items: CanonicalTrack[], track: ProviderTrack, sharedKey: string): CanonicalTrack[] {
+    const existing = findSnapshotItem(items, {providerItemId: track.itemId, providerTrackId: track.trackId})
+    if (!existing) {
+        return [...items, toCanonical({...track, canonicalKey: sharedKey})]
+    }
+    return items.map((item) => (item === existing ? {...item, canonicalKey: sharedKey} : item))
 }
 
 // Add the chosen catalog track and alias both sides so later syncs treat them as one song.
+// The task lease is held throughout, so a sync cannot start in between and overwrite the link.
 export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, identity: UnmatchedTrackIdentity & {candidateTrackId: string}): Promise<ManualMatchResult> {
     if (isSafeModeEnabled()) {
         throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
     }
     const {db, task} = await loadOwnedTask(taskId, userId)
-    await assertSyncTaskIdle(task)
-    const unmatched = await resolveUnmatchedReference(task, identity)
-    const placement = await locateUnmatchedPlacement(task, identity, unmatched)
-    const liveUnmatched = placement.live
-    if (!liveUnmatched) {
-        throw createError({statusCode: 409, statusMessage: "This track is no longer in the playlist"})
-    }
-    const targetAccount = await loadAccount(placement.target.targetSide === "source" ? task.source.providerAccountId : task.destination.providerAccountId, userId)
-    const unmatchedAdapter = getProviderAdapter(placement.unmatchedAccount.provider)
-    const targetAdapter = getProviderAdapter(targetAccount.provider)
-    const source = asSearchTrack(unmatched, placement.snapshotItem || toCanonical(liveUnmatched))
-    const ranked = rankSimilarTracks(source, await searchSuggestionCandidates(targetAccount, source))
-    const chosen = ranked.find((item) => item.track.trackId === identity.candidateTrackId)
-    if (!chosen) {
-        throw createError({statusCode: 400, statusMessage: "That suggestion is no longer available"})
-    }
-    const targetItems = await targetAdapter.getPlaylistItems(targetAccount, placement.target.targetPlaylistId)
-    const existing = targetItems.find((track) => track.trackId === chosen.track.trackId)
-    let added = false
-    let addedIds: {providerTrackId: string; providerItemId?: string} = {providerTrackId: chosen.track.trackId, providerItemId: existing?.itemId}
-    if (!existing) {
-        await assertSyncTaskIdle(task)
-        await targetAdapter.addTracks(targetAccount, placement.target.targetPlaylistId, [chosen.track.trackId], async (tracks) => {
-            addedIds = tracks[0] || addedIds
+    return withTaskLease(task, async () => {
+        const unmatched = await resolveUnmatchedReference(task, identity)
+        const placement = await locateUnmatchedPlacement(task, identity, unmatched)
+        const liveUnmatched = placement.live
+        if (!liveUnmatched) {
+            throw createError({statusCode: 409, statusMessage: "This track is no longer in the playlist"})
+        }
+        const targetAccount = await loadAccount(placement.target.targetSide === "source" ? task.source.providerAccountId : task.destination.providerAccountId, userId)
+        const unmatchedAdapter = getProviderAdapter(placement.unmatchedAccount.provider)
+        const targetAdapter = getProviderAdapter(targetAccount.provider)
+        const source = asSearchTrack(unmatched, placement.snapshotItem || toCanonical(liveUnmatched))
+        const ranked = rankSimilarTracks(source, await searchSuggestionCandidates(targetAccount, source))
+        const chosen = ranked.find((item) => item.track.trackId === identity.candidateTrackId)
+        if (!chosen) {
+            throw createError({statusCode: 400, statusMessage: "That suggestion is no longer available"})
+        }
+        const targetItems = await targetAdapter.getPlaylistItems(targetAccount, placement.target.targetPlaylistId)
+        const existing = targetItems.find((track) => track.trackId === chosen.track.trackId)
+        let added = false
+        let addedIds: {providerTrackId: string; providerItemId?: string} = {providerTrackId: chosen.track.trackId, providerItemId: existing?.itemId}
+        if (!existing) {
+            await targetAdapter.addTracks(targetAccount, placement.target.targetPlaylistId, [chosen.track.trackId], async (tracks) => {
+                addedIds = tracks[0] || addedIds
+            })
+            added = true
+        }
+        const [verifiedUnmatched, verifiedTarget] = await Promise.all([unmatchedAdapter.getPlaylistItems(placement.unmatchedAccount, placement.playlistId), targetAdapter.getPlaylistItems(targetAccount, placement.target.targetPlaylistId)])
+        const addedLive = verifiedTarget.find((track) => track.trackId === chosen.track.trackId) || existing
+        if (!addedLive) {
+            throw createError({statusCode: 502, statusMessage: "The selected track could not be added"})
+        }
+        const addedTrack = {...addedLive, itemId: addedLive.itemId || addedIds.providerItemId || addedLive.trackId}
+        const sharedKey = placement.snapshotItem?.canonicalKey || trackKey(liveUnmatched)
+        if (task.mode === "account") {
+            await saveAccountManualAlias(task, unmatched.playlistId, placement.target.targetPlaylistId, {
+                sourceTrackId: placement.target.unmatchedSide === "source" ? liveUnmatched.trackId : addedTrack.trackId,
+                sourceItemId: placement.target.unmatchedSide === "source" ? liveUnmatched.itemId : addedTrack.itemId,
+                destinationTrackId: placement.target.unmatchedSide === "source" ? addedTrack.trackId : liveUnmatched.trackId,
+                destinationItemId: placement.target.unmatchedSide === "source" ? addedTrack.itemId : liveUnmatched.itemId,
+                canonicalKey: sharedKey
+            })
+        } else {
+            const stored = await db.syncSnapshots.findOne({taskId: task._id!})
+            const unmatchedField = placement.target.unmatchedSide === "source" ? "sourceItems" : "destinationItems"
+            const targetField = placement.target.unmatchedSide === "source" ? "destinationItems" : "sourceItems"
+            if (stored) {
+                // Only the two linked rows change. Rebuilding the snapshot from live playlists would hide unsynced edits from the next two-way run.
+                await db.syncSnapshots.updateOne(
+                    {taskId: task._id!},
+                    {$set: {[unmatchedField]: linkSnapshotRow(stored[unmatchedField], liveUnmatched, sharedKey), [targetField]: linkSnapshotRow(stored[targetField], addedTrack, sharedKey), createdAt: new Date()}}
+                )
+            } else {
+                const aliases = manualMatchAliases(null, {providerItemId: liveUnmatched.itemId, providerTrackId: liveUnmatched.trackId}, {providerItemId: addedTrack.itemId, providerTrackId: addedTrack.trackId}, sharedKey)
+                const available = (items: ProviderTrack[]) => items.filter((item) => !item.unavailable)
+                await db.syncSnapshots.updateOne(
+                    {taskId: task._id!},
+                    {$set: {[unmatchedField]: canonicalItemsWithAliases(available(verifiedUnmatched), aliases), [targetField]: canonicalItemsWithAliases(available(verifiedTarget), aliases), createdAt: new Date()}},
+                    {upsert: true}
+                )
+            }
+        }
+        await recordManualMatchOnRuns(task._id!, identity, {
+            providerAccountId: targetAccount._id!,
+            playlistId: placement.target.targetPlaylistId,
+            playlistName: placement.target.targetPlaylistName,
+            providerTrackId: addedTrack.trackId,
+            providerItemId: addedTrack.itemId,
+            title: chosen.track.title,
+            artists: chosen.track.artists,
+            ...(chosen.track.durationMs ? {durationMs: chosen.track.durationMs} : {})
         })
-        added = true
-    }
-    const [verifiedUnmatched, verifiedTarget] = await Promise.all([unmatchedAdapter.getPlaylistItems(placement.unmatchedAccount, placement.playlistId), targetAdapter.getPlaylistItems(targetAccount, placement.target.targetPlaylistId)])
-    const addedLive = verifiedTarget.find((track) => track.trackId === chosen.track.trackId) || existing
-    if (!addedLive) {
-        throw createError({statusCode: 502, statusMessage: "The selected track could not be added"})
-    }
-    const sharedKey = placement.snapshotItem?.canonicalKey || trackKey(liveUnmatched)
-    await assertSyncTaskIdle(task)
-    if (task.mode === "account") {
-        await saveAccountManualAlias(task, unmatched.playlistId, placement.target.targetPlaylistId, {
-            sourceTrackId: placement.target.unmatchedSide === "source" ? liveUnmatched.trackId : addedLive.trackId,
-            sourceItemId: placement.target.unmatchedSide === "source" ? liveUnmatched.itemId : addedLive.itemId || addedIds.providerItemId,
-            destinationTrackId: placement.target.unmatchedSide === "source" ? addedLive.trackId : liveUnmatched.trackId,
-            destinationItemId: placement.target.unmatchedSide === "source" ? addedLive.itemId || addedIds.providerItemId : liveUnmatched.itemId,
-            canonicalKey: sharedKey
-        })
-    } else {
-        const aliases = manualMatchAliases(
-            placement.snapshot ?? null,
-            {providerItemId: liveUnmatched.itemId, providerTrackId: liveUnmatched.trackId},
-            {providerItemId: addedLive.itemId || addedIds.providerItemId, providerTrackId: addedLive.trackId},
-            sharedKey
-        )
-        const sourceItems = canonicalItemsWithAliases(placement.target.unmatchedSide === "source" ? verifiedUnmatched : verifiedTarget, aliases)
-        const destinationItems = canonicalItemsWithAliases(placement.target.unmatchedSide === "source" ? verifiedTarget : verifiedUnmatched, aliases)
-        await db.syncSnapshots.updateOne(
-            {taskId: task._id!},
-            {
-                $set: {
-                    sourceItems,
-                    destinationItems,
-                    createdAt: new Date()
-                }
-            },
-            {upsert: true}
-        )
-    }
-    await recordManualMatchOnRuns(task._id!, identity, {
-        providerAccountId: targetAccount._id!,
-        playlistId: placement.target.targetPlaylistId,
-        playlistName: placement.target.targetPlaylistName,
-        providerTrackId: addedLive.trackId,
-        providerItemId: addedLive.itemId || addedIds.providerItemId,
-        title: chosen.track.title,
-        artists: chosen.track.artists,
-        ...(chosen.track.durationMs ? {durationMs: chosen.track.durationMs} : {})
+        logger.info("Sync.manualMatch", `Task ${taskId.toHexString()}`, added ? "Added" : "Linked existing", chosen.track.title, `Linked ${sharedKey}`)
+        return {added, linked: true, title: chosen.track.title, artists: chosen.track.artists}
     })
-    logger.info("Sync.manualMatch", `Task ${taskId.toHexString()}`, added ? "Added" : "Linked existing", chosen.track.title, `Linked ${sharedKey}`)
-    return {added, linked: true, title: chosen.track.title, artists: chosen.track.artists}
 }
