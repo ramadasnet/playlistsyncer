@@ -31,7 +31,7 @@ jobs:
             PLS_MONGODB_URI: mongodb://localhost:27017
             PLS_MONGODB_DATABASE: playlistsyncer-ci
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - uses: oven-sh/setup-bun@v2
               with:
