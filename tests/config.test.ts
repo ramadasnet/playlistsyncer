@@ -1,6 +1,14 @@
 import {describe, expect, test} from "bun:test"
 import {isPublicSafeMode, parseBooleanEnvFlag, resolvePublicSafeMode} from "../shared/env-flag"
-import {parseServerConfig, resolveAppUrl} from "../server/utils/config"
+import {checkStartupConfig, clearServerConfigCache, getServerConfig, parseServerConfig, resolveAppUrl} from "../server/utils/config"
+
+const productionValues = {
+    appUrl: "https://playlistsyncer.com",
+    mongodbUri: "mongodb://db.example.com:27017/playlistsync",
+    sessionSecret: "session-secret",
+    tokenEncryptionKey: "encryption-key",
+    schedulerSecret: "scheduler-secret"
+}
 
 describe("server configuration", () => {
     test("treats blank optional credentials as unconfigured", () => {
@@ -61,6 +69,72 @@ describe("server configuration", () => {
         expect(resolveAppUrl({PLS_APP_URL: "https://dev.playlistsyncer.com"})).toBe("https://dev.playlistsyncer.com")
         expect(parseServerConfig({appUrl: "https://dev.playlistsyncer.com/"}).appUrl).toBe("https://dev.playlistsyncer.com")
         expect(() => parseServerConfig({appUrl: "https://dev.playlistsyncer.com/base"})).toThrow()
+    })
+
+    test("refuses a production start without secrets or a public app URL", () => {
+        const website = checkStartupConfig(parseServerConfig({}), "website", true)
+        const jobs = checkStartupConfig(parseServerConfig({}), "jobs", true)
+
+        expect(website.errors).toEqual(["PLS_MONGODB_URI is required", "PLS_TOKEN_ENCRYPTION_KEY is required", "PLS_SESSION_SECRET is required", "PLS_APP_URL must be the public https origin, not http://localhost:3007"])
+        expect(jobs.errors).toContain("PLS_SCHEDULER_SECRET is required")
+        expect(jobs.errors).not.toContain("PLS_SESSION_SECRET is required")
+        expect(checkStartupConfig(parseServerConfig({...productionValues, appUrl: "http://playlistsyncer.com"}), "website", true).errors).toHaveLength(1)
+        expect(checkStartupConfig(parseServerConfig({...productionValues, appUrl: "https://127.0.0.1:3007"}), "website", true).errors).toHaveLength(1)
+    })
+
+    test("accepts a complete production configuration and warns when SMTP is missing", () => {
+        const website = checkStartupConfig(parseServerConfig(productionValues), "website", true)
+        const jobs = checkStartupConfig(parseServerConfig(productionValues), "jobs", true)
+
+        expect(website.errors).toEqual([])
+        expect(jobs.errors).toEqual([])
+        expect(website.warnings).toEqual([expect.stringContaining("SoundCloud users")])
+        expect(jobs.warnings).toEqual([expect.stringContaining("weekly sync summaries")])
+        expect(checkStartupConfig(parseServerConfig({...productionValues, smtpHost: "smtp.example.com"}), "website", true).warnings).toEqual([])
+    })
+
+    test("rejects partial Creem billing in production and only warns in development", () => {
+        const partial = parseServerConfig({...productionValues, creemApiKey: "creem_key", creemProProductId: "prod_123", smtpHost: "smtp.example.com"})
+
+        expect(checkStartupConfig(partial, "website", true).errors).toEqual(["Creem billing is partially configured; also set PLS_CREEM_WEBHOOK_SECRET"])
+        expect(checkStartupConfig(partial, "website", false)).toEqual({errors: [], warnings: ["Creem billing is partially configured; also set PLS_CREEM_WEBHOOK_SECRET"]})
+        expect(checkStartupConfig(parseServerConfig({}), "website", false)).toEqual({errors: [], warnings: []})
+    })
+
+    test("warns when production billing explicitly uses the Creem sandbox", () => {
+        const creem = {creemApiKey: "creem_key", creemProProductId: "prod_123", creemWebhookSecret: "whsec", smtpHost: "smtp.example.com"}
+
+        expect(checkStartupConfig(parseServerConfig({...productionValues, ...creem, creemServer: "test"}), "website", true)).toEqual({errors: [], warnings: ["PLS_CREEM_SERVER is test; checkout uses the Creem sandbox"]})
+        expect(checkStartupConfig(parseServerConfig({...productionValues, ...creem, creemServer: "prod"}), "website", true)).toEqual({errors: [], warnings: []})
+    })
+
+    test("defaults the Creem server to prod only in production", () => {
+        const environment = {NODE_ENV: process.env.NODE_ENV, PLS_CREEM_SERVER: process.env.PLS_CREEM_SERVER}
+        try {
+            delete process.env.PLS_CREEM_SERVER
+            process.env.NODE_ENV = "production"
+            clearServerConfigCache()
+            expect(getServerConfig().creemServer).toBe("prod")
+            process.env.NODE_ENV = "development"
+            clearServerConfigCache()
+            expect(getServerConfig().creemServer).toBe("test")
+            process.env.PLS_CREEM_SERVER = "test"
+            process.env.NODE_ENV = "production"
+            clearServerConfigCache()
+            expect(getServerConfig().creemServer).toBe("test")
+        } finally {
+            for (const [name, value] of Object.entries(environment)) {
+                if (value === undefined) delete process.env[name]
+                else process.env[name] = value
+            }
+            clearServerConfigCache()
+        }
+    })
+
+    test("parses the shutdown timeout in seconds", () => {
+        expect(parseServerConfig({}).shutdownTimeoutSeconds).toBe(8)
+        expect(parseServerConfig({shutdownTimeoutSeconds: "110"}).shutdownTimeoutSeconds).toBe(110)
+        expect(() => parseServerConfig({shutdownTimeoutSeconds: "0"})).toThrow()
     })
 
     test("parses PLS_SAFE_MODE as a boolean flag", () => {

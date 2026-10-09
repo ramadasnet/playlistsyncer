@@ -3,6 +3,7 @@
 import {z} from "zod"
 import {parseBooleanEnvFlag} from "../../shared/env-flag"
 import {defaultProSyncIntervalMinutes} from "../../shared/sync-cadence"
+import logger from "./logger"
 
 const optionalCredential = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional())
 const emailList = z.preprocess(
@@ -76,7 +77,9 @@ const serverConfigSchema = z.object({
     smtpUser: optionalCredential,
     smtpPassword: optionalCredential,
     smtpFrom: optionalCredential,
-    safeMode: booleanFlag
+    safeMode: booleanFlag,
+    // Seconds a stopping process waits for in-flight sync runs; keep it below the container's stop grace period.
+    shutdownTimeoutSeconds: z.coerce.number().int().min(1).default(8)
 })
 
 export type ServerConfig = z.infer<typeof serverConfigSchema>
@@ -127,7 +130,8 @@ export function getServerConfig(): ServerConfig {
             creemApiKey: process.env.PLS_CREEM_API_KEY,
             creemWebhookSecret: process.env.PLS_CREEM_WEBHOOK_SECRET,
             creemProProductId: process.env.PLS_CREEM_PRO_PRODUCT_ID,
-            creemServer: process.env.PLS_CREEM_SERVER,
+            // Production bills live unless the sandbox is chosen explicitly.
+            creemServer: process.env.PLS_CREEM_SERVER || (process.env.NODE_ENV === "production" ? "prod" : "test"),
             developmentProUserEmails: process.env.PLS_DEVELOPMENT_PRO_USER_EMAILS,
             proSubscriptionRequiredAt: process.env.PLS_PRO_SUBSCRIPTION_REQUIRED_AT,
             proSyncIntervalMinutes: process.env.PLS_TASKSYNC_INTERVAL,
@@ -136,11 +140,71 @@ export function getServerConfig(): ServerConfig {
             smtpUser: process.env.PLS_SMTP_USER,
             smtpPassword: process.env.PLS_SMTP_PASSWORD,
             smtpFrom: process.env.PLS_SMTP_FROM,
-            safeMode: process.env.PLS_SAFE_MODE
+            safeMode: process.env.PLS_SAFE_MODE,
+            shutdownTimeoutSeconds: process.env.PLS_SHUTDOWN_TIMEOUT_SECONDS
         })
     }
 
     return cachedConfig
+}
+
+const localHostnames = new Set(["localhost", "127.0.0.1", "[::1]"])
+
+/**
+ * Lists configuration problems for one process before it starts serving.
+ * @param config Parsed server configuration.
+ * @param role Process being started; the website needs sessions, the jobs process needs the scheduler secret.
+ * @param production Whether this is a production start, where errors must stop the process.
+ * @returns Errors that block a production start, and warnings that are only logged.
+ */
+export function checkStartupConfig(config: ServerConfig, role: "website" | "jobs", production = process.env.NODE_ENV === "production"): {errors: string[]; warnings: string[]} {
+    const errors: string[] = []
+    const warnings: string[] = []
+    const creem = {PLS_CREEM_API_KEY: config.creemApiKey, PLS_CREEM_PRO_PRODUCT_ID: config.creemProProductId, PLS_CREEM_WEBHOOK_SECRET: config.creemWebhookSecret}
+    const missingCreem = Object.keys(creem).filter((name) => !creem[name as keyof typeof creem])
+    // A partial Creem setup takes payments that the webhook can never turn into PRO access.
+    if (missingCreem.length && missingCreem.length < Object.keys(creem).length) {
+        const problems = production ? errors : warnings
+        problems.push(`Creem billing is partially configured; also set ${missingCreem.join(", ")}`)
+    }
+    if (!production) {
+        return {errors, warnings}
+    }
+
+    const required = {
+        PLS_MONGODB_URI: config.mongodbUri,
+        PLS_TOKEN_ENCRYPTION_KEY: config.tokenEncryptionKey,
+        ...(role === "website" ? {PLS_SESSION_SECRET: config.sessionSecret} : {PLS_SCHEDULER_SECRET: config.schedulerSecret})
+    }
+    for (const [name, value] of Object.entries(required)) {
+        if (!value) errors.push(`${name} is required`)
+    }
+    const appUrl = new URL(config.appUrl)
+    if (appUrl.protocol !== "https:" || localHostnames.has(appUrl.hostname)) {
+        errors.push(`PLS_APP_URL must be the public https origin, not ${config.appUrl}`)
+    }
+    if (config.creemApiKey && config.creemServer === "test") {
+        warnings.push("PLS_CREEM_SERVER is test; checkout uses the Creem sandbox")
+    }
+    if (!config.smtpHost) {
+        warnings.push(
+            role === "website"
+                ? "PLS_SMTP_HOST is not set; no email is sent, so users whose provider shares no email (all SoundCloud users) cannot confirm one, subscribe to PRO, or enable weekly summaries"
+                : "PLS_SMTP_HOST is not set; weekly sync summaries are not sent"
+        )
+    }
+    return {errors, warnings}
+}
+
+// Log startup configuration warnings, and throw when this process must not start.
+export function assertStartupConfig(role: "website" | "jobs"): void {
+    const {errors, warnings} = checkStartupConfig(getServerConfig(), role)
+    for (const warning of warnings) {
+        logger.warn("Config.startup", warning)
+    }
+    if (errors.length) {
+        throw new Error(`Invalid production configuration: ${errors.join("; ")}`)
+    }
 }
 
 // Return a required setting or fail with a service-unavailable response.
