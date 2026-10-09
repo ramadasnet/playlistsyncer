@@ -82,7 +82,8 @@ export const spotifyAdapter: ProviderAdapter = {
             images?: {url: string}[]
         }>(account, `${apiBase}/me/playlists`, {
             method: "POST",
-            body: JSON.stringify({name, description: createDescription(description)})
+            // Spotify creates public playlists unless told otherwise, which would publish a private source playlist.
+            body: JSON.stringify({name, public: false, description: createDescription(description)})
         })
         return {
             id: playlist.id,
