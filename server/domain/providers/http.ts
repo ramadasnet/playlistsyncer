@@ -6,17 +6,38 @@ import {getProviderRateLimiter, maxQueueWaitMs} from "./rate-limit"
 import {getAccessToken} from "./token"
 
 const youtubeRateLimitReasons = new Set(["rateLimitExceeded", "userRateLimitExceeded"])
+const youtubeQuotaReasons = new Set(["quotaExceeded", "dailyLimitExceeded"])
+const youtubeQuotaMessage = "The YouTube daily API quota is used up. The sync continues after it resets at midnight Pacific time."
 
-// YouTube reports short-term rate limits as 403s, unlike daily quota exhaustion which cannot be retried.
-async function isYoutubeRateLimit(response: Response): Promise<boolean> {
+// Read the reasons YouTube lists on a 403 error body.
+async function youtubeErrorReasons(response: Response): Promise<string[]> {
     if (response.status !== 403) {
-        return false
+        return []
     }
     const body = (await response
         .clone()
         .json()
         .catch(() => undefined)) as {error?: {errors?: {reason?: string}[]}} | undefined
-    return Boolean(body?.error?.errors?.some((error) => error.reason && youtubeRateLimitReasons.has(error.reason)))
+    return (body?.error?.errors || []).flatMap((error) => (error.reason ? [error.reason] : []))
+}
+
+// YouTube reports short-term rate limits as 403s, unlike daily quota exhaustion which cannot be retried.
+async function isYoutubeRateLimit(response: Response): Promise<boolean> {
+    return (await youtubeErrorReasons(response)).some((reason) => youtubeRateLimitReasons.has(reason))
+}
+
+// A provider call failed because the YouTube daily quota is used up.
+export function isQuotaExceededError(error: unknown): boolean {
+    return Boolean(error && typeof error === "object" && (error as {data?: {quotaExceeded?: unknown}}).data?.quotaExceeded === true)
+}
+
+// YouTube quotas reset at midnight Pacific time, which is 08:00 UTC in winter and 07:00 UTC in summer.
+export function nextQuotaResetAt(now = new Date()): Date {
+    const pacific = (date: Date, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", {timeZone: "America/Los_Angeles", hourCycle: "h23", ...options}).formatToParts(date)
+    const parts = Object.fromEntries(pacific(now, {year: "numeric", month: "numeric", day: "numeric"}).map((part) => [part.type, part.value]))
+    const winterReset = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + 1, 8))
+    const hour = Number(pacific(winterReset, {hour: "numeric"}).find((part) => part.type === "hour")?.value || 0)
+    return new Date(winterReset.getTime() - hour * 60 * 60 * 1000)
 }
 
 async function authorizedFetch(account: ProviderAccountDocument, url: string, init: RequestInit, forceRefresh = false): Promise<Response> {
@@ -61,6 +82,10 @@ export async function providerFetch<T>(account: ProviderAccountDocument, url: st
     if (!response.ok) {
         const requestUrl = new URL(url)
         const logParts = [account.provider, init.method || "GET", requestUrl.pathname, `Status ${response.status}`, `Provider account ${account.externalAccountId}`]
+        if (account.provider === "youtube" && (await youtubeErrorReasons(response)).some((reason) => youtubeQuotaReasons.has(reason))) {
+            logger.warn("Provider.request", ...logParts, "Daily quota exceeded")
+            throw createError({statusCode: 429, statusMessage: youtubeQuotaMessage, data: {quotaExceeded: true}})
+        }
         // Exhausted YouTube rate limit 403s are still rate limits, not upstream failures.
         const rateLimited = response.status === 429 || (account.provider === "youtube" && (await isYoutubeRateLimit(response)))
         if (rateLimited) {

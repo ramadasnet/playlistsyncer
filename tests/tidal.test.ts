@@ -153,6 +153,29 @@ describe("TIDAL provider", () => {
         expect(textMatch?.trackId).toBe("search-id")
     })
 
+    test("searches by title when the ISRC finds no release of the recording", async () => {
+        providerFetch.mockResolvedValueOnce({data: [], included: []})
+        providerFetch.mockResolvedValueOnce({
+            data: [{id: "title-id", type: "tracks"}],
+            included: [
+                {id: "title-id", type: "tracks", attributes: {title: "Track", isrc: "GBOTHER0001"}, relationships: {artists: {data: [{id: "artist-id", type: "artists"}]}}},
+                {id: "artist-id", type: "artists", attributes: {name: "Artist"}}
+            ]
+        })
+
+        const match = await tidalAdapter.searchTrack(account, {itemId: "source", trackId: "source", title: "Track", artists: ["Artist"], isrc: "USRC17607839"})
+
+        expect(providerFetch).toHaveBeenCalledTimes(2)
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://openapi.tidal.com/v2/searchResults/Artist%20Track/relationships/tracks?include=tracks%2Ctracks.artists%2Ctracks.albums", expect.objectContaining({headers: jsonApiHeaders()}))
+        expect(match?.trackId).toBe("title-id")
+    })
+
+    test("keeps a playlist entry whose track TIDAL no longer returns as an unavailable placeholder", async () => {
+        providerFetch.mockResolvedValue({data: [{id: "gone-id", type: "tracks", meta: {itemId: "item-9"}}], included: [], links: {}})
+
+        expect(await tidalAdapter.getPlaylistItems(account, "playlist-id")).toEqual([{itemId: "gone-id:item-9", trackId: "gone-id", title: "", artists: [], unavailable: true}])
+    })
+
     test("adds and removes playlist items in JSON:API batches of 20", async () => {
         const onAdded = mock(async () => undefined)
         const onRemoved = mock(async () => undefined)

@@ -1,7 +1,7 @@
 import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from "bun:test"
 import type {ProviderAccountDocument} from "../shared/types/domain"
 import * as token from "../server/domain/providers/token"
-import {providerFetch} from "../server/domain/providers/http"
+import {isQuotaExceededError, nextQuotaResetAt, providerFetch} from "../server/domain/providers/http"
 import {fetchRetryDefaults} from "../server/utils/fetch-retry"
 import {ProviderRateLimiter, providerRateLimiters} from "../server/domain/providers/rate-limit"
 
@@ -105,8 +105,16 @@ describe("Provider HTTP requests", () => {
         fetchMock.mockReset()
         fetchMock.mockResolvedValueOnce(youtubeError("quotaExceeded"))
 
-        await expect(providerFetch(youtube, "https://www.googleapis.com/youtube/v3/search?q=test")).rejects.toMatchObject({statusCode: 502})
+        const quotaError = await providerFetch(youtube, "https://www.googleapis.com/youtube/v3/search?q=test").catch((error: unknown) => error)
+        expect(quotaError).toMatchObject({statusCode: 429, data: {quotaExceeded: true}})
+        expect(isQuotaExceededError(quotaError)).toBe(true)
         expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    test("schedules a quota retry for the next midnight in Pacific time", () => {
+        expect(nextQuotaResetAt(new Date("2026-01-15T10:00:00Z")).toISOString()).toBe("2026-01-16T08:00:00.000Z")
+        expect(nextQuotaResetAt(new Date("2026-07-15T06:30:00Z")).toISOString()).toBe("2026-07-15T07:00:00.000Z")
+        expect(nextQuotaResetAt(new Date("2026-07-15T07:30:00Z")).toISOString()).toBe("2026-07-16T07:00:00.000Z")
     })
 
     test("sends SoundCloud's OAuth scheme and accepts an empty success body", async () => {

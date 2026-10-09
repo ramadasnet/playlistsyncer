@@ -52,7 +52,9 @@ function mapTrack(track: SpotifyTrack, itemId = track.uri): ProviderTrack {
 // Spotify adapter with batched playlist mutations and stable item positions.
 export const spotifyAdapter: ProviderAdapter = {
     provider: "spotify",
+    // Only playlists the user owns or collaborates on can be written. Followed and Spotify-made playlists are left out.
     async listPlaylists(account) {
+        const me = await providerFetch<{id: string}>(account, `${apiBase}/me`)
         const playlists = await collectPages<{
             id: string
             name?: string
@@ -60,14 +62,18 @@ export const spotifyAdapter: ProviderAdapter = {
             images?: {url: string}[]
             tracks?: {total?: number}
             items?: {total?: number}
+            owner?: {id?: string}
+            collaborative?: boolean
         }>(account, `${apiBase}/me/playlists?limit=50`)
-        return playlists.map((playlist): ProviderPlaylist => ({
-            id: playlist.id,
-            name: playlist.name || `Untitled playlist (${playlist.id})`,
-            description: playlist.description ?? "",
-            imageUrl: playlist.images?.[0]?.url,
-            itemCount: playlist.tracks?.total ?? playlist.items?.total ?? 0
-        }))
+        return playlists
+            .filter((playlist) => playlist.collaborative || (Boolean(me.id) && playlist.owner?.id === me.id))
+            .map((playlist): ProviderPlaylist => ({
+                id: playlist.id,
+                name: playlist.name || `Untitled playlist (${playlist.id})`,
+                description: playlist.description ?? "",
+                imageUrl: playlist.images?.[0]?.url,
+                itemCount: playlist.tracks?.total ?? playlist.items?.total ?? 0
+            }))
     },
     async createPlaylist(account, name, description) {
         const playlist = await providerFetch<{
@@ -101,8 +107,10 @@ export const spotifyAdapter: ProviderAdapter = {
         const result = await providerFetch<{tracks: {items: SpotifyTrack[]}}>(account, `${apiBase}/search?type=track&limit=10&q=${encodeURIComponent(query)}`)
         return result.tracks.items.map((candidate) => mapTrack(candidate))
     },
+    // Another release of a recording can carry a different ISRC, so a failed ISRC search retries by title and artist.
     async searchTrack(account, track) {
-        return findBestTrackMatch(track, await this.searchTrackCandidates(account, track))
+        const match = findBestTrackMatch(track, await this.searchTrackCandidates(account, track))
+        return match || !track.isrc ? match : findBestTrackMatch(track, await this.searchTrackCandidates(account, {...track, isrc: undefined}))
     },
     async getTrackDurations(account, trackIds) {
         const durations = new Map<string, number>()

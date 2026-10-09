@@ -21,6 +21,8 @@ export interface ProviderTrack {
     durationMs?: number
     isrc?: string
     imageUrl?: string
+    // The provider still lists this entry but no longer returns its track metadata.
+    unavailable?: boolean
 }
 
 // Identifiers returned after tracks are added to a playlist.
