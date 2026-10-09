@@ -1,0 +1,55 @@
+name: CI
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        services:
+            # Runs the MongoDB-backed tests, which are skipped without PLS_MONGODB_URI.
+            mongodb:
+                image: mongo:8
+                ports:
+                    - 27017:27017
+                options: >-
+                    --health-cmd "mongosh --quiet --eval 'db.runCommand({ping: 1})'"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 12
+        env:
+            PLS_MONGODB_URI: mongodb://localhost:27017
+            PLS_MONGODB_DATABASE: playlistsyncer-ci
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  # Keep in sync with the Dockerfile base image.
+                  bun-version: 1.4.0
+
+            - name: Install
+              run: bun install --frozen-lockfile
+
+            - name: Typecheck
+              run: bun run typecheck
+
+            - name: Format
+              run: bun run format:check
+
+            - name: Test
+              run: bun test
+
+            # A random order catches tests that leak mocks or state into other files. The seed is printed for reproduction.
+            - name: Test in random order
+              run: bun test --randomize
