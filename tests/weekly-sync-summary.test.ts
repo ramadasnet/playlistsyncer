@@ -294,7 +294,7 @@ describe("weekly sync summary email", () => {
                     return true
                 }
             })
-        ).toEqual({processed: 1, sent: 1, skipped: 0})
+        ).toEqual({processed: 1, sent: 1, skipped: 0, failed: 0})
         expect(sent).toHaveLength(1)
         expect(withChanges.processedAt).toEqual(now)
 
@@ -307,7 +307,7 @@ describe("weekly sync summary email", () => {
                     throw new Error("should not send")
                 }
             })
-        ).toEqual({processed: 1, sent: 0, skipped: 1})
+        ).toEqual({processed: 1, sent: 0, skipped: 1, failed: 0})
         expect(withoutChanges.processedAt).toEqual(now)
     })
 
@@ -330,7 +330,7 @@ describe("weekly sync summary email", () => {
                     return true
                 }
             })
-        ).toEqual({processed: 2, sent: 1, skipped: 1})
+        ).toEqual({processed: 2, sent: 1, skipped: 1, failed: 0})
         expect(store.disabled).toHaveLength(1)
         expect(store.processedAt).toEqual(now)
         expect(sent).toHaveLength(1)
@@ -355,7 +355,7 @@ describe("weekly sync summary email", () => {
                     return true
                 }
             })
-        ).toEqual({processed: 3, sent: 1, skipped: 2})
+        ).toEqual({processed: 3, sent: 1, skipped: 2, failed: 0})
         expect(store.disabled).toHaveLength(2)
         expect(sent).toHaveLength(1)
     })
@@ -374,7 +374,28 @@ describe("weekly sync summary email", () => {
                 resolveTier: () => "pro",
                 send: async () => false
             })
-        ).toEqual({processed: 1, sent: 0, skipped: 1})
+        ).toEqual({processed: 1, sent: 0, skipped: 1, failed: 0})
+        expect(store.processedAt).toBeUndefined()
+        expect(store.released).toHaveLength(1)
+    })
+
+    test("counts SMTP errors as failures and retries those users later", async () => {
+        const store = memoryStore({
+            users: [user()],
+            tasks: [task()],
+            runs: [run({addedTracks: [track("dst-1", "t1", {title: "New Song", artists: ["Ada"]})]})]
+        })
+
+        expect(
+            await sendDueWeeklySyncSummaries({
+                now,
+                store,
+                resolveTier: () => "pro",
+                send: async () => {
+                    throw new Error("535 Authentication failed")
+                }
+            })
+        ).toEqual({processed: 1, sent: 0, skipped: 0, failed: 1})
         expect(store.processedAt).toBeUndefined()
         expect(store.released).toHaveLength(1)
     })
@@ -397,7 +418,7 @@ describe("weekly sync summary email", () => {
                     return true
                 }
             })
-        ).toEqual({processed: 1, sent: 1, skipped: 0})
+        ).toEqual({processed: 1, sent: 1, skipped: 0, failed: 0})
         expect(
             await sendDueWeeklySyncSummaries({
                 now,
@@ -407,7 +428,7 @@ describe("weekly sync summary email", () => {
                     throw new Error("should not send")
                 }
             })
-        ).toEqual({processed: 0, sent: 0, skipped: 0})
+        ).toEqual({processed: 0, sent: 0, skipped: 0, failed: 0})
         expect(sent).toHaveLength(1)
     })
 })

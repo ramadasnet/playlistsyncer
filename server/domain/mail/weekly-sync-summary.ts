@@ -1,6 +1,7 @@
 import type {ObjectId} from "mongodb"
 import type {AccountTier, SyncRunDocument, SyncRunTrackReference, SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
+import logger from "../../utils/logger"
 import type {OutboundEmail} from "./send"
 
 export const weeklySyncSummaryIntervalMs = 7 * 24 * 60 * 60 * 1000
@@ -250,13 +251,14 @@ export async function sendDueWeeklySyncSummaries(input: {
     resolveTier: (user: UserDocument) => AccountTier
     send: (message: OutboundEmail) => Promise<boolean>
     appUrl?: string
-}): Promise<{processed: number; sent: number; skipped: number}> {
+}): Promise<{processed: number; sent: number; skipped: number; failed: number}> {
     const now = input.now ?? new Date()
     const limit = input.limit ?? weeklySyncSummaryBatchSize
     const dueBefore = new Date(now.getTime() - weeklySyncSummaryIntervalMs)
     let processed = 0
     let sent = 0
     let skipped = 0
+    let failed = 0
     let eligible = 0
     const seen = new Set<string>()
 
@@ -309,11 +311,13 @@ export async function sendDueWeeklySyncSummaries(input: {
             }
             await input.store.markProcessed(user._id, now)
             sent++
-        } catch {
+        } catch (error) {
+            // Released claims are retried on the next call; the log is the only trace of a broken SMTP setup.
+            logger.error("Mail.weeklySyncSummary", `User ${userId}`, error)
             await input.store.releaseClaim(user._id)
-            skipped++
+            failed++
         }
     }
 
-    return {processed, sent, skipped}
+    return {processed, sent, skipped, failed}
 }
