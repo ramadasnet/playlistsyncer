@@ -23,6 +23,7 @@ const restoring = ref(false)
 const restoreError = ref("")
 const restoreMessage = ref("")
 let keepRestoreMessage = false
+let restoreRunId = ""
 const selectedPlaylistKey = ref(allPlaylistsKey)
 const suggestionState = ref<
     Record<
@@ -168,8 +169,9 @@ async function restoreSource() {
     try {
         const started = await api<{runId: string}>(`/api/tasks/${task.value.id}/reverse-sync`, {method: "POST", body: plan})
         await refresh()
-        keepRestoreMessage = true
+        keepRestoreMessage = selectedRunId.value !== started.runId
         selectedRunId.value = started.runId
+        restoreRunId = started.runId
         restoreMessage.value = "Restoring the source playlist from the target. Later syncs keep their usual direction."
     } catch (caught) {
         restoreError.value = statusMessage(caught, "The source playlist could not be restored")
@@ -312,6 +314,16 @@ watch(selectedRunId, () => {
     restoreError.value = ""
     restoreMessage.value = ""
 })
+
+// Replace the in-progress note once the selected restore run finishes; a failed run already shows its own error.
+watch(
+    () => (selectedRun.value?.id === restoreRunId ? selectedRun.value.status : undefined),
+    (status) => {
+        if (!status || status === "running" || !restoreMessage.value) return
+        restoreRunId = ""
+        restoreMessage.value = status === "failed" ? "" : "The source playlist was restored from the target. Later syncs keep their usual direction."
+    }
+)
 
 watch(playlistOptions, (options) => {
     if (selectedPlaylistKey.value === allPlaylistsKey) return
