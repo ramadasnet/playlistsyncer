@@ -14,6 +14,7 @@ import {duplicateKeyField, isDuplicateKeyError} from "../../utils/mongodb"
 import {parseObjectId} from "../../utils/object-id"
 import {startTrackedSyncRun} from "../../utils/shutdown"
 import {accountSyncConflictMessage, accountSyncProviderPairKey, findAccountSyncBetweenProviders, type SyncTaskDirection, type SyncTaskDocument} from "~~/shared/types/domain"
+import {enforceProviderRequestLimit} from "../../utils/user-rate-limit"
 
 const taskSchema = z.object({
     mode: z.enum(["playlist", "account"]).default("playlist"),
@@ -32,6 +33,7 @@ const playlistWriteConflictMessage = "Another sync task already writes to this p
 // Enforce ownership and plan limits before persisting the task.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
+    enforceProviderRequestLimit(event, user._id!)
     const entitlement = resolveEntitlement(user)
     const body = taskSchema.parse(await readBody(event))
     const sourceAccountId = parseObjectId(body.source.accountId, "source account")

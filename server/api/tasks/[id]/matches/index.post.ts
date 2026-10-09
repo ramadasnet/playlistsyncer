@@ -4,6 +4,7 @@ import {requireUser} from "../../../../domain/auth/session"
 import {applyManualMatch} from "../../../../domain/sync/manual-match"
 import logger from "../../../../utils/logger"
 import {parseObjectId} from "../../../../utils/object-id"
+import {enforceProviderRequestLimit} from "../../../../utils/user-rate-limit"
 
 const matchSchema = z.object({
     runId: z.string().min(1).optional(),
@@ -15,6 +16,7 @@ const matchSchema = z.object({
 
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
+    enforceProviderRequestLimit(event, user._id!)
     const taskId = parseObjectId(getRouterParam(event, "id"), "task id")
     const body = matchSchema.parse(await readBody(event))
     logger.info("Tasks.manualMatch", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`)

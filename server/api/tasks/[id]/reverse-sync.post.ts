@@ -8,6 +8,7 @@ import {assertReverseSyncAvailable} from "../../../domain/sync/reverse-sync"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
 import {startTrackedSyncRun} from "../../../utils/shutdown"
+import {enforceProviderRequestLimit} from "../../../utils/user-rate-limit"
 
 const reverseSyncSchema = z.object({
     direction: z.enum(reverseSyncDirections),
@@ -19,6 +20,7 @@ const reverseSyncSchema = z.object({
 // A restore can outlast the HTTP idle timeout, so it finishes in the background like a manual run.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
+    enforceProviderRequestLimit(event, user._id!)
     const taskId = parseObjectId(getRouterParam(event, "id"), "task id")
     const parsed = reverseSyncSchema.safeParse(await readBody(event))
     if (!parsed.success) {

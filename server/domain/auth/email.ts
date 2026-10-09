@@ -8,11 +8,16 @@ import {collections} from "../../data/collections"
 import {getServerConfig, requireConfig} from "../../utils/config"
 import logger from "../../utils/logger"
 import {isDuplicateKeyError} from "../../utils/mongodb"
+import {enforceUserRateLimit, SlidingWindowLimiter} from "../../utils/user-rate-limit"
 import {sendMail, type OutboundEmail} from "../mail/send"
 import {hashOpaqueToken} from "./session"
 
 export const emailConfirmationTtlMs = 24 * 60 * 60 * 1000
 export const emailConfirmationResendCooldownMs = 60 * 1000
+export const emailConfirmationsPerHour = 5
+
+// The resend cooldown only covers the same address, so this caps confirmation emails to any address per user.
+export const confirmationEmailLimiter = new SlidingWindowLimiter("confirmationEmails", emailConfirmationsPerHour, 60 * 60 * 1000)
 
 const emailSchema = z.email()
 
@@ -167,6 +172,7 @@ export async function requestEmailConfirmation(
         logger.warn("Email.request", `User ${user._id!.toHexString()}`, "Email is already registered")
         throw createError({statusCode: 409, statusMessage: "This email is already registered"})
     }
+    enforceUserRateLimit(confirmationEmailLimiter, user._id!, "Too many confirmation emails were requested. Try again later.")
 
     const prepared = prepareEmailConfirmation({
         email: normalized,
