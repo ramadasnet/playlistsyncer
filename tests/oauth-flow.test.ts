@@ -4,13 +4,11 @@ import * as h3 from "h3"
 import {afterAll, beforeEach, describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
 
-Object.assign(globalThis as Record<string, unknown>, {
-    createError: h3.createError,
-    getQuery: h3.getQuery,
-    getCookie: h3.getCookie,
-    setCookie: h3.setCookie,
-    deleteCookie: h3.deleteCookie
-})
+// The OAuth module relies on Nitro auto-imports; provide them from h3 and put the previous globals back afterwards.
+const globals = globalThis as Record<string, unknown>
+const nitroGlobals = {createError: h3.createError, getQuery: h3.getQuery, getCookie: h3.getCookie, setCookie: h3.setCookie, deleteCookie: h3.deleteCookie}
+const originalGlobals = Object.fromEntries(Object.keys(nitroGlobals).map((name) => [name, globals[name]]))
+Object.assign(globals, nitroGlobals)
 
 const {collections, ensureIndexes} = await import("../server/data/collections")
 const {beginOAuth, finishOAuth} = await import("../server/domain/auth/oauth")
@@ -139,6 +137,10 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         Object.assign(fetchRetryDefaults, originalRetryDefaults)
         globalThis.fetch = originalFetch
         providerRateLimiters.delete("spotify")
+        for (const [name, value] of Object.entries(originalGlobals)) {
+            if (value === undefined) delete globals[name]
+            else globals[name] = value
+        }
         await closeDatabase()
         await new Promise<void>((resolve) => server.close(() => resolve()))
     })
