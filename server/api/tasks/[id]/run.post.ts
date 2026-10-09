@@ -7,6 +7,7 @@ import {beginSyncTask, completeSyncTask} from "../../../domain/sync/engine"
 import {assertSyncTaskIdle} from "../../../domain/sync/task-activity"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
+import {trackSyncRun} from "../../../utils/shutdown"
 
 // Reject runs during the cooldown, start the run immediately, and finish it in the background.
 export default defineEventHandler(async (event) => {
@@ -31,7 +32,7 @@ export default defineEventHandler(async (event) => {
     logger.info("Tasks.run", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`)
     const context = await beginSyncTask(taskId, "manual")
     event.waitUntil(
-        completeSyncTask(context).catch((error) => {
+        trackSyncRun(context.runId, completeSyncTask(context)).catch((error) => {
             logger.error("Tasks.runBackground", `Task ${taskId.toHexString()}`, `Run ${context.runId.toHexString()}`, error)
         })
     )

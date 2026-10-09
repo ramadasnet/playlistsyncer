@@ -2,9 +2,10 @@
 import {createServer, type Server} from "node:http"
 import {toNodeListener} from "h3"
 import {ensureIndexes} from "../data/collections"
-import {getServerConfig} from "../utils/config"
+import {assertStartupConfig, getServerConfig} from "../utils/config"
 import {closeDatabase} from "../utils/database"
 import logger from "../utils/logger"
+import {drainSyncRuns} from "../utils/shutdown"
 import {createJobsApp} from "./app"
 
 // Read the jobs listener port without using the website PORT.
@@ -21,6 +22,7 @@ export function resolveJobsPort(raw = process.env.PLS_JOBS_PORT): number {
 export async function startJobsServer(): Promise<Server> {
     const config = getServerConfig()
     logger.info("Jobs.startup", `PID ${process.pid}`, `Environment ${process.env.NODE_ENV || "development"}`)
+    assertStartupConfig("jobs")
     if (config.safeMode) {
         logger.warn("Jobs.startup", "PLS_SAFE_MODE is enabled; music providers will not be written")
     }
@@ -41,9 +43,11 @@ export async function startJobsServer(): Promise<Server> {
     })
     logger.info("Jobs.startup", `Listening on ${host}:${port}`)
 
+    // server.close() would wait for a long sync-due request, so drain the tracked runs against a deadline instead.
     const shutdown = async (signal: string) => {
         logger.info("Jobs.shutdown", signal)
-        await new Promise<void>((resolve) => server.close(() => resolve()))
+        server.close()
+        await drainSyncRuns(config.shutdownTimeoutSeconds * 1000)
         await closeDatabase()
         process.exit(0)
     }

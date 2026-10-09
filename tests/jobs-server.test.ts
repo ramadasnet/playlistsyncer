@@ -1,7 +1,7 @@
 import {createServer} from "node:http"
 import type {AddressInfo} from "node:net"
 import {createError, toNodeListener} from "h3"
-import {afterAll, describe, expect, test} from "bun:test"
+import {afterAll, describe, expect, spyOn, test} from "bun:test"
 
 process.env.PLS_SCHEDULER_SECRET = "scheduler-test-secret"
 
@@ -13,6 +13,8 @@ clearServerConfigCache()
 
 const {createJobsApp} = await import("../server/jobs/app")
 const {resolveJobsPort} = await import("../server/jobs/start")
+const {drainSyncRuns, resetShutdownState} = await import("../server/utils/shutdown")
+const {default: logger} = await import("../server/utils/logger")
 
 const server = createServer(toNodeListener(createJobsApp()))
 const port = await new Promise<number>((resolve, reject) => {
@@ -44,5 +46,25 @@ describe("jobs server", () => {
     test("does not serve job routes on GET", async () => {
         const response = await fetch(`http://127.0.0.1:${port}/api/jobs/sync-due`)
         expect(response.status).toBe(404)
+    })
+
+    test("logs rejected job requests", async () => {
+        const warn = spyOn(logger, "warn").mockImplementation(() => undefined)
+        try {
+            await fetch(`http://127.0.0.1:${port}/api/jobs/weekly-sync-summary`, {method: "POST", headers: {authorization: "Bearer wrong-secret"}})
+            expect(warn).toHaveBeenCalledWith("Jobs.request", "POST /api/jobs/weekly-sync-summary", "Status 401", "Invalid scheduler authorization")
+        } finally {
+            warn.mockRestore()
+        }
+    })
+
+    test("refuses new requests once shutdown has started", async () => {
+        try {
+            await drainSyncRuns(0)
+            const response = await fetch(`http://127.0.0.1:${port}/api/jobs/sync-due`, {method: "POST", headers: {authorization: "Bearer scheduler-test-secret"}})
+            expect(response.status).toBe(503)
+        } finally {
+            resetShutdownState()
+        }
     })
 })
