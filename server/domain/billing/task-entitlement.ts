@@ -58,11 +58,7 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
         }
         return
     }
-    const retainedTask = await db.syncTasks
-        .find({userId: user._id, mode: "playlist"})
-        .sort({createdAt: 1})
-        .limit(1)
-        .next()
+    const retainedTask = await db.syncTasks.find({userId: user._id, mode: "playlist"}).sort({createdAt: 1}).limit(1).next()
     const paused = await db.syncTasks.updateMany(
         {
             userId: user._id,
