@@ -328,7 +328,7 @@ async function recordManualMatchOnRuns(taskId: ObjectId, identity: UnmatchedTrac
 }
 
 // Remember a full-sync stand-in so the next mirror keeps that pair linked.
-async function saveAccountManualAlias(task: SyncTaskDocument, unmatchedPlaylistId: string, targetPlaylistId: string, alias: ManualTrackAlias) {
+async function saveAccountManualAlias(task: SyncTaskDocument, unmatchedPlaylistId: string, targetPlaylistId: string, alias: ManualTrackAlias, leaseId: string) {
     if (!task._id) return
     const db = await collections()
     const stored = await db.syncTasks.findOne({_id: task._id}, {projection: {playlistMappings: 1}})
@@ -336,8 +336,8 @@ async function saveAccountManualAlias(task: SyncTaskDocument, unmatchedPlaylistI
     const mapping = mappings.find((item) => [item.sourcePlaylistId, item.destinationPlaylistId].includes(unmatchedPlaylistId) || [item.sourcePlaylistId, item.destinationPlaylistId].includes(targetPlaylistId))
     if (!mapping) return
     mapping.manualAliases = [...(mapping.manualAliases || []).filter((item) => item.canonicalKey !== alias.canonicalKey && item.sourceTrackId !== alias.sourceTrackId), alias]
-    // The caller holds the task lease, so no sync can write the mappings meanwhile.
-    await saveMergedPlaylistMappings(task._id, mappings, {replaceAliases: true})
+    // Only the holder of the caller's task lease can write, so a sync that took over keeps its mappings.
+    await saveMergedPlaylistMappings(task._id, mappings, {replaceAliases: true, leaseId})
 }
 
 // Give a snapshot row the shared key, or add the row when the snapshot does not have that track yet.
@@ -356,7 +356,7 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
         throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
     }
     const {db, task} = await loadOwnedTask(taskId, userId)
-    return withTaskLease(task, async () => {
+    return withTaskLease(task, async (lease) => {
         const unmatched = await resolveUnmatchedReference(task, identity)
         const placement = await locateUnmatchedPlacement(task, identity, unmatched)
         const liveUnmatched = placement.live
@@ -377,6 +377,7 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
         let added = false
         let addedIds: {providerTrackId: string; providerItemId?: string} = {providerTrackId: chosen.track.trackId, providerItemId: existing?.itemId}
         if (!existing) {
+            await lease.assertHeld()
             await targetAdapter.addTracks(targetAccount, placement.target.targetPlaylistId, [chosen.track.trackId], async (tracks) => {
                 addedIds = tracks[0] || addedIds
             })
@@ -389,14 +390,21 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
         }
         const addedTrack = {...addedLive, itemId: addedLive.itemId || addedIds.providerItemId || addedLive.trackId}
         const sharedKey = placement.snapshotItem?.canonicalKey || trackKey(liveUnmatched)
+        await lease.assertHeld()
         if (task.mode === "account") {
-            await saveAccountManualAlias(task, unmatched.playlistId, placement.target.targetPlaylistId, {
-                sourceTrackId: placement.target.unmatchedSide === "source" ? liveUnmatched.trackId : addedTrack.trackId,
-                sourceItemId: placement.target.unmatchedSide === "source" ? liveUnmatched.itemId : addedTrack.itemId,
-                destinationTrackId: placement.target.unmatchedSide === "source" ? addedTrack.trackId : liveUnmatched.trackId,
-                destinationItemId: placement.target.unmatchedSide === "source" ? addedTrack.itemId : liveUnmatched.itemId,
-                canonicalKey: sharedKey
-            })
+            await saveAccountManualAlias(
+                task,
+                unmatched.playlistId,
+                placement.target.targetPlaylistId,
+                {
+                    sourceTrackId: placement.target.unmatchedSide === "source" ? liveUnmatched.trackId : addedTrack.trackId,
+                    sourceItemId: placement.target.unmatchedSide === "source" ? liveUnmatched.itemId : addedTrack.itemId,
+                    destinationTrackId: placement.target.unmatchedSide === "source" ? addedTrack.trackId : liveUnmatched.trackId,
+                    destinationItemId: placement.target.unmatchedSide === "source" ? addedTrack.itemId : liveUnmatched.itemId,
+                    canonicalKey: sharedKey
+                },
+                lease.leaseId
+            )
         } else {
             const stored = await db.syncSnapshots.findOne({taskId: task._id!})
             const unmatchedField = placement.target.unmatchedSide === "source" ? "sourceItems" : "destinationItems"

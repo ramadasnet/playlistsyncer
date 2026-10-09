@@ -53,13 +53,14 @@ export function overlayPlaylistMappings(stored: PlaylistMapping[], desired: Play
 }
 
 // Every save attempt matches the version we read, and a user save also requires an idle lease.
-export function playlistMappingWriteFilter(taskId: ObjectId, updatedAt: Date | undefined, requireIdleLease = false, now = new Date()) {
+export function playlistMappingWriteFilter(taskId: ObjectId, updatedAt: Date | undefined, requireIdleLease = false, now = new Date(), leaseId?: string) {
     const version = updatedAt ? {updatedAt} : {updatedAt: {$exists: false}}
-    return {_id: taskId, ...version, ...(requireIdleLease ? idleLeaseFilter(now) : {})}
+    return {_id: taskId, ...version, ...(requireIdleLease ? idleLeaseFilter(now) : {}), ...(leaseId ? {leaseId} : {})}
 }
 
 // Save mappings without replacing a concurrent alias or a playlist added by the other writer.
-export async function saveMergedPlaylistMappings(taskId: ObjectId, desired: PlaylistMapping[], options?: {replaceAliases?: boolean; requireIdleLease?: boolean}) {
+// A leaseId limits the write to the holder of that lease.
+export async function saveMergedPlaylistMappings(taskId: ObjectId, desired: PlaylistMapping[], options?: {replaceAliases?: boolean; requireIdleLease?: boolean; leaseId?: string}) {
     const db = await collections()
     const attempts = 3
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -70,7 +71,7 @@ export async function saveMergedPlaylistMappings(taskId: ObjectId, desired: Play
         }
         const next = overlayPlaylistMappings(stored.playlistMappings || [], desired, {replaceAliases: options?.replaceAliases})
         const updatedAt = new Date()
-        const result = await db.syncTasks.updateOne(playlistMappingWriteFilter(taskId, stored.updatedAt, options?.requireIdleLease, updatedAt), {$set: {playlistMappings: next, updatedAt}})
+        const result = await db.syncTasks.updateOne(playlistMappingWriteFilter(taskId, stored.updatedAt, options?.requireIdleLease, updatedAt, options?.leaseId), {$set: {playlistMappings: next, updatedAt}})
         if (!result.matchedCount) continue
         for (const mapping of desired) {
             const saved = next.find((item) => item.sourcePlaylistId === mapping.sourcePlaylistId)
@@ -78,7 +79,7 @@ export async function saveMergedPlaylistMappings(taskId: ObjectId, desired: Play
         }
         return true
     }
-    if (options?.requireIdleLease) {
+    if (options?.requireIdleLease || options?.leaseId) {
         const latest = await db.syncTasks.findOne({_id: taskId}, {projection: {leaseExpiresAt: 1}})
         if (latest && leaseIsActive(latest.leaseExpiresAt)) {
             throw createError({statusCode: 409, statusMessage: syncTaskBusyMessage})
