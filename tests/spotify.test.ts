@@ -1,12 +1,15 @@
-import {beforeEach, describe, expect, mock, test} from "bun:test"
+import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from "bun:test"
 import type {ProviderAccountDocument} from "../shared/types/domain"
+import * as http from "../server/domain/providers/http"
+import {spotifyAdapter} from "../server/domain/providers/spotify"
+import {youtubeAdapter} from "../server/domain/providers/youtube"
 
 const providerFetch = mock(async (): Promise<unknown> => undefined)
 
-mock.module("../server/domain/providers/http", () => ({providerFetch}))
+// A spy instead of mock.module, which would replace providerFetch for every later test file.
+const providerFetchSpy = spyOn(http, "providerFetch").mockImplementation(providerFetch as unknown as typeof http.providerFetch)
+afterAll(() => providerFetchSpy.mockRestore())
 
-const {spotifyAdapter} = await import("../server/domain/providers/spotify")
-const {youtubeAdapter} = await import("../server/domain/providers/youtube")
 const account = {provider: "spotify"} as ProviderAccountDocument
 
 describe("Spotify provider", () => {

@@ -1,15 +1,16 @@
-import {afterAll, beforeEach, describe, expect, mock, test} from "bun:test"
+import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from "bun:test"
 import type {ProviderAccountDocument} from "../shared/types/domain"
+import * as token from "../server/domain/providers/token"
+import {providerFetch} from "../server/domain/providers/http"
+import {fetchRetryDefaults} from "../server/utils/fetch-retry"
+import {ProviderRateLimiter, providerRateLimiters} from "../server/domain/providers/rate-limit"
 
 const getAccessToken = mock(async () => "token")
-const actualToken = await import("../server/domain/providers/token")
 
-mock.module("../server/domain/providers/token", () => ({...actualToken, getAccessToken}))
+// A spy instead of mock.module, which would replace getAccessToken for every later test file.
+const getAccessTokenSpy = spyOn(token, "getAccessToken").mockImplementation(getAccessToken)
+afterAll(() => getAccessTokenSpy.mockRestore())
 ;(globalThis as {createError?: unknown}).createError = (input: {statusCode: number; statusMessage: string}) => Object.assign(new Error(input.statusMessage), input)
-
-const {providerFetch} = await import("../server/domain/providers/http")
-const {fetchRetryDefaults} = await import("../server/utils/fetch-retry")
-const {ProviderRateLimiter, providerRateLimiters} = await import("../server/domain/providers/rate-limit")
 const spotify = {provider: "spotify", externalAccountId: "account-id"} as ProviderAccountDocument
 const otherSpotify = {provider: "spotify", externalAccountId: "other-account-id"} as ProviderAccountDocument
 const youtube = {provider: "youtube", externalAccountId: "account-id"} as ProviderAccountDocument

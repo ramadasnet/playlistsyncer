@@ -1,11 +1,14 @@
-import {beforeEach, describe, expect, mock, test} from "bun:test"
+import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from "bun:test"
 import type {ProviderAccountDocument} from "../shared/types/domain"
+import * as http from "../server/domain/providers/http"
+import {tidalAdapter} from "../server/domain/providers/tidal"
 
 const providerFetch = mock(async (): Promise<unknown> => undefined)
 
-mock.module("../server/domain/providers/http", () => ({providerFetch}))
+// A spy instead of mock.module, which would replace providerFetch for every later test file.
+const providerFetchSpy = spyOn(http, "providerFetch").mockImplementation(providerFetch as unknown as typeof http.providerFetch)
+afterAll(() => providerFetchSpy.mockRestore())
 
-const {tidalAdapter} = await import("../server/domain/providers/tidal")
 const account = {provider: "tidal"} as ProviderAccountDocument
 
 function jsonApiHeaders(body = false) {

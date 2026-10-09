@@ -1,12 +1,15 @@
-import {beforeEach, describe, expect, mock, test} from "bun:test"
+import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from "bun:test"
 import type {ProviderAccountDocument} from "../shared/types/domain"
+import * as http from "../server/domain/providers/http"
+import {soundcloudAdapter} from "../server/domain/providers/soundcloud"
 
 const providerFetch = mock(async (): Promise<unknown> => undefined)
 
-mock.module("../server/domain/providers/http", () => ({providerFetch}))
+// A spy instead of mock.module, which would replace providerFetch for every later test file.
+const providerFetchSpy = spyOn(http, "providerFetch").mockImplementation(providerFetch as unknown as typeof http.providerFetch)
+afterAll(() => providerFetchSpy.mockRestore())
 ;(globalThis as {createError?: (input: {statusCode: number; statusMessage: string}) => Error}).createError = (input) => Object.assign(new Error(input.statusMessage), input)
 
-const {soundcloudAdapter} = await import("../server/domain/providers/soundcloud")
 const account = {provider: "soundcloud"} as ProviderAccountDocument
 const playlistId = "soundcloud:playlists:9"
 const accept = {Accept: "application/json; charset=utf-8"}
