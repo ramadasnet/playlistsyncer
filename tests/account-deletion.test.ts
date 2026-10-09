@@ -1,14 +1,26 @@
-import {afterAll, beforeEach, describe, expect, test} from "bun:test"
-import {createError} from "h3"
+import {IncomingMessage, ServerResponse} from "node:http"
+import {Socket} from "node:net"
+import {randomBytes} from "node:crypto"
+import {afterAll, beforeEach, describe, expect, spyOn, test} from "bun:test"
+import {createError, createEvent, getCookie} from "h3"
 import {ObjectId} from "mongodb"
 import type {Provider, SyncTaskDocument, UserDocument} from "../shared/types/domain"
+import * as data from "../server/data/collections"
 import {collections, ensureIndexes} from "../server/data/collections"
 import {deleteUserAccount, disconnectProviderAccount} from "../server/domain/accounts"
+import {hashOpaqueToken} from "../server/domain/auth/session"
+import * as engine from "../server/domain/sync/engine"
 import {closeDatabase} from "../server/utils/database"
+
+const globals = globalThis as Record<string, unknown>
+let taskRequestBody: unknown = {}
+globals.defineEventHandler = (handler: unknown) => handler
+globals.readBody = async () => taskRequestBody
+globals.setResponseStatus = () => undefined
+globals.getCookie = getCookie
 
 const mongoUri = process.env.PLS_MONGODB_URI
 // The sync busy check relies on the Nitro auto-imported createError.
-const globals = globalThis as {createError?: unknown}
 const originalCreateError = globals.createError
 const createdUserIds: ObjectId[] = []
 
@@ -167,5 +179,149 @@ describe.skipIf(!mongoUri)("disconnecting providers and deleting accounts agains
 
         await expect(deleteUserAccount((await db.users.findOne({_id: userId}))!)).rejects.toMatchObject({statusCode: 409})
         expect(await db.providerAccounts.countDocuments({userId})).toBe(2)
+    })
+
+    test("two concurrent disconnects keep one sign-in account", async () => {
+        const userId = await createUser()
+        const spotify = await connect(userId, "spotify")
+        const youtube = await connect(userId, "youtube")
+
+        const results = await Promise.allSettled([disconnectProviderAccount(userId, spotify), disconnectProviderAccount(userId, youtube)])
+
+        expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
+        const rejected = results.find((result) => result.status === "rejected")
+        expect(rejected?.status === "rejected" && rejected.reason).toMatchObject({statusCode: 409})
+        const db = await collections()
+        expect(await db.providerAccounts.countDocuments({userId})).toBe(1)
+    })
+
+    test("reserves tasks so a scheduled run cannot write history during deletion", async () => {
+        const userId = await createUser()
+        const spotify = await connect(userId, "spotify")
+        const youtube = await connect(userId, "youtube")
+        const taskId = await createTask(userId, spotify, youtube)
+        const realCollections = data.collections
+        let claimed = false
+        const collectionsSpy = spyOn(data, "collections").mockImplementation(async () => {
+            const db = await realCollections()
+            const deleteMany = db.syncRuns.deleteMany.bind(db.syncRuns)
+            db.syncRuns.deleteMany = (async (filter, options) => {
+                if (!claimed) {
+                    claimed = true
+                    await expect(engine.beginSyncTask(taskId, "scheduled")).rejects.toMatchObject({statusCode: 409})
+                    expect(await (await realCollections()).syncRuns.countDocuments({taskId})).toBe(1)
+                }
+                return deleteMany(filter, options)
+            }) as typeof db.syncRuns.deleteMany
+            return db
+        })
+
+        try {
+            const db = await realCollections()
+            await deleteUserAccount((await db.users.findOne({_id: userId}))!)
+            expect(claimed).toBe(true)
+            expect(await db.syncRuns.countDocuments({taskId})).toBe(0)
+            expect(await db.syncTasks.countDocuments({_id: taskId})).toBe(0)
+            expect(await db.users.countDocuments({_id: userId})).toBe(0)
+        } finally {
+            collectionsSpy.mockRestore()
+        }
+    })
+
+    test("releases the deletion reservation when a sync is still running", async () => {
+        const userId = await createUser()
+        const spotify = await connect(userId, "spotify")
+        const youtube = await connect(userId, "youtube")
+        const idleId = await createTask(userId, spotify, youtube, {createdAt: new Date("2026-01-01T00:00:00.000Z")})
+        const runningId = await createTask(userId, spotify, youtube, {leaseId: "running", leaseExpiresAt: new Date(Date.now() + 60_000), createdAt: new Date("2026-01-02T00:00:00.000Z")})
+        const db = await collections()
+
+        await expect(deleteUserAccount((await db.users.findOne({_id: userId}))!)).rejects.toMatchObject({statusCode: 409})
+
+        expect((await db.syncTasks.findOne({_id: runningId}))?.leaseId).toBe("running")
+        expect((await db.syncTasks.findOne({_id: idleId}))?.leaseId).toBeUndefined()
+        expect(await db.syncRuns.countDocuments({taskId: {$in: [idleId, runningId]}})).toBe(2)
+        expect(await db.users.countDocuments({_id: userId})).toBe(1)
+    })
+
+    test("task creation waits for a disconnect and does not point at the removed account", async () => {
+        const userId = await createUser()
+        const spotify = await connect(userId, "spotify")
+        const youtube = await connect(userId, "youtube")
+        const token = randomBytes(32).toString("base64url")
+        const db = await collections()
+        const now = new Date()
+        await db.sessions.insertOne({userId, tokenHash: hashOpaqueToken(token), createdAt: now, expiresAt: new Date(now.getTime() + 60_000)})
+        const runSync = spyOn(engine, "runSyncTask").mockImplementation(async () => undefined as never)
+        const realCollections = data.collections
+        let releaseFind: () => void = () => undefined
+        const findGate = new Promise<void>((resolve) => {
+            releaseFind = resolve
+        })
+        let ownershipReads = 0
+        const collectionsSpy = spyOn(data, "collections").mockImplementation(async () => {
+            const current = await realCollections()
+            const find = current.providerAccounts.find.bind(current.providerAccounts)
+            current.providerAccounts.find = ((filter, options) => {
+                const cursor = find(filter, options)
+                const toArray = cursor.toArray.bind(cursor)
+                cursor.toArray = async () => {
+                    const rows = await toArray()
+                    const ids = (filter as {_id?: {$in?: unknown}})._id?.$in
+                    if (Array.isArray(ids)) {
+                        ownershipReads += 1
+                        if (ownershipReads === 1) {
+                            await findGate
+                        }
+                    }
+                    return rows
+                }
+                return cursor
+            }) as typeof current.providerAccounts.find
+            return current
+        })
+        const {default: createTaskHandler} = await import("../server/api/tasks/index.post")
+        const createTask = createTaskHandler as (event: unknown) => Promise<{id: string}>
+        taskRequestBody = {
+            mode: "playlist",
+            direction: "one-way",
+            source: {accountId: spotify.toHexString(), playlistId: "source", name: "Source"},
+            destination: {accountId: youtube.toHexString(), playlistId: "destination", name: "Destination"}
+        }
+        const request = new IncomingMessage(new Socket())
+        request.headers.cookie = `ps_session=${token}`
+        const event = createEvent(request, new ServerResponse(request))
+        ;(event as {waitUntil?: (promise: Promise<unknown>) => void}).waitUntil = () => undefined
+
+        try {
+            const creating = createTask(event)
+            const deadline = Date.now() + 2000
+            while (ownershipReads < 1) {
+                if (Date.now() > deadline) {
+                    throw new Error("task creation did not read provider accounts")
+                }
+                await new Promise((resolve) => setTimeout(resolve, 10))
+            }
+            const disconnecting = disconnectProviderAccount(userId, youtube)
+            await new Promise((resolve) => setTimeout(resolve, 30))
+            expect(await (await realCollections()).syncTasks.countDocuments({userId})).toBe(0)
+            expect(await (await realCollections()).providerAccounts.countDocuments({userId})).toBe(2)
+            releaseFind()
+            const created = await creating
+            const disconnected = await Promise.allSettled([disconnecting])
+            expect(created).toEqual({id: expect.any(String)})
+            expect(disconnected[0]?.status).toBe("rejected")
+            expect(disconnected[0]?.status === "rejected" && disconnected[0].reason).toMatchObject({statusCode: 409})
+            const fresh = await realCollections()
+            const task = await fresh.syncTasks.findOne({userId})
+            const accountIds = new Set((await fresh.providerAccounts.find({userId}).toArray()).map((account) => account._id?.toHexString()))
+            expect(accountIds.has(task?.source.providerAccountId.toHexString())).toBe(true)
+            expect(accountIds.has(task?.destination.providerAccountId.toHexString())).toBe(true)
+            expect(runSync).toHaveBeenCalled()
+        } finally {
+            releaseFind()
+            collectionsSpy.mockRestore()
+            runSync.mockRestore()
+        }
     })
 })
