@@ -1,7 +1,9 @@
-import {beforeEach, describe, expect, mock, test} from "bun:test"
+import {afterAll, beforeEach, describe, expect, spyOn, test} from "bun:test"
 import {ObjectId} from "mongodb"
 import type {WebhookEventEntity} from "creem/models/components"
 import type {UserDocument, WebhookEventDocument} from "../shared/types/domain"
+import * as collectionsModule from "../server/data/collections"
+import {processCreemEvent} from "../server/domain/billing/creem"
 
 const webhookRows = new Map<string, WebhookEventDocument>()
 let applyCalls = 0
@@ -40,9 +42,9 @@ const db = {
     }
 }
 
-mock.module("../server/data/collections", () => ({collections: async () => db, ensureIndexes: async () => undefined}))
-
-const {processCreemEvent} = await import("../server/domain/billing/creem")
+// A spy instead of mock.module, which would leak the fake database into every later test file.
+const collectionsSpy = spyOn(collectionsModule, "collections").mockResolvedValue(db as unknown as Awaited<ReturnType<typeof collectionsModule.collections>>)
+afterAll(() => collectionsSpy.mockRestore())
 
 function subscriptionEvent(id: string): WebhookEventEntity {
     return {

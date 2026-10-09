@@ -1,4 +1,4 @@
-import {describe, expect, mock, test as bunTest} from "bun:test"
+import {afterAll, describe, expect, spyOn, test as bunTest} from "bun:test"
 
 // These cases share one task, adapter, and database, so they cannot overlap.
 let exclusive = Promise.resolve()
@@ -21,8 +21,9 @@ import {ObjectId, type Collection} from "mongodb"
 import type {ProviderAccountDocument, SyncRunDocument, SyncTaskDocument, UserDocument} from "../shared/types/domain"
 import {reverseSyncRequestFor} from "../shared/reverse-sync"
 import type {ProviderAdapter, ProviderTrack} from "../server/domain/providers/types"
-import * as domain from "../shared/types/domain"
-import * as cadence from "../shared/sync-cadence"
+import * as collectionsModule from "../server/data/collections"
+import * as providers from "../server/domain/providers"
+import {runReverseSync, runSyncTask} from "../server/domain/sync/engine"
 
 function track(itemId: string, title: string): ProviderTrack {
     return {itemId, trackId: `spotify:track:${itemId}`, title, artists: ["Artist"], durationMs: 180000}
@@ -230,17 +231,18 @@ const db = {
     syncRuns: fakeCollection([])
 }
 
-mock.module("~~/shared/types/domain", () => domain)
-mock.module("~~/shared/sync-cadence", () => cadence)
-mock.module("../server/data/collections", () => ({collections: async () => db, ensureIndexes: async () => undefined}))
-mock.module("../server/domain/providers", () => ({getProviderAdapter: () => adapter}))
+// Spies instead of mock.module, which would leak the fakes into every later test file.
+const collectionsSpy = spyOn(collectionsModule, "collections").mockResolvedValue(db as unknown as Awaited<ReturnType<typeof collectionsModule.collections>>)
+const adapterSpy = spyOn(providers, "getProviderAdapter").mockImplementation(() => adapter)
+afterAll(() => {
+    collectionsSpy.mockRestore()
+    adapterSpy.mockRestore()
+})
 
 const testGlobals = globalThis as {createError?: (input: {statusCode?: number; statusMessage?: string; data?: unknown}) => Error}
 if (!testGlobals.createError) {
     testGlobals.createError = (input) => Object.assign(new Error(input.statusMessage || "Error"), input)
 }
-
-const {runReverseSync, runSyncTask} = await import("../server/domain/sync/engine")
 
 describe("initial two-way playlist sync", () => {
     test("fills only the missing tracks instead of duplicating both playlists", async () => {
