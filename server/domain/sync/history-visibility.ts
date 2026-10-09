@@ -1,5 +1,5 @@
 // Control which synchronization history is visible at each account tier.
-import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
+import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunPlaylistIssue, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
 import {availableReverseSync, type ReverseSyncRequest, type ReverseSyncRunState, type SyncFailureReason} from "../../../shared/reverse-sync"
 
 export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt" | "progress">
@@ -36,6 +36,8 @@ export interface SerializedSyncRun {
     addedTracks: SerializedRunTrack[]
     removedTracks: SerializedRunTrack[]
     unmatchedTracks: SerializedRunTrack[]
+    failedPlaylists?: SyncRunPlaylistIssue[]
+    missingSourcePlaylists?: SyncRunPlaylistIssue[]
 }
 
 // Only paid accounts can browse past synchronization runs.
@@ -139,7 +141,9 @@ export function serializeSyncRun(
         ...(run.progress ? {progress: run.progress} : {}),
         addedTracks: run.addedTracks.map((track) => serializeRunTrack(track, task, snapshots)),
         removedTracks: run.removedTracks.map((track) => serializeRunTrack(track, task, snapshots)),
-        unmatchedTracks: run.unmatchedTracks.map((track) => serializeRunTrack(track, task, snapshots))
+        unmatchedTracks: run.unmatchedTracks.map((track) => serializeRunTrack(track, task, snapshots)),
+        ...(run.failedPlaylists?.length ? {failedPlaylists: run.failedPlaylists} : {}),
+        ...(run.missingSourcePlaylists?.length ? {missingSourcePlaylists: run.missingSourcePlaylists} : {})
     }
 }
 

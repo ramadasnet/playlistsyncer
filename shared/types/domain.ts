@@ -189,6 +189,7 @@ export interface SyncTaskDocument {
     lastRunAt?: Date
     lastSuccessAt?: Date
     lastError?: string
+    consecutiveFailures?: number
     leaseId?: string
     leaseExpiresAt?: Date
     createdAt: Date
@@ -225,7 +226,17 @@ export interface SyncSnapshotDocument {
     playlists?: AccountSnapshotPlaylist[]
     sourceItems: CanonicalTrack[]
     destinationItems: CanonicalTrack[]
+    // Destination tracks a restore could not copy back, so later mirrors keep them.
+    preservedDestinationTracks?: Pick<SyncRunTrackReference, "providerTrackId" | "providerItemId">[]
     createdAt: Date
+}
+
+// A search that found no match on one provider account, kept so later runs do not repeat it.
+export interface SearchMissDocument {
+    _id?: ObjectId
+    providerAccountId: ObjectId
+    key: string
+    expiresAt: Date
 }
 
 // Track metadata stored in a synchronization run's change history.
@@ -247,6 +258,14 @@ export interface SyncRunProgress {
     tracksTotal?: number
 }
 
+// One playlist of a full sync that failed or whose source is gone.
+export interface SyncRunPlaylistIssue {
+    sourcePlaylistId: string
+    destinationPlaylistId?: string
+    name: string
+    error?: string
+}
+
 // Execution result and audit information for one synchronization run.
 export interface SyncRunDocument {
     _id?: ObjectId
@@ -260,6 +279,8 @@ export interface SyncRunDocument {
     addedTracks: SyncRunTrackReference[]
     removedTracks: SyncRunTrackReference[]
     unmatchedTracks: SyncRunTrackReference[]
+    failedPlaylists?: SyncRunPlaylistIssue[]
+    missingSourcePlaylists?: SyncRunPlaylistIssue[]
     progress?: SyncRunProgress
     error?: string
     failureReason?: SyncFailureReason

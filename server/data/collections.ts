@@ -1,6 +1,6 @@
 // Provide typed MongoDB collections and create the indexes they require.
 import type {Collection} from "mongodb"
-import type {OAuthTransactionDocument, ProviderAccountDocument, SessionDocument, SyncRunDocument, SyncSnapshotDocument, SyncTaskDocument, UserDocument, WebhookEventDocument} from "~~/shared/types/domain"
+import type {OAuthTransactionDocument, ProviderAccountDocument, SearchMissDocument, SessionDocument, SyncRunDocument, SyncSnapshotDocument, SyncTaskDocument, UserDocument, WebhookEventDocument} from "~~/shared/types/domain"
 import {getDatabase} from "../utils/database"
 
 const collectionNames = {
@@ -11,6 +11,7 @@ const collectionNames = {
     syncTasks: "syncTasks",
     syncSnapshots: "syncSnapshots",
     syncRuns: "syncRuns",
+    searchMisses: "searchMisses",
     webhookEvents: "webhookEvents"
 } as const
 
@@ -23,6 +24,7 @@ export async function collections(): Promise<{
     syncTasks: Collection<SyncTaskDocument>
     syncSnapshots: Collection<SyncSnapshotDocument>
     syncRuns: Collection<SyncRunDocument>
+    searchMisses: Collection<SearchMissDocument>
     webhookEvents: Collection<WebhookEventDocument>
 }> {
     const database = await getDatabase()
@@ -34,6 +36,7 @@ export async function collections(): Promise<{
         syncTasks: database.collection<SyncTaskDocument>(collectionNames.syncTasks),
         syncSnapshots: database.collection<SyncSnapshotDocument>(collectionNames.syncSnapshots),
         syncRuns: database.collection<SyncRunDocument>(collectionNames.syncRuns),
+        searchMisses: database.collection<SearchMissDocument>(collectionNames.searchMisses),
         webhookEvents: database.collection<WebhookEventDocument>(collectionNames.webhookEvents)
     }
 }
@@ -61,6 +64,8 @@ export async function ensureIndexes(): Promise<void> {
         db.syncSnapshots.createIndex({taskId: 1, batch: 1}, {unique: true}),
         db.syncRuns.createIndex({taskId: 1, startedAt: -1}),
         db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: 60 * 60 * 24 * 180}),
+        db.searchMisses.createIndex({providerAccountId: 1, key: 1}, {unique: true}),
+        db.searchMisses.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.webhookEvents.createIndex({eventId: 1}, {unique: true}),
         db.webhookEvents.createIndex({processedAt: 1}, {expireAfterSeconds: 60 * 60 * 24 * 90})
     ])

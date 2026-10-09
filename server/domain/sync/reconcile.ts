@@ -25,10 +25,14 @@ export function normalizeText(value: string): string {
         .trim()
 }
 
-// Prefer a provider canonical key and otherwise derive one from track metadata.
+// Prefer a provider canonical key, then the recording's ISRC, and otherwise derive one from track metadata.
 export function trackKey(track: Pick<ProviderTrack, "isrc" | "title" | "artists" | "durationMs">): string {
     if ("canonicalKey" in track && track.canonicalKey) {
         return track.canonicalKey as string
+    }
+    const isrc = track.isrc?.replace(/[^a-z0-9]/gi, "").toUpperCase()
+    if (isrc) {
+        return `isrc:${isrc}`
     }
     return `meta:${normalizeText(track.title)}:${normalizeText(track.artists[0] || "")}`
 }
