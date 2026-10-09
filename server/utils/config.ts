@@ -1,5 +1,6 @@
 // Parse and cache configuration from environment variables.
 
+import {BlockList, isIP} from "node:net"
 import {z} from "zod"
 import {parseBooleanEnvFlag} from "../../shared/env-flag"
 import {defaultProSyncIntervalMinutes} from "../../shared/sync-cadence"
@@ -148,7 +149,41 @@ export function getServerConfig(): ServerConfig {
     return cachedConfig
 }
 
-const localHostnames = new Set(["localhost", "127.0.0.1", "[::1]"])
+// Unspecified, private, shared (CGNAT), loopback, and link-local ranges cannot be a public origin.
+const nonPublicAddresses = new BlockList()
+for (const [address, prefix] of [
+    ["0.0.0.0", 8],
+    ["10.0.0.0", 8],
+    ["100.64.0.0", 10],
+    ["127.0.0.0", 8],
+    ["169.254.0.0", 16],
+    ["172.16.0.0", 12],
+    ["192.168.0.0", 16]
+] as const) {
+    nonPublicAddresses.addSubnet(address, prefix, "ipv4")
+}
+for (const [address, prefix] of [
+    ["::", 128],
+    ["::1", 128],
+    ["fc00::", 7],
+    ["fe80::", 10]
+] as const) {
+    nonPublicAddresses.addSubnet(address, prefix, "ipv6")
+}
+
+// Whether a URL hostname (already normalized by URL) names this machine or a non-public network.
+function isNonPublicHostname(hostname: string): boolean {
+    if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+        return true
+    }
+    const address = hostname.replace(/^\[|\]$/g, "")
+    const version = isIP(address)
+    // IPv4-mapped IPv6 is rejected outright; Bun's BlockList would match every IPv4 address against a mapped range.
+    if (version === 6 && address.startsWith("::ffff:")) {
+        return true
+    }
+    return version !== 0 && nonPublicAddresses.check(address, version === 6 ? "ipv6" : "ipv4")
+}
 
 /**
  * Lists configuration problems for one process before it starts serving.
@@ -180,7 +215,7 @@ export function checkStartupConfig(config: ServerConfig, role: "website" | "jobs
         if (!value) errors.push(`${name} is required`)
     }
     const appUrl = new URL(config.appUrl)
-    if (appUrl.protocol !== "https:" || localHostnames.has(appUrl.hostname)) {
+    if (appUrl.protocol !== "https:" || isNonPublicHostname(appUrl.hostname)) {
         errors.push(`PLS_APP_URL must be the public https origin, not ${config.appUrl}`)
     }
     if (config.creemApiKey && config.creemServer === "test") {

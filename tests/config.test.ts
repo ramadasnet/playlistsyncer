@@ -82,6 +82,34 @@ describe("server configuration", () => {
         expect(checkStartupConfig(parseServerConfig({...productionValues, appUrl: "https://127.0.0.1:3007"}), "website", true).errors).toHaveLength(1)
     })
 
+    test("rejects app URLs on private, loopback, link-local, or unspecified addresses", () => {
+        const errorsFor = (appUrl: string) => checkStartupConfig(parseServerConfig({...productionValues, appUrl}), "website", true).errors
+        const nonPublic = [
+            "https://0.0.0.0",
+            "https://10.1.2.3",
+            "https://100.64.0.1",
+            "https://127.0.0.2",
+            "https://169.254.169.254",
+            "https://172.16.0.1",
+            "https://172.31.255.255",
+            "https://192.168.1.1",
+            "https://0xc0.0xa8.1.1",
+            "https://app.localhost",
+            "https://[::]",
+            "https://[::1]",
+            "https://[fd12::1]",
+            "https://[fe80::1]",
+            "https://[::ffff:192.168.1.1]"
+        ]
+
+        for (const appUrl of nonPublic) {
+            expect(errorsFor(appUrl)).toEqual([expect.stringContaining("PLS_APP_URL must be the public https origin")])
+        }
+        for (const appUrl of ["https://playlistsyncer.com", "https://8.8.8.8", "https://172.32.0.1", "https://[2001:4860::8888]"]) {
+            expect(errorsFor(appUrl)).toEqual([])
+        }
+    })
+
     test("accepts a complete production configuration and warns when SMTP is missing", () => {
         const website = checkStartupConfig(parseServerConfig(productionValues), "website", true)
         const jobs = checkStartupConfig(parseServerConfig(productionValues), "jobs", true)
