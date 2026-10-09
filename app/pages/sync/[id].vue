@@ -166,10 +166,11 @@ async function restoreSource() {
     restoreError.value = ""
     restoreMessage.value = ""
     try {
-        await api(`/api/tasks/${task.value.id}/reverse-sync`, {method: "POST", body: plan})
+        const started = await api<{runId: string}>(`/api/tasks/${task.value.id}/reverse-sync`, {method: "POST", body: plan})
         await refresh()
         keepRestoreMessage = true
-        restoreMessage.value = "The source playlist was restored from the target. Later syncs keep their usual direction."
+        selectedRunId.value = started.runId
+        restoreMessage.value = "Restoring the source playlist from the target. Later syncs keep their usual direction."
     } catch (caught) {
         restoreError.value = statusMessage(caught, "The source playlist could not be restored")
     } finally {
