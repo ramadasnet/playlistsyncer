@@ -50,6 +50,10 @@ const baseUrl = await new Promise<string>((resolve, reject) => {
 })
 
 // Keep cookies per simulated browser so the flow can start in one browser and end in another.
+function oauthCookieNames(browser: Browser): string[] {
+    return [...browser.cookies.keys()].filter((name) => name.startsWith("ps_oauth_"))
+}
+
 class Browser {
     readonly cookies = new Map<string, string>()
 
@@ -149,18 +153,19 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         const attacker = new Browser()
         const victim = new Browser()
         const state = await attacker.begin()
-        expect(attacker.cookies.has("ps_oauth")).toBe(true)
+        expect(oauthCookieNames(attacker)).toHaveLength(1)
 
         const forged = await victim.callback(state)
 
         expect(forged.status).toBe(400)
         expect(victim.cookies.has("ps_session")).toBe(false)
+        expect(oauthCookieNames(attacker)).toHaveLength(1)
 
         // The rejected attempt does not consume the transaction of the browser that owns it.
         const own = await attacker.callback(state)
         expect(own.status).toBe(200)
         expect(await trackSessionUser(attacker)).toBeDefined()
-        expect(attacker.cookies.has("ps_oauth")).toBe(false)
+        expect(oauthCookieNames(attacker)).toHaveLength(0)
     })
 
     test("refuses to link when the signed-in user changed after the flow started", async () => {
@@ -249,5 +254,23 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         expect(await browser.sessionUserId()).toEqual(owner)
         const accounts = await db.providerAccounts.find({provider: "spotify", externalAccountId: {$in: [legacyId, accountId]}}).toArray()
         expect(accounts.map((account) => [account._id.toHexString(), account.externalAccountId])).toEqual([[insertedId.toHexString(), accountId]])
+    })
+
+    test("completes two OAuth flows started from the same browser", async () => {
+        const browser = new Browser()
+        const first = await browser.begin()
+        const second = await browser.begin()
+        expect(first).not.toBe(second)
+        expect(oauthCookieNames(browser)).toHaveLength(2)
+
+        const rejected = await browser.callback("unrelated-state")
+        expect(rejected.status).toBe(400)
+        expect(oauthCookieNames(browser)).toHaveLength(2)
+
+        expect((await browser.callback(first)).status).toBe(200)
+        expect(oauthCookieNames(browser)).toHaveLength(1)
+        expect((await browser.callback(second)).status).toBe(200)
+        expect(oauthCookieNames(browser)).toHaveLength(0)
+        expect(await trackSessionUser(browser)).toBeDefined()
     })
 })

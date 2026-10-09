@@ -15,9 +15,13 @@ import {getOAuthProvider, type OAuthProfile} from "./providers"
 import {isProviderEnabled} from "../../utils/provider-availability"
 import {createSession, getCurrentUser, hashOpaqueToken} from "./session"
 
-const oauthCookie = "ps_oauth"
 const oauthTransactionSeconds = 10 * 60
 const oauthCookieOptions = {httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const, path: "/api/auth"}
+
+// Name the browser cookie after the transaction state so each tab keeps its own nonce.
+function oauthBrowserCookie(state: string): string {
+    return `ps_oauth_${hashOpaqueToken(state)}`
+}
 
 // Build the callback URL registered for a provider.
 function callbackUrl(provider: Provider): string {
@@ -34,6 +38,7 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
     const codeVerifier = randomBytes(48).toString("base64url")
     const challenge = createHash("sha256").update(codeVerifier).digest("base64url")
     // The callback must arrive in the browser that started the flow, so a leaked authorize URL or callback URL is useless elsewhere.
+    // A separate cookie per state lets a second tab start a flow without erasing the first one.
     const browserNonce = randomBytes(32).toString("base64url")
     const currentUser = await getCurrentUser(event)
     const db = await collections()
@@ -49,7 +54,7 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
         createdAt: now,
         expiresAt: new Date(now.getTime() + oauthTransactionSeconds * 1000)
     })
-    setCookie(event, oauthCookie, browserNonce, {...oauthCookieOptions, maxAge: oauthTransactionSeconds})
+    setCookie(event, oauthBrowserCookie(state), browserNonce, {...oauthCookieOptions, maxAge: oauthTransactionSeconds})
     logger.info("OAuth.begin", provider, currentUser?._id ? `Linking user ${currentUser._id.toHexString()}` : "New login")
 
     const url = new URL(definition.authorizeUrl)
@@ -189,8 +194,10 @@ async function assignVerifiedProviderEmail(user: UserDocument, profile: OAuthPro
 // Consume the OAuth transaction, persist the account, and establish a session.
 export async function finishOAuth(event: H3Event, provider: Provider, code: string, state: string): Promise<string> {
     const db = await collections()
-    const browserNonce = getCookie(event, oauthCookie)
-    deleteCookie(event, oauthCookie, oauthCookieOptions)
+    // Clear only this transaction. A failed or finished callback must not delete another tab's cookie.
+    const cookieName = oauthBrowserCookie(state)
+    const browserNonce = getCookie(event, cookieName)
+    deleteCookie(event, cookieName, oauthCookieOptions)
     const transaction = browserNonce
         ? await db.oauthTransactions.findOneAndDelete({
               provider,
