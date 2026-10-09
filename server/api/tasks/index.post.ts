@@ -12,7 +12,7 @@ import logger from "../../utils/logger"
 import {isDuplicateKeyError} from "../../utils/mongodb"
 import {parseObjectId} from "../../utils/object-id"
 import {startTrackedSyncRun} from "../../utils/shutdown"
-import {accountSyncConflictMessage, accountSyncProviderPairKey, findAccountSyncBetweenProviders, type SyncTaskDirection} from "~~/shared/types/domain"
+import {accountSyncConflictMessage, accountSyncProviderPairKey, findAccountSyncBetweenProviders, type SyncTaskDirection, type SyncTaskDocument} from "~~/shared/types/domain"
 
 const taskSchema = z.object({
     mode: z.enum(["playlist", "account"]).default("playlist"),
@@ -25,6 +25,18 @@ const taskSchema = z.object({
         createNew: z.boolean().default(false)
     })
 })
+
+function playlistKey(accountId: ObjectId, playlistId: string) {
+    return `${accountId.toHexString()}:${playlistId}`
+}
+
+// Playlists a task writes to: its destination, its source when two-way, and every playlist a full sync maps to.
+function writtenPlaylistKeys(task: SyncTaskDocument): string[] {
+    if (task.mode === "account") {
+        return (task.playlistMappings || []).map((mapping) => playlistKey(task.destination.providerAccountId, mapping.destinationPlaylistId))
+    }
+    return [playlistKey(task.destination.providerAccountId, task.destination.playlistId), ...(task.direction === "two-way" ? [playlistKey(task.source.providerAccountId, task.source.playlistId)] : [])]
+}
 
 // Enforce ownership and plan limits before persisting the task.
 export default defineEventHandler(async (event) => {
@@ -45,7 +57,8 @@ export default defineEventHandler(async (event) => {
     }
     const sourceAccount = accounts.find((account) => account._id?.equals(sourceAccountId))!
     const destinationAccount = accounts.find((account) => account._id?.equals(destinationAccountId))!
-    const accountTasks = await db.syncTasks.find({userId: user._id!, mode: "account"}).toArray()
+    const userTasks = await db.syncTasks.find({userId: user._id!}).toArray()
+    const accountTasks = userTasks.filter((task) => task.mode === "account")
     if (accountTasks.length) {
         const referencedIds = accountTasks.flatMap((task) => [task.source.providerAccountId, task.destination.providerAccountId])
         const referencedAccounts = await db.providerAccounts.find({_id: {$in: referencedIds}, userId: user._id!}).toArray()
@@ -72,6 +85,15 @@ export default defineEventHandler(async (event) => {
     if (entitlement.tier === "free" && (await db.syncTasks.countDocuments({userId: user._id!})) >= 1) {
         logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Free tier task limit reached")
         throw createError({statusCode: 403, statusMessage: "Free accounts can synchronize one playlist pair"})
+    }
+    if (body.mode === "playlist") {
+        // Two tasks writing one playlist would undo each other's changes on every run.
+        const written = new Set(userTasks.flatMap(writtenPlaylistKeys))
+        const wanted = [...(body.destination.createNew ? [] : [playlistKey(destinationAccountId, body.destination.playlistId)]), ...(body.direction === "two-way" ? [playlistKey(sourceAccountId, body.source.playlistId)] : [])]
+        if (wanted.some((key) => written.has(key))) {
+            logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Another task already writes to the selected playlist")
+            throw createError({statusCode: 409, statusMessage: "Another sync task already writes to this playlist. Pick another playlist or delete that task first."})
+        }
     }
     let destinationPlaylistId = body.destination.playlistId
     if (body.mode === "playlist" && body.destination.createNew) {
