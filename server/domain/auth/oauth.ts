@@ -197,23 +197,28 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
     const codeVerifier = await decryptSecret(transaction.codeVerifier)
     const {token, definition} = await exchangeCode(provider, code, codeVerifier)
     const profile = await definition.fetchProfile(token.access_token)
-    const conflictingAccount = await db.providerAccounts.findOne({provider, externalAccountId: profile.id})
+    const accountIds = [profile.id, ...(profile.previousIds || [])]
+    const storedAccounts = await db.providerAccounts.find({provider, externalAccountId: {$in: accountIds}}).toArray()
+    const conflictingAccount = storedAccounts.find((account) => account.externalAccountId === profile.id) || storedAccounts[0]
     if (transaction.linkingUserId && conflictingAccount && !conflictingAccount.userId.equals(transaction.linkingUserId)) {
         logger.warn("OAuth.finish", provider, `Provider account ${profile.id}`, "Account is already linked to another user")
         throw createError({statusCode: 409, statusMessage: "This provider account is already linked to another user"})
     }
     let user: UserDocument = conflictingAccount ? await db.users.findOne({_id: conflictingAccount.userId}).then((value) => value!) : await findOrCreateUser(profile, transaction.linkingUserId)
-    const anotherProviderAccount = await db.providerAccounts.findOne({userId: user._id!, provider, externalAccountId: {$ne: profile.id}})
+    const anotherProviderAccount = await db.providerAccounts.findOne({userId: user._id!, provider, externalAccountId: {$nin: accountIds}})
     if (anotherProviderAccount) {
         logger.warn("OAuth.finish", provider, `User ${user._id!.toHexString()}`, "Another account from this provider is already linked")
         throw createError({statusCode: 409, statusMessage: "Only one account per music provider can be connected"})
     }
     user = await assignVerifiedProviderEmail(user, profile)
     const now = new Date()
+    // Updating the stored account by _id re-keys an account stored under a previous provider id.
     await db.providerAccounts.updateOne(
-        {provider, externalAccountId: profile.id},
+        conflictingAccount ? {_id: conflictingAccount._id} : {provider, externalAccountId: profile.id},
         {
             $set: {
+                provider,
+                externalAccountId: profile.id,
                 userId: user._id!,
                 email: profile.email?.trim().toLowerCase(),
                 emailVerified: profile.emailVerified,

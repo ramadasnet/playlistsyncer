@@ -7,6 +7,8 @@ import {getProviderRateLimiter, maxQueueWaitMs} from "../providers/rate-limit"
 
 interface OAuthProfile {
     id: string
+    // Ids this provider account was stored under before, so the stored account is re-keyed on its next login.
+    previousIds?: string[]
     email?: string
     emailVerified: boolean
     displayName: string
@@ -67,14 +69,19 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
         async fetchProfile(accessToken) {
             const profile = await fetchJson<{
                 id: string
+                account_id?: string
                 email?: string
                 display_name?: string
                 images?: {url: string}[]
             }>("spotify", "https://api.spotify.com/v1/me", accessToken)
+            // Spotify's user id can change, while account_id is immutable. Accounts linked before used the user id.
+            const accountId = profile.account_id || profile.id
             return {
-                id: profile.id,
+                id: accountId,
+                ...(accountId !== profile.id ? {previousIds: [profile.id]} : {}),
                 email: profile.email,
-                emailVerified: Boolean(profile.email),
+                // Spotify does not verify the email address, so it must never match or claim a local user.
+                emailVerified: false,
                 displayName: profileDisplayName("Spotify user", profile.display_name, profile.email),
                 avatarUrl: profile.images?.[0]?.url
             }
@@ -116,7 +123,8 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
             return {
                 id: profile.user_id,
                 email: profile.email,
-                emailVerified: Boolean(profile.email),
+                // Login with Amazon does not report whether the email is verified.
+                emailVerified: false,
                 displayName: profileDisplayName("Amazon user", profile.name, profile.email)
             }
         }
