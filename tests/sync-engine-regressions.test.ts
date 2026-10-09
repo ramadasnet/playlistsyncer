@@ -9,6 +9,7 @@ import * as schedulerAuth from "../server/utils/scheduler-auth"
 import {nextQuotaResetAt} from "../server/domain/providers/http"
 import {beginSyncTask, completeSyncTask, failInterruptedRuns, failureBackoffMs, runSyncTask} from "../server/domain/sync/engine"
 import {linkSnapshotRow} from "../server/domain/sync/manual-match"
+import {withTaskLease} from "../server/domain/sync/task-activity"
 import syncDue from "../server/jobs/routes/sync-due"
 
 // Regression tests for the production-readiness sync engine findings. They run the real engine
@@ -394,6 +395,78 @@ describe("first two-way run", () => {
     })
 })
 
+describe("interrupted copies", () => {
+    test("pairs a copy of a track recorded as unmatched after the run that added it stopped", async () => {
+        const source = [track("spotify", "a", "Alpha", "Artist"), track("spotify", "u", "Late", "Artist")]
+        setPlaylist("spotify", "src", "Mix", [...source])
+        setPlaylist("youtube", "dst", "Mix", [])
+        catalogs.youtube = [track("youtube", "va", "Alpha (Official Video)", "Artist")]
+        const taskId = await insertTask({source: side("spotify", "src"), destination: side("youtube", "dst")})
+        expect(await runSyncTask(taskId, "created")).toMatchObject({additions: 1, skipped: 1})
+
+        // A week later the unmatched track is on YouTube. The run adds it, then the quota runs out before the snapshot is saved.
+        db.searchMisses.store.length = 0
+        catalogs.youtube.push(track("youtube", "vu", "Late (Official Video)", "Artist"), track("youtube", "vc", "Closer (Official Video)", "Artist"))
+        setPlaylist("spotify", "src", "Mix", [...source, track("spotify", "c", "Closer", "Artist")])
+        let quota = 1
+        beforeSearch = () => {
+            if (quota-- <= 0) throw Object.assign(new Error("quota"), {statusCode: 429, statusMessage: "quota", data: {quotaExceeded: true}})
+        }
+        await expect(runSyncTask(taskId, "scheduled")).rejects.toThrow("quota")
+
+        quota = Number.POSITIVE_INFINITY
+        calls.searches.length = 0
+        calls.removed.length = 0
+        const retry = await runSyncTask(taskId, "scheduled")
+
+        expect(calls.searches.map((search) => search.title)).toEqual(["Closer"])
+        expect(retry).toMatchObject({additions: 1, removals: 0})
+        expect(playlistTitles("youtube", "dst")).toEqual(["Alpha (Official Video)", "Late (Official Video)", "Closer (Official Video)"])
+    })
+})
+
+describe("competing writers", () => {
+    test("a full sync skips an existing mapping whose playlist an older pair task writes", async () => {
+        setPlaylist("spotify", "a", "Alpha", [track("spotify", "1", "One", "Artist", "US0000000001")])
+        setPlaylist("spotify", "b", "Beta", [track("spotify", "2", "Two", "Artist", "US0000000002")])
+        setPlaylist("tidal", "shared", "Beta", [track("tidal", "7", "Kept", "Artist")])
+        catalogs.tidal = [track("tidal", "1", "One", "Artist", "US0000000001"), track("tidal", "2", "Two", "Artist", "US0000000002")]
+        await insertTask({source: side("spotify", "pair-src"), destination: side("tidal", "shared"), createdAt: new Date(Date.now() - 60000)})
+        const accountTask = await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__"), playlistMappings: [{sourcePlaylistId: "b", destinationPlaylistId: "shared", name: "Beta"}]})
+
+        await runSyncTask(accountTask, "scheduled")
+
+        expect(playlistTitles("tidal", "shared")).toEqual(["Kept"])
+        const run = await latestRun(accountTask)
+        expect(run.status).toBe("partial")
+        expect(run.failedPlaylists).toEqual([{sourcePlaylistId: "b", name: "Beta", error: "An older sync task already writes to the TIDAL destination playlist"}])
+    })
+
+    test("a pair task leaves a playlist that an older full sync maps", async () => {
+        setPlaylist("spotify", "src", "Mix", [track("spotify", "1", "One", "Artist", "US0000000001")])
+        setPlaylist("tidal", "shared", "Mix", [track("tidal", "7", "Kept", "Artist")])
+        await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__"), playlistMappings: [{sourcePlaylistId: "x", destinationPlaylistId: "shared", name: "Mix"}], createdAt: new Date(Date.now() - 60000)})
+        const pairTask = await insertTask({source: side("spotify", "src"), destination: side("tidal", "shared")})
+
+        await expect(runSyncTask(pairTask, "manual")).rejects.toThrow("An older sync task already writes to the TIDAL destination playlist")
+        expect(playlistTitles("tidal", "shared")).toEqual(["Kept"])
+    })
+
+    test("only one of two pair tasks created at the same moment writes the shared playlist", async () => {
+        setPlaylist("spotify", "src", "Mix", [track("spotify", "1", "One", "Artist", "US0000000001")])
+        setPlaylist("tidal", "shared", "Mix", [])
+        catalogs.tidal = [track("tidal", "1", "One", "Artist", "US0000000001")]
+        const createdAt = new Date()
+        const first = await insertTask({source: side("spotify", "src"), destination: side("tidal", "shared"), createdAt})
+        const second = await insertTask({source: side("spotify", "src"), destination: side("tidal", "shared"), createdAt})
+        const [older, younger] = first.toHexString() < second.toHexString() ? [first, second] : [second, first]
+
+        await runSyncTask(older, "manual")
+        await expect(runSyncTask(younger, "manual")).rejects.toThrow("An older sync task already writes")
+        expect(playlistTitles("tidal", "shared")).toEqual(["One"])
+    })
+})
+
 describe("full-account sync isolates playlist failures", () => {
     test("syncs the other playlists and reports the one that failed", async () => {
         setPlaylist("spotify", "a", "Alpha", [track("spotify", "1", "One", "Artist", "US0000000001")])
@@ -423,8 +496,30 @@ describe("full-account sync isolates playlist failures", () => {
         const taskId = await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__")})
 
         await expect(runSyncTask(taskId, "scheduled")).rejects.toThrow("spotify API request failed (500)")
-        expect((await latestRun(taskId)).status).toBe("failed")
+        const run = await latestRun(taskId)
+        expect(run.status).toBe("failed")
+        expect(run.failedPlaylists).toEqual([{sourcePlaylistId: "a", name: "Alpha", error: "spotify API request failed (500)"}])
         expect((await storedTask(taskId)).consecutiveFailures).toBe(1)
+    })
+
+    test("counts tracks a playlist added before it failed", async () => {
+        setPlaylist("spotify", "a", "Alpha", [track("spotify", "1", "One", "Artist", "US0000000001")])
+        setPlaylist("spotify", "b", "Beta", [track("spotify", "2", "Two", "Artist", "US0000000002")])
+        catalogs.tidal = [track("tidal", "1", "One", "Artist", "US0000000001"), track("tidal", "2", "Two", "Artist", "US0000000002")]
+        let betaReads = 0
+        // Beta's tracks are added, then its verification read fails.
+        beforeRead = (playlistId) => {
+            if (playlistId === "b" && ++betaReads === 2) throw new Error("spotify API request failed (500)")
+        }
+        const taskId = await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__")})
+
+        const result = await runSyncTask(taskId, "scheduled")
+
+        expect(result.additions).toBe(2)
+        const run = await latestRun(taskId)
+        expect(run).toMatchObject({status: "partial", additions: 2})
+        expect(run.addedTracks.map((item) => item.title)).toEqual(["One", "Two"])
+        expect(run.failedPlaylists?.map((playlist) => playlist.name)).toEqual(["Beta"])
     })
 })
 
@@ -535,6 +630,37 @@ describe("restore and unavailable tracks", () => {
         expect(calls.searches).toEqual([])
         expect(playlistTitles("spotify", "src")).toEqual(["Song"])
         expect(playlistTitles("tidal", "dst")).toHaveLength(2)
+    })
+})
+
+describe("user action leases", () => {
+    test("renews the lease while the action runs and releases it afterwards", async () => {
+        const taskId = await insertTask({source: side("spotify", "src"), destination: side("tidal", "dst")})
+        let firstExpiry = 0
+        await withTaskLease(
+            await storedTask(taskId),
+            async () => {
+                firstExpiry = (await storedTask(taskId)).leaseExpiresAt!.getTime()
+                await new Promise((resolve) => setTimeout(resolve, 40))
+                expect((await storedTask(taskId)).leaseExpiresAt!.getTime()).toBeGreaterThan(firstExpiry)
+            },
+            5
+        )
+        expect((await storedTask(taskId)).leaseId).toBeUndefined()
+    })
+
+    test("stops before its next write once another writer took the lease, and leaves that lease alone", async () => {
+        const taskId = await insertTask({source: side("spotify", "src"), destination: side("tidal", "dst")})
+        let wrote = false
+        const action = withTaskLease(await storedTask(taskId), async (lease) => {
+            await db.syncTasks.updateOne({_id: taskId}, {$set: {leaseId: "sync-run", leaseExpiresAt: new Date(Date.now() + 60000)}})
+            await lease.assertHeld()
+            wrote = true
+        })
+
+        await expect(action).rejects.toThrow("This sync task is still running")
+        expect(wrote).toBe(false)
+        expect((await storedTask(taskId)).leaseId).toBe("sync-run")
     })
 })
 
