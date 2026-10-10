@@ -7,6 +7,7 @@ import {closeDatabase} from "../utils/database"
 import logger from "../utils/logger"
 import {drainSyncRuns} from "../utils/shutdown"
 import {createJobsApp} from "./app"
+import {drainNonSyncRequests} from "./requests"
 
 // Read the jobs listener port without using the website PORT.
 export function resolveJobsPort(raw = process.env.PLS_JOBS_PORT): number {
@@ -43,15 +44,25 @@ export async function startJobsServer(): Promise<Server> {
     })
     logger.info("Jobs.startup", `Listening on ${host}:${port}`)
 
-    // server.close() would wait for a long sync-due request, so drain the tracked runs against a deadline instead.
     const shutdown = async (signal: string) => {
         logger.info("Jobs.shutdown", signal)
-        server.close()
-        await drainSyncRuns(config.shutdownTimeoutSeconds * 1000)
-        await closeDatabase()
+        await shutdownJobsServer(server, config.shutdownTimeoutSeconds * 1000)
         process.exit(0)
     }
     process.once("SIGINT", () => void shutdown("SIGINT"))
     process.once("SIGTERM", () => void shutdown("SIGTERM"))
     return server
+}
+
+/**
+ * Stops new connections, finishes accepted non-sync requests and tracked sync runs, then closes MongoDB.
+ * server.close() would wait without a deadline for a long sync-due request, so both drains share the shutdown budget.
+ * @param server Jobs HTTP server.
+ * @param timeoutMs Total budget before MongoDB is closed.
+ * @param closeDb Closes the database after the drains return.
+ */
+export async function shutdownJobsServer(server: Server, timeoutMs: number, closeDb: () => Promise<void> = closeDatabase): Promise<void> {
+    server.close()
+    await Promise.all([drainSyncRuns(timeoutMs), drainNonSyncRequests(timeoutMs)])
+    await closeDb()
 }
