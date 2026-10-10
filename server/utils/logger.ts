@@ -28,10 +28,17 @@ const maskedFields = new Set(
     ].map((field) => field.toLowerCase())
 )
 
+const redacted = "[***]"
+const truncated = "[truncated]"
+
 // Return a copy of plain objects and arrays with secret fields replaced, leaving class instances such as ObjectId untouched.
 function maskSecrets(value: unknown, depth = 0): unknown {
-    if (depth > 10 || value === null || typeof value !== "object") {
+    if (value === null || typeof value !== "object") {
         return value
+    }
+    // A deeper object is omitted whole, so a buried secret cannot be logged unchanged.
+    if (depth > 10) {
+        return truncated
     }
     if (Array.isArray(value)) {
         return value.map((item) => maskSecrets(item, depth + 1))
@@ -40,7 +47,7 @@ function maskSecrets(value: unknown, depth = 0): unknown {
     if (prototype !== Object.prototype && prototype !== null) {
         return value
     }
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskedFields.has(key.toLowerCase()) && (item === null || typeof item !== "object") ? "[***]" : maskSecrets(item, depth + 1)]))
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskedFields.has(key.toLowerCase()) ? redacted : maskSecrets(item, depth + 1)]))
 }
 
 logger.setup("console")

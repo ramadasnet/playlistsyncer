@@ -47,4 +47,24 @@ describe("logger secret masking", () => {
         expect(line).toContain(id.toHexString())
         expect(payload.accessToken).toBe("access-secret")
     })
+
+    test("redacts a secret object or array and truncates values nested too deeply", () => {
+        let buried: unknown = {note: "deep-secret-note"}
+        for (let depth = 0; depth < 12; depth++) buried = {child: buried}
+        const line = capture(() =>
+            logger.info("Logger.test", {
+                accessToken: {ciphertext: "access-secret", nested: ["refresh-secret"]},
+                refreshToken: ["refresh-list-secret"],
+                provider: "spotify",
+                wrapped: buried
+            })
+        )
+
+        expect(line).toContain("spotify")
+        expect(line).toContain("[***]")
+        expect(line).toContain("[truncated]")
+        for (const secret of ["access-secret", "refresh-secret", "refresh-list-secret", "deep-secret-note"]) {
+            expect(line).not.toContain(secret)
+        }
+    })
 })
