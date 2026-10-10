@@ -32,3 +32,14 @@ export function isDuplicateKeyError(error: unknown): boolean {
     const candidate = error as {code?: unknown; codeName?: unknown}
     return candidate.code === 11000 || candidate.codeName === "DuplicateKey"
 }
+
+// Field named by a unique-index conflict, when the driver includes it.
+export function duplicateKeyField(error: unknown): string | undefined {
+    if (!isDuplicateKeyError(error) || !error || typeof error !== "object") return undefined
+    const keyPattern = (error as {keyPattern?: Record<string, unknown>}).keyPattern
+    const field = keyPattern ? Object.keys(keyPattern)[0] : undefined
+    if (field) return field
+    const message = (error as {message?: unknown}).message
+    if (typeof message === "string" && message.includes("playlistWriteKeys")) return "playlistWriteKeys"
+    return undefined
+}

@@ -49,8 +49,25 @@ describe("Spotify provider", () => {
         })
     })
 
-    test("lists owned and collaborative playlists with item and track totals", async () => {
-        providerFetch.mockResolvedValueOnce({id: "me"})
+    test("lists every playlist, including followed ones, for a source sync", async () => {
+        providerFetch.mockResolvedValueOnce({
+            items: [
+                {id: "playlist-items", name: "Items playlist", description: null, images: [], items: {total: 37}, owner: {id: "me"}},
+                {id: "playlist-followed", name: "Followed", images: [], owner: {id: "friend"}},
+                {id: "playlist-editorial", name: "Today's Top Hits", images: [], owner: {id: "spotify"}}
+            ],
+            next: null
+        })
+
+        const playlists = await spotifyAdapter.listPlaylists(account)
+
+        expect(providerFetch).toHaveBeenCalledTimes(1)
+        expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists?limit=50")
+        expect(playlists.map((playlist) => playlist.id)).toEqual(["playlist-items", "playlist-followed", "playlist-editorial"])
+        expect(playlists[0]).toMatchObject({name: "Items playlist", description: "", itemCount: 37})
+    })
+
+    test("lists only owned and collaborative playlists when the caller will write", async () => {
         providerFetch.mockResolvedValueOnce({
             items: [
                 {id: "playlist-items", name: "Items playlist", description: null, images: [], items: {total: 37}, owner: {id: "me"}},
@@ -62,11 +79,12 @@ describe("Spotify provider", () => {
             ],
             next: null
         })
+        providerFetch.mockResolvedValueOnce({id: "me"})
 
-        const playlists = await spotifyAdapter.listPlaylists(account)
+        const playlists = await spotifyAdapter.listPlaylists(account, {writableOnly: true})
 
-        expect(providerFetch).toHaveBeenNthCalledWith(1, account, "https://api.spotify.com/v1/me")
-        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://api.spotify.com/v1/me/playlists?limit=50")
+        expect(providerFetch).toHaveBeenNthCalledWith(1, account, "https://api.spotify.com/v1/me/playlists?limit=50")
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://api.spotify.com/v1/me")
         expect(playlists).toEqual([
             {id: "playlist-items", name: "Items playlist", description: "", imageUrl: undefined, itemCount: 37},
             {id: "playlist-tracks", name: "Tracks playlist", description: "", imageUrl: undefined, itemCount: 12},

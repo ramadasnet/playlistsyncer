@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test"
-import {commonTracks, reconcileOneWay, reconcileThreeWay, trackKey} from "../server/domain/sync/reconcile"
+import {commonTracks, reconcileOneWay, reconcileThreeWay, shareRecordingKeys, trackKey} from "../server/domain/sync/reconcile"
 import type {ProviderTrack} from "../server/domain/providers"
 import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders} from "../shared/types/domain"
 
@@ -100,6 +100,34 @@ describe("three-way playlist reconciliation", () => {
         expect(result.desired).toHaveLength(1)
         expect(result.desired[0]?.count).toBe(1)
         expect(result.conflicts).toEqual([])
+    })
+
+    test("keeps a metadata match when only one side has an ISRC", () => {
+        const source = {...track("Song (Live)"), isrc: "GB0000000001"}
+        const destination = track("Song", "youtube")
+        const [alignedSource, alignedDestination] = shareRecordingKeys([[source], [destination]])
+
+        expect(trackKey(alignedSource![0]!)).toBe("meta:song:artist")
+        expect(trackKey(alignedDestination![0]!)).toBe(trackKey(alignedSource![0]!))
+        expect(trackKey({...track("Song"), isrc: "NOPE"})).toBe(trackKey(track("Song")))
+    })
+
+    test("uses one ISRC key when both sides carry the same valid ISRC", () => {
+        const source = {...track("Song - Remastered 2011"), isrc: "GBUM71029604"}
+        const destination = {...track("Other Title", "tidal"), isrc: "GB-UM7-10-29604"}
+        const [alignedSource, alignedDestination] = shareRecordingKeys([[source], [destination]])
+
+        expect(trackKey(alignedSource![0]!)).toBe("isrc:GBUM71029604")
+        expect(trackKey(alignedDestination![0]!)).toBe("isrc:GBUM71029604")
+    })
+
+    test("drops a one-sided saved ISRC key so the metadata key can match", () => {
+        const source = {...track("Song (Live)"), isrc: "GB0000000001", canonicalKey: "isrc:GB0000000001"}
+        const destination = {...track("Song", "youtube"), canonicalKey: "meta:song:artist"}
+        const [alignedSource, alignedDestination] = shareRecordingKeys([[source], [destination]])
+
+        expect(trackKey(alignedSource![0]!)).toBe("meta:song:artist")
+        expect(trackKey(alignedDestination![0]!)).toBe("meta:song:artist")
     })
 
     test("keeps unmatched source tracks outside the synchronized baseline", () => {

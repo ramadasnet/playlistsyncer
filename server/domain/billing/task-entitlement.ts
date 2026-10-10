@@ -3,6 +3,7 @@ import type {ObjectId} from "mongodb"
 import type {SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
+import {idleLeaseFilter} from "../sync/task-activity"
 import {resolveEntitlement} from "./entitlement"
 
 export const entitlementEditBlockedMessage = "A PRO subscription is required to edit this sync task"
@@ -59,19 +60,18 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
         return
     }
     const retainedTask = await db.syncTasks.find({userId: user._id, mode: "playlist"}).sort({createdAt: 1}).limit(1).next()
-    const paused = await db.syncTasks.updateMany(
-        {
-            userId: user._id,
-            ...(retainedTask?._id ? {_id: {$ne: retainedTask._id}} : {}),
-            pauseReason: {$nin: ["user", "entitlement"]}
-        },
-        {
-            $set: {status: "paused", pauseReason: "entitlement", updatedAt: new Date()},
-            $unset: {leaseId: "", leaseExpiresAt: ""}
-        }
-    )
-    if (paused.modifiedCount) {
-        logger.warn("Billing.applyTaskEntitlement", `User ${user._id.toHexString()}`, `Paused tasks ${paused.modifiedCount}`)
+    const now = new Date()
+    const pauseFilter = {
+        userId: user._id,
+        ...(retainedTask?._id ? {_id: {$ne: retainedTask._id}} : {}),
+        pauseReason: {$nin: ["user", "entitlement"] as const}
+    }
+    // An active manual-match lease stays in place so another writer cannot take the task mid-action.
+    const pausedIdle = await db.syncTasks.updateMany({...pauseFilter, ...idleLeaseFilter(now)}, {$set: {status: "paused", pauseReason: "entitlement", updatedAt: now}, $unset: {leaseId: "", leaseExpiresAt: ""}})
+    const pausedBusy = await db.syncTasks.updateMany({...pauseFilter, leaseExpiresAt: {$gt: now}}, {$set: {status: "paused", pauseReason: "entitlement", updatedAt: now}})
+    const pausedCount = (pausedIdle.modifiedCount || 0) + (pausedBusy.modifiedCount || 0)
+    if (pausedCount) {
+        logger.warn("Billing.applyTaskEntitlement", `User ${user._id.toHexString()}`, `Paused tasks ${pausedCount}`)
     }
     if (retainedTask && retainedTask.pauseReason === "entitlement") {
         await db.syncTasks.updateOne(

@@ -78,6 +78,11 @@ export async function withTaskLease<T>(task: SyncTaskDocument, action: (hold: Ta
         return await action(hold)
     } finally {
         clearInterval(heartbeat)
-        await db.syncTasks.updateOne({_id: task._id!, leaseId}, {$unset: {leaseId: "", leaseExpiresAt: ""}})
+        // A failed release must not replace a completed action with a 500. The lease expires on its own.
+        try {
+            await db.syncTasks.updateOne({_id: task._id!, leaseId}, {$unset: {leaseId: "", leaseExpiresAt: ""}})
+        } catch (error) {
+            logger.error("Sync.lease", error, `Task ${task._id!.toHexString()}`, "Lease release failed")
+        }
     }
 }

@@ -7,9 +7,10 @@ import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {getProviderAdapter} from "../../domain/providers"
 import {accountSyncPairField} from "../../domain/sync/account-sync-pair"
 import {beginSyncTask, completeSyncTask} from "../../domain/sync/engine"
+import {playlistWriteKey, storedPlaylistWriteKeys, writtenPlaylistRefs} from "../../domain/sync/playlist-writes"
 import {isSafeModeEnabled, logSafeModeCreatePlaylist, safeModeWriteBlockedMessage} from "../../domain/sync/safe-mode"
 import logger from "../../utils/logger"
-import {isDuplicateKeyError} from "../../utils/mongodb"
+import {duplicateKeyField, isDuplicateKeyError} from "../../utils/mongodb"
 import {parseObjectId} from "../../utils/object-id"
 import {startTrackedSyncRun} from "../../utils/shutdown"
 import {accountSyncConflictMessage, accountSyncProviderPairKey, findAccountSyncBetweenProviders, type SyncTaskDirection, type SyncTaskDocument} from "~~/shared/types/domain"
@@ -26,17 +27,7 @@ const taskSchema = z.object({
     })
 })
 
-function playlistKey(accountId: ObjectId, playlistId: string) {
-    return `${accountId.toHexString()}:${playlistId}`
-}
-
-// Playlists a task writes to: its destination, its source when two-way, and every playlist a full sync maps to.
-function writtenPlaylistKeys(task: SyncTaskDocument): string[] {
-    if (task.mode === "account") {
-        return (task.playlistMappings || []).map((mapping) => playlistKey(task.destination.providerAccountId, mapping.destinationPlaylistId))
-    }
-    return [playlistKey(task.destination.providerAccountId, task.destination.playlistId), ...(task.direction === "two-way" ? [playlistKey(task.source.providerAccountId, task.source.playlistId)] : [])]
-}
+const playlistWriteConflictMessage = "Another sync task already writes to this playlist. Pick another playlist or delete that task first."
 
 // Enforce ownership and plan limits before persisting the task.
 export default defineEventHandler(async (event) => {
@@ -88,11 +79,11 @@ export default defineEventHandler(async (event) => {
     }
     if (body.mode === "playlist") {
         // Two tasks writing one playlist would undo each other's changes on every run.
-        const written = new Set(userTasks.flatMap(writtenPlaylistKeys))
-        const wanted = [...(body.destination.createNew ? [] : [playlistKey(destinationAccountId, body.destination.playlistId)]), ...(body.direction === "two-way" ? [playlistKey(sourceAccountId, body.source.playlistId)] : [])]
+        const written = new Set(userTasks.flatMap((task) => writtenPlaylistRefs(task).map((ref) => playlistWriteKey(ref.providerAccountId, ref.playlistId))))
+        const wanted = [...(body.destination.createNew ? [] : [playlistWriteKey(destinationAccountId, body.destination.playlistId)]), ...(body.direction === "two-way" ? [playlistWriteKey(sourceAccountId, body.source.playlistId)] : [])]
         if (wanted.some((key) => written.has(key))) {
             logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Another task already writes to the selected playlist")
-            throw createError({statusCode: 409, statusMessage: "Another sync task already writes to this playlist. Pick another playlist or delete that task first."})
+            throw createError({statusCode: 409, statusMessage: playlistWriteConflictMessage})
         }
     }
     let destinationPlaylistId = body.destination.playlistId
@@ -111,25 +102,32 @@ export default defineEventHandler(async (event) => {
     // The single-field sparse unique index on accountSyncPairKey is the source of truth for one full
     // sync per user and provider pair. The earlier read is only a fast path for a friendlier error.
     const accountSyncPairKey = accountSyncProviderPairKey(sourceAccount.provider, destinationAccount.provider)
+    const task: SyncTaskDocument = {
+        userId: user._id!,
+        mode: body.mode,
+        direction,
+        ...accountSyncPairField(body.mode, user._id!.toHexString(), accountSyncPairKey),
+        source: {providerAccountId: sourceAccountId, playlistId: body.source.playlistId, name: body.source.name},
+        destination: {
+            providerAccountId: destinationAccountId,
+            playlistId: destinationPlaylistId,
+            name: body.destination.createNew ? body.source.name : body.destination.name
+        },
+        status: "active",
+        nextRunAt: now,
+        createdAt: now,
+        updatedAt: now
+    }
+    const playlistWriteKeys = storedPlaylistWriteKeys(task)
     let result: {insertedId: ObjectId}
     try {
-        result = await db.syncTasks.insertOne({
-            userId: user._id!,
-            mode: body.mode,
-            direction,
-            ...accountSyncPairField(body.mode, user._id!.toHexString(), accountSyncPairKey),
-            source: {providerAccountId: sourceAccountId, playlistId: body.source.playlistId, name: body.source.name},
-            destination: {
-                providerAccountId: destinationAccountId,
-                playlistId: destinationPlaylistId,
-                name: body.destination.createNew ? body.source.name : body.destination.name
-            },
-            status: "active",
-            nextRunAt: now,
-            createdAt: now,
-            updatedAt: now
-        })
+        // playlistWriteKeys is a sparse unique index, so a concurrent create of the same playlist loses the insert.
+        result = await db.syncTasks.insertOne({...task, ...(playlistWriteKeys ? {playlistWriteKeys} : {})})
     } catch (error) {
+        if (duplicateKeyField(error) === "playlistWriteKeys") {
+            logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Another task already writes to the selected playlist")
+            throw createError({statusCode: 409, statusMessage: playlistWriteConflictMessage})
+        }
         if (isDuplicateKeyError(error)) {
             logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, `Account sync already exists between ${sourceAccount.provider} and ${destinationAccount.provider}`)
             throw createError({statusCode: 409, statusMessage: accountSyncConflictMessage({sourceProvider: sourceAccount.provider, destinationProvider: destinationAccount.provider})})

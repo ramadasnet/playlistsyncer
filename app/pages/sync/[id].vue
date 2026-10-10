@@ -405,7 +405,7 @@ onUnmounted(() => {
             </div>
             <p v-if="selectedRun.error" class="dialog-error">{{ selectedRun.error }}</p>
             <div v-if="selectedRun.failedPlaylists?.length" class="run-playlist-issues">
-                <p class="dialog-error">These playlists could not be synced in this run. The others were synced.</p>
+                <p class="dialog-error">These playlists could not be synced in this run.{{ selectedRun.status === "failed" ? "" : " The others were synced." }}</p>
                 <ul>
                     <li v-for="playlist in selectedRun.failedPlaylists" :key="playlist.sourcePlaylistId">
                         <strong>{{ playlist.name }}</strong

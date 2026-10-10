@@ -80,7 +80,11 @@ export function unmatchedTrackMatches(track: Pick<SyncRunTrackReference, "playli
 
 // Locate a snapshot row by playlist item id, then by stable provider track id.
 export function findSnapshotItem(items: CanonicalTrack[], identity: Pick<UnmatchedTrackIdentity, "providerItemId" | "providerTrackId">) {
-    return items.find((item) => (identity.providerItemId && item.providerItemId === identity.providerItemId) || item.providerTrackId === identity.providerTrackId)
+    if (identity.providerItemId) {
+        const byItem = items.find((item) => item.providerItemId === identity.providerItemId)
+        if (byItem) return byItem
+    }
+    return items.find((item) => item.providerTrackId === identity.providerTrackId)
 }
 
 function aliasEntries(items: CanonicalTrack[]): [string, string][] {

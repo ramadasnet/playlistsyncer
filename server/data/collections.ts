@@ -60,6 +60,8 @@ export async function ensureIndexes(): Promise<void> {
         // One full sync per user and provider pair. Playlist tasks omit the key, so a single-field sparse index skips them.
         // A compound sparse index would still include those tasks because every task has userId. Firestore cannot build partial indexes.
         db.syncTasks.createIndex({accountSyncPairKey: 1}, {unique: true, sparse: true}),
+        // One writer per playlist for newly created playlist-pair tasks. A single-field sparse index skips full syncs and older tasks.
+        db.syncTasks.createIndex({playlistWriteKeys: 1}, {unique: true, sparse: true}),
         // One playlist snapshot per task, and several numbered batches for a full sync.
         db.syncSnapshots.createIndex({taskId: 1, batch: 1}, {unique: true}),
         db.syncRuns.createIndex({taskId: 1, startedAt: -1}),

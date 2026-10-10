@@ -56,5 +56,6 @@ describe("playlist mapping copies", () => {
             updatedAt: {$exists: false},
             $or: [{leaseExpiresAt: {$exists: false}}, {leaseExpiresAt: {$lte: now}}]
         })
+        expect(playlistMappingWriteFilter(taskId, updatedAt, false, now, "lease-a")).toEqual({_id: taskId, updatedAt, leaseId: "lease-a"})
     })
 })

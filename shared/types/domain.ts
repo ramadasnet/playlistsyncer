@@ -180,6 +180,8 @@ export interface SyncTaskDocument {
     mode: SyncTaskMode
     direction: SyncTaskDirection
     accountSyncPairKey?: string
+    // Playlist-pair claims. Omitted on full syncs and on tasks created before the index, so no backfill is required.
+    playlistWriteKeys?: string[]
     source: PlaylistReference
     destination: PlaylistReference
     playlistMappings?: PlaylistMapping[]

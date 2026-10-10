@@ -107,7 +107,8 @@ async function loadPlaylists(accountId: string, target: "source" | "destination"
     loadingPlaylists.value = true
     errorMessage.value = ""
     try {
-        const result = await $fetch<{playlists: PlaylistSummary[]}>(`/api/accounts/${accountId}/playlists`)
+        const writable = target === "destination" ? "?writable=1" : ""
+        const result = await $fetch<{playlists: PlaylistSummary[]}>(`/api/accounts/${accountId}/playlists${writable}`)
         if (target === "source") {
             sourcePlaylists.value = result.playlists
             sourcePlaylistId.value = ""
@@ -211,10 +212,10 @@ function syncProgressMessage(task: SyncTaskSummary) {
     return "Sync in progress..."
 }
 
-// A running sync, then a failed latest run, take precedence over the stored task status.
+// A running sync, then a failed latest run, take precedence over an active task. Conflicts stay visible.
 function taskStatus(task: SyncTaskSummary) {
     if (isSyncInProgress(task)) return "running"
-    if (task.status !== "paused" && task.latestRun?.status === "failed") return "failed"
+    if (task.status === "active" && task.latestRun?.status === "failed") return "failed"
     return task.status
 }
 

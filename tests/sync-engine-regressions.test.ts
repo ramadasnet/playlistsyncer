@@ -7,9 +7,11 @@ import * as collectionsModule from "../server/data/collections"
 import * as providers from "../server/domain/providers"
 import * as schedulerAuth from "../server/utils/scheduler-auth"
 import {nextQuotaResetAt} from "../server/domain/providers/http"
-import {beginSyncTask, completeSyncTask, failInterruptedRuns, failureBackoffMs, runSyncTask} from "../server/domain/sync/engine"
+import {applyTaskEntitlement} from "../server/domain/billing/task-entitlement"
+import {beginSyncTask, completeSyncTask, failInterruptedRuns, failureBackoffMs, runSyncTask, syncLeaseHeartbeat} from "../server/domain/sync/engine"
 import {linkSnapshotRow} from "../server/domain/sync/manual-match"
 import {withTaskLease} from "../server/domain/sync/task-activity"
+import logger from "../server/utils/logger"
 import syncDue from "../server/jobs/routes/sync-due"
 
 // Regression tests for the production-readiness sync engine findings. They run the real engine
@@ -39,6 +41,7 @@ function matches(doc: Doc, filter: Doc): boolean {
                 const order = compare(actual, operand)
                 if (operator === "$in") return (operand as unknown[]).some((option) => same(actual, option))
                 if (operator === "$ne") return !same(actual, operand)
+                if (operator === "$nin") return !(operand as unknown[]).some((option) => same(actual, option))
                 if (operator === "$exists") return operand ? actual !== undefined : actual === undefined
                 if (operator === "$lt") return order !== undefined && order < 0
                 if (operator === "$lte") return order !== undefined && order <= 0
@@ -84,6 +87,10 @@ function fakeCollection<T>() {
             }
             if (doc) applyUpdate(doc, update)
             return {acknowledged: true, matchedCount: doc ? 1 : 0, modifiedCount: doc ? 1 : 0}
+        },
+        bulkWrite: async (ops: {updateOne: {filter: Doc; update: Record<string, Doc>; upsert?: boolean}}[]) => {
+            for (const op of ops) await collection.updateOne(op.updateOne.filter, op.updateOne.update, {upsert: op.updateOne.upsert})
+            return {ok: 1}
         },
         updateMany: async (filter: Doc, update: Record<string, Doc>) => {
             const matched = store.filter((item) => matches(item, filter))
@@ -151,7 +158,7 @@ const catalogs: Partial<Record<Provider, ProviderTrack[]>> = {}
 const calls: {searches: {provider: Provider; title: string}[]; added: {playlistId: string; trackIds: string[]}[]; removed: {playlistId: string; itemIds: string[]}[]} = {searches: [], added: [], removed: []}
 // Lets a test fail a provider call, for example to simulate a used-up quota.
 let beforeSearch: (provider: Provider) => void = () => undefined
-let beforeRead: (playlistId: string) => void = () => undefined
+let beforeRead: (playlistId: string) => void | Promise<void> = () => undefined
 let itemCounter = 0
 
 function playlistKey(account: ProviderAccountDocument, playlistId: string) {
@@ -166,9 +173,9 @@ function missingPlaylist(provider: string) {
 function adapterFor(provider: Provider): ProviderAdapter {
     return {
         provider,
-        listPlaylists: async (account) =>
+        listPlaylists: async (account, options) =>
             [...playlists.entries()]
-                .filter(([key, playlist]) => key.startsWith(`${account._id!.toHexString()}:`) && playlist.owned !== false)
+                .filter(([key, playlist]) => key.startsWith(`${account._id!.toHexString()}:`) && (!options?.writableOnly || playlist.owned !== false))
                 .map(([key, playlist]) => ({id: key.split(":")[1]!, name: playlist.name, itemCount: playlist.tracks.length})),
         createPlaylist: async (account, name) => {
             const id = `created-${++itemCounter}`
@@ -179,7 +186,7 @@ function adapterFor(provider: Provider): ProviderAdapter {
             playlists.delete(playlistKey(account, playlistId))
         },
         getPlaylistItems: async (account, playlistId) => {
-            beforeRead(playlistId)
+            await beforeRead(playlistId)
             const playlist = playlists.get(playlistKey(account, playlistId))
             if (!playlist) throw missingPlaylist(provider)
             return playlist.tracks.map((track) => ({...track}))
@@ -359,6 +366,27 @@ describe("full-account sync keeps matched tracks", () => {
         expect(third).toMatchObject({additions: 0, removals: 0})
     })
 
+    test("does not replace a YouTube track that matches by title when only the source has an ISRC", async () => {
+        setPlaylist("spotify", "src", "Mix", [track("spotify", "1", "Song (Live)", "Artist", "GB0000000001")])
+        setPlaylist("youtube", "dst", "Mix", [track("youtube", "v1", "Song", "Artist")])
+        catalogs.spotify = [track("spotify", "1", "Song (Live)", "Artist", "GB0000000001")]
+        catalogs.youtube = [track("youtube", "v1", "Song", "Artist")]
+        const taskId = await insertTask({direction: "two-way", source: side("spotify", "src"), destination: side("youtube", "dst")})
+        await db.syncSnapshots.insertOne({
+            taskId,
+            sourceItems: [{occurrenceId: "spotify:1", canonicalKey: "isrc:GB0000000001", title: "Song (Live)", artists: ["Artist"], isrc: "GB0000000001", providerItemId: "spotify:1", providerTrackId: "spotify:1"}],
+            destinationItems: [{occurrenceId: "youtube:v1", canonicalKey: "meta:song:artist", title: "Song", artists: ["Artist"], providerItemId: "youtube:v1", providerTrackId: "youtube:v1"}],
+            createdAt: new Date()
+        })
+
+        const result = await runSyncTask(taskId, "scheduled")
+
+        expect(result).toMatchObject({additions: 0, removals: 0})
+        expect(playlistTitles("youtube", "dst")).toEqual(["Song"])
+        expect(playlistTitles("spotify", "src")).toEqual(["Song (Live)"])
+        expect(calls.removed).toEqual([])
+    })
+
     test("keeps a YouTube copy without an ISRC through the snapshot alias", async () => {
         setPlaylist("spotify", "road", "Road trip", [track("spotify", "1", "Song", "Artist", "GB0000000001")])
         catalogs.youtube = [track("youtube", "v1", "Song (Official Music Video)", "Artist")]
@@ -488,6 +516,40 @@ describe("full-account sync isolates playlist failures", () => {
         expect((await storedTask(taskId)).lastError).toBe('1 playlist could not be synced: "Editorial"')
     })
 
+    test("syncs a followed source playlist instead of reporting it missing", async () => {
+        setPlaylist("spotify", "followed", "Followed", [track("spotify", "1", "One", "Artist", "US0000000001")], false)
+        catalogs.tidal = [track("tidal", "1", "One", "Artist", "US0000000001")]
+        const taskId = await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__")})
+
+        const result = await runSyncTask(taskId, "scheduled")
+
+        expect(result.additions).toBe(1)
+        expect((await latestRun(taskId)).missingSourcePlaylists).toBeUndefined()
+    })
+
+    test("does not write a followed destination playlist that only matches by name", async () => {
+        setPlaylist("spotify", "src", "Mix", [track("spotify", "1", "One", "Artist", "US0000000001")])
+        setPlaylist("tidal", "followed", "Mix", [track("tidal", "9", "Kept", "Artist")], false)
+        catalogs.tidal = [track("tidal", "1", "One", "Artist", "US0000000001")]
+        const taskId = await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__")})
+
+        await runSyncTask(taskId, "scheduled")
+
+        expect(playlistTitles("tidal", "followed")).toEqual(["Kept"])
+    })
+
+    test("marks the run partial when a mapped source playlist is gone and the others succeed", async () => {
+        setPlaylist("spotify", "a", "Alpha", [])
+        const taskId = await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__"), playlistMappings: [{sourcePlaylistId: "deleted", destinationPlaylistId: "kept", name: "Old mix"}]})
+
+        await runSyncTask(taskId, "scheduled")
+
+        const run = await latestRun(taskId)
+        expect(run.status).toBe("partial")
+        expect(run.missingSourcePlaylists).toEqual([{sourcePlaylistId: "deleted", destinationPlaylistId: "kept", name: "Old mix"}])
+        expect(run.failedPlaylists).toBeUndefined()
+    })
+
     test("fails the run when every playlist fails", async () => {
         setPlaylist("spotify", "a", "Alpha", [])
         beforeRead = () => {
@@ -585,16 +647,27 @@ describe("leases and interrupted runs", () => {
         await completeSyncTask(context)
     })
 
-    test("keeps a full-sync lease at the heartbeat window", async () => {
-        for (let index = 0; index < 40; index++) setPlaylist("spotify", `p${index}`, `Playlist ${index}`, [])
-        const taskId = await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__")})
-        let longest = 0
-        beforeRead = () => {
-            const task = db.syncTasks.store.find((doc) => (doc._id as ObjectId).equals(taskId))
-            longest = Math.max(longest, ((task?.leaseExpiresAt as Date | undefined)?.getTime() || 0) - Date.now())
+    test("extends the lease when a heartbeat runs inside the extension window", async () => {
+        const previous = syncLeaseHeartbeat.intervalMs
+        syncLeaseHeartbeat.intervalMs = 15
+        try {
+            setPlaylist("spotify", "src", "Source", [])
+            const taskId = await insertTask({mode: "account", source: side("spotify", "__all__"), destination: side("tidal", "__all__")})
+            let shortened = 0
+            beforeRead = async () => {
+                const task = db.syncTasks.store.find((doc) => (doc._id as ObjectId).equals(taskId))
+                if (!task || shortened) return
+                task.leaseExpiresAt = new Date(Date.now() + 2 * 60 * 1000)
+                shortened = (task.leaseExpiresAt as Date).getTime()
+                await new Promise((resolve) => setTimeout(resolve, 50))
+                expect((task.leaseExpiresAt as Date).getTime()).toBeGreaterThan(shortened)
+            }
+
+            await runSyncTask(taskId, "scheduled")
+            expect(shortened).toBeGreaterThan(0)
+        } finally {
+            syncLeaseHeartbeat.intervalMs = previous
         }
-        await runSyncTask(taskId, "scheduled")
-        expect(longest).toBeLessThanOrEqual(15 * 60 * 1000)
     })
 })
 
@@ -634,6 +707,37 @@ describe("restore and unavailable tracks", () => {
 })
 
 describe("user action leases", () => {
+    test("returns the action result when releasing the lease fails", async () => {
+        const taskId = await insertTask({source: side("spotify", "src"), destination: side("tidal", "dst")})
+        const updateOne = db.syncTasks.updateOne
+        const errorLog = spyOn(logger, "error").mockImplementation(() => undefined)
+        db.syncTasks.updateOne = async (filter, update, options) => {
+            if (update.$unset && "leaseId" in update.$unset) throw new Error("release failed")
+            return updateOne(filter, update, options)
+        }
+        try {
+            await expect(withTaskLease(await storedTask(taskId), async () => "matched")).resolves.toBe("matched")
+            expect(errorLog).toHaveBeenCalled()
+        } finally {
+            db.syncTasks.updateOne = updateOne
+            errorLog.mockRestore()
+        }
+    })
+
+    test("an entitlement pause keeps a live action lease", async () => {
+        const user = db.users.store[0] as {tier: string}
+        user.tier = "free"
+        const retained = await insertTask({source: side("spotify", "kept"), destination: side("tidal", "kept"), createdAt: new Date(Date.now() - 60_000)})
+        const leased = await insertTask({source: side("spotify", "src"), destination: side("tidal", "dst"), leaseId: "match", leaseExpiresAt: new Date(Date.now() + 60_000)})
+
+        await applyTaskEntitlement({_id: userId, email: "tester@example.com", tier: "free", displayName: "Tester", createdAt: new Date(), updatedAt: new Date()})
+
+        expect((await storedTask(leased)).leaseId).toBe("match")
+        expect((await storedTask(leased)).status).toBe("paused")
+        expect((await storedTask(retained)).status).toBe("active")
+        expect((await storedTask(retained)).leaseId).toBeUndefined()
+    })
+
     test("renews the lease while the action runs and releases it afterwards", async () => {
         const taskId = await insertTask({source: side("spotify", "src"), destination: side("tidal", "dst")})
         let firstExpiry = 0

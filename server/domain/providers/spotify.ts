@@ -52,9 +52,8 @@ function mapTrack(track: SpotifyTrack, itemId = track.uri): ProviderTrack {
 // Spotify adapter with batched playlist mutations and stable item positions.
 export const spotifyAdapter: ProviderAdapter = {
     provider: "spotify",
-    // Only playlists the user owns or collaborates on can be written. Followed and Spotify-made playlists are left out.
-    async listPlaylists(account) {
-        const me = await providerFetch<{id: string}>(account, `${apiBase}/me`)
+    // Followed playlists stay in the source list. Pass writableOnly when the caller will write to the playlist.
+    async listPlaylists(account, options) {
         const playlists = await collectPages<{
             id: string
             name?: string
@@ -65,15 +64,15 @@ export const spotifyAdapter: ProviderAdapter = {
             owner?: {id?: string}
             collaborative?: boolean
         }>(account, `${apiBase}/me/playlists?limit=50`)
-        return playlists
-            .filter((playlist) => playlist.collaborative || (Boolean(me.id) && playlist.owner?.id === me.id))
-            .map((playlist): ProviderPlaylist => ({
-                id: playlist.id,
-                name: playlist.name || `Untitled playlist (${playlist.id})`,
-                description: playlist.description ?? "",
-                imageUrl: playlist.images?.[0]?.url,
-                itemCount: playlist.tracks?.total ?? playlist.items?.total ?? 0
-            }))
+        const me = options?.writableOnly ? await providerFetch<{id: string}>(account, `${apiBase}/me`) : undefined
+        const visible = me ? playlists.filter((playlist) => playlist.collaborative || (Boolean(me.id) && playlist.owner?.id === me.id)) : playlists
+        return visible.map((playlist): ProviderPlaylist => ({
+            id: playlist.id,
+            name: playlist.name || `Untitled playlist (${playlist.id})`,
+            description: playlist.description ?? "",
+            imageUrl: playlist.images?.[0]?.url,
+            itemCount: playlist.tracks?.total ?? playlist.items?.total ?? 0
+        }))
     },
     async createPlaylist(account, name, description) {
         const playlist = await providerFetch<{

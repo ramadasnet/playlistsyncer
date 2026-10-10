@@ -93,6 +93,32 @@ describe("run history visibility", () => {
         })
     })
 
+    test("passes playlist issues through and omits them when empty", () => {
+        const issue = {sourcePlaylistId: "src", destinationPlaylistId: "dst", name: "Road Trip", error: "unavailable"}
+        const withIssues: SyncRunDocument = {
+            _id: new ObjectId("68c2c0a0c0a0c0a0c0a0c0b1"),
+            taskId: task._id!,
+            trigger: "scheduled",
+            status: "partial",
+            additions: 0,
+            removals: 0,
+            conflicts: 0,
+            skipped: 0,
+            addedTracks: [],
+            removedTracks: [],
+            unmatchedTracks: [],
+            failedPlaylists: [issue],
+            missingSourcePlaylists: [{sourcePlaylistId: "gone", destinationPlaylistId: "kept", name: "Old mix"}],
+            startedAt: now
+        }
+        const empty: SyncRunDocument = {...withIssues, _id: new ObjectId("68c2c0a0c0a0c0a0c0a0c0b2"), failedPlaylists: [], missingSourcePlaylists: []}
+
+        expect(serializeSyncRun(withIssues).failedPlaylists).toEqual([issue])
+        expect(serializeSyncRun(withIssues).missingSourcePlaylists).toEqual([{sourcePlaylistId: "gone", destinationPlaylistId: "kept", name: "Old mix"}])
+        expect(serializeSyncRun(empty).failedPlaylists).toBeUndefined()
+        expect(serializeSyncRun(empty).missingSourcePlaylists).toBeUndefined()
+    })
+
     test("fills missing run-track lengths from the snapshot", () => {
         const accountId = new ObjectId("68c2c0a0c0a0c0a0c0a0c0a4")
         const run: SyncRunDocument = {
