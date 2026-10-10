@@ -64,10 +64,9 @@ export async function disconnectProviderAccount(userId: ObjectId, accountId: Obj
 }
 
 // Claim every idle task with the same lease predicate a new run uses, so deletion can see a busy task before any history is removed.
-async function reserveTasksForDeletion(userId: ObjectId): Promise<{ok: boolean; leaseId: string; taskIds: ObjectId[]}> {
+async function reserveTasksForDeletion(userId: ObjectId, leaseId: string): Promise<{ok: boolean; taskIds: ObjectId[]}> {
     const db = await collections()
     const tasks = await db.syncTasks.find({userId}).sort({createdAt: 1}).toArray()
-    const leaseId = randomUUID()
     const now = new Date()
     const taskIds: ObjectId[] = []
     for (const task of tasks) {
@@ -78,17 +77,17 @@ async function reserveTasksForDeletion(userId: ObjectId): Promise<{ok: boolean; 
         if (!reserved.matchedCount) {
             const stillThere = await db.syncTasks.findOne({_id: task._id, userId}, {projection: {_id: 1}})
             if (stillThere) {
-                return {ok: false, leaseId, taskIds}
+                return {ok: false, taskIds}
             }
             continue
         }
         const latest = await db.syncRuns.find({taskId: task._id}).sort({startedAt: -1}).limit(1).next()
         if (runningRunIsCurrent(latest)) {
-            return {ok: false, leaseId, taskIds}
+            return {ok: false, taskIds}
         }
         taskIds.push(task._id)
     }
-    return {ok: true, leaseId, taskIds}
+    return {ok: true, taskIds}
 }
 
 // Drop a deletion lease without touching a run that still holds a different one.
@@ -106,8 +105,10 @@ export async function deleteUserAccount(user: UserDocument): Promise<void> {
     }
     // Hold the task-creation lock for the whole deletion so a new task cannot appear after the reservation.
     await withUserLock(userId, async () => {
-        const reservation = await reserveTasksForDeletion(userId)
+        const leaseId = randomUUID()
+        let removed = false
         try {
+            const reservation = await reserveTasksForDeletion(userId, leaseId)
             if (!reservation.ok) {
                 logger.warn("Accounts.deleteUser", `User ${userId.toHexString()}`, syncTaskBusyMessage)
                 throw createError({statusCode: 409, statusMessage: syncTaskBusyMessage})
@@ -119,9 +120,11 @@ export async function deleteUserAccount(user: UserDocument): Promise<void> {
             await db.providerAccounts.deleteMany({userId})
             await db.sessions.deleteMany({userId})
             await db.users.deleteOne({_id: userId})
+            removed = true
             logger.info("Accounts.deleteUser", `User ${userId.toHexString()}`, `Tasks ${taskIds.length}`)
         } catch (error) {
-            await releaseTaskReservation(userId, reservation.leaseId)
+            // A failure halfway through the reservation still holds leases, so clear those before the error leaves.
+            if (!removed) await releaseTaskReservation(userId, leaseId)
             throw error
         }
     })

@@ -228,6 +228,44 @@ describe.skipIf(!mongoUri)("disconnecting providers and deleting accounts agains
         }
     })
 
+    test("releases leases already taken when reservation fails", async () => {
+        const userId = await createUser()
+        const spotify = await connect(userId, "spotify")
+        const youtube = await connect(userId, "youtube")
+        const firstId = await createTask(userId, spotify, youtube, {createdAt: new Date("2026-01-01T00:00:00.000Z")})
+        const secondId = await createTask(userId, spotify, youtube, {createdAt: new Date("2026-01-02T00:00:00.000Z")})
+        const realCollections = data.collections
+        const leased: string[] = []
+        let runLookups = 0
+        const collectionsSpy = spyOn(data, "collections").mockImplementation(async () => {
+            const db = await realCollections()
+            const updateOne = db.syncTasks.updateOne.bind(db.syncTasks)
+            db.syncTasks.updateOne = (async (filter, update, options) => {
+                const leaseId = (update as {$set?: {leaseId?: string}}).$set?.leaseId
+                if (leaseId) leased.push(leaseId)
+                return updateOne(filter, update, options)
+            }) as typeof db.syncTasks.updateOne
+            const find = db.syncRuns.find.bind(db.syncRuns)
+            db.syncRuns.find = ((filter, options) => {
+                runLookups += 1
+                if (runLookups === 1) throw new Error("run lookup failed")
+                return find(filter, options)
+            }) as typeof db.syncRuns.find
+            return db
+        })
+
+        try {
+            const db = await realCollections()
+            await expect(deleteUserAccount((await db.users.findOne({_id: userId}))!)).rejects.toThrow("run lookup failed")
+            expect(leased.length).toBeGreaterThan(0)
+            expect((await db.syncTasks.findOne({_id: firstId}))?.leaseId).toBeUndefined()
+            expect((await db.syncTasks.findOne({_id: secondId}))?.leaseId).toBeUndefined()
+            expect(await db.users.countDocuments({_id: userId})).toBe(1)
+        } finally {
+            collectionsSpy.mockRestore()
+        }
+    })
+
     test("releases the deletion reservation when a sync is still running", async () => {
         const userId = await createUser()
         const spotify = await connect(userId, "spotify")
