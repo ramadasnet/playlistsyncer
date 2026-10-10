@@ -19,16 +19,9 @@ async function deriveKey(value: string): Promise<CryptoKey> {
 }
 
 // Encrypt a secret using a fresh IV and the current key derivation scheme.
-export async function encryptSecret(
-    value: string,
-    encodedKey = requireConfig("tokenEncryptionKey")
-): Promise<EncryptedValue> {
+export async function encryptSecret(value: string, encodedKey = requireConfig("tokenEncryptionKey")): Promise<EncryptedValue> {
     const iv = crypto.getRandomValues(new Uint8Array(12))
-    const ciphertext = await crypto.subtle.encrypt(
-        {name: "AES-GCM", iv},
-        await deriveKey(encodedKey),
-        encoder.encode(value)
-    )
+    const ciphertext = await crypto.subtle.encrypt({name: "AES-GCM", iv}, await deriveKey(encodedKey), encoder.encode(value))
     return {
         version: 2,
         iv: encodeBase64(iv),
@@ -37,17 +30,10 @@ export async function encryptSecret(
 }
 
 // Decrypt credentials encrypted with the current key derivation scheme.
-export async function decryptSecret(
-    value: EncryptedValue,
-    encodedKey = requireConfig("tokenEncryptionKey")
-): Promise<string> {
+export async function decryptSecret(value: EncryptedValue, encodedKey = requireConfig("tokenEncryptionKey")): Promise<string> {
     if (value.version !== 2) {
         throw new Error(`Unsupported encrypted value version: ${value.version}`)
     }
-    const plaintext = await crypto.subtle.decrypt(
-        {name: "AES-GCM", iv: decodeBase64(value.iv)},
-        await deriveKey(encodedKey),
-        decodeBase64(value.ciphertext)
-    )
+    const plaintext = await crypto.subtle.decrypt({name: "AES-GCM", iv: decodeBase64(value.iv)}, await deriveKey(encodedKey), decodeBase64(value.ciphertext))
     return decoder.decode(plaintext)
 }
