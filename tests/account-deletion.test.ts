@@ -11,6 +11,7 @@ import {deleteUserAccount, disconnectProviderAccount} from "../server/domain/acc
 import {hashOpaqueToken} from "../server/domain/auth/session"
 import * as engine from "../server/domain/sync/engine"
 import {closeDatabase} from "../server/utils/database"
+import * as shutdown from "../server/utils/shutdown"
 
 const globals = globalThis as Record<string, unknown>
 let taskRequestBody: unknown = {}
@@ -290,7 +291,7 @@ describe.skipIf(!mongoUri)("disconnecting providers and deleting accounts agains
         const db = await collections()
         const now = new Date()
         await db.sessions.insertOne({userId, tokenHash: hashOpaqueToken(token), createdAt: now, expiresAt: new Date(now.getTime() + 60_000)})
-        const runSync = spyOn(engine, "runSyncTask").mockImplementation(async () => undefined as never)
+        const runSync = spyOn(shutdown, "startTrackedSyncRun").mockResolvedValue({context: {runId: new ObjectId()}, finished: Promise.resolve(undefined)} as never)
         const realCollections = data.collections
         let releaseFind: () => void = () => undefined
         const findGate = new Promise<void>((resolve) => {
