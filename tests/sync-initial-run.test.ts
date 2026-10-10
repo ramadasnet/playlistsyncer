@@ -88,6 +88,9 @@ function fakeCollection<T>(docs: T[] = []): Collection<T> {
         for (const [key, value] of Object.entries(update.$set || {})) {
             ;(doc as Record<string, unknown>)[key] = value
         }
+        for (const [key, value] of Object.entries(update.$inc || {})) {
+            ;(doc as Record<string, unknown>)[key] = (((doc as Record<string, unknown>)[key] as number) || 0) + (value as number)
+        }
         for (const [key, value] of Object.entries(update.$push || {})) {
             const current = (doc as Record<string, unknown>)[key]
             const items = value && typeof value === "object" && "$each" in value ? (value.$each as unknown[]) : [value]
@@ -228,7 +231,8 @@ const db = {
     providerAccounts: fakeCollection<ProviderAccountDocument>([sourceAccount, destAccount]),
     syncTasks: fakeCollection<SyncTaskDocument>([task]),
     syncSnapshots: fakeCollection([]),
-    syncRuns: fakeCollection([])
+    syncRuns: fakeCollection([]),
+    searchMisses: fakeCollection([])
 }
 
 // Spies instead of mock.module, which would leak the fakes into every later test file.
@@ -248,6 +252,7 @@ beforeEach(async () => {
     Object.assign(task, initialTask, {source: {...initialTask.source}, destination: {...initialTask.destination}})
     await db.syncRuns.deleteMany({})
     await db.syncSnapshots.deleteMany({})
+    await db.searchMisses.deleteMany({})
     addedCalls.length = 0
     removedCalls.length = 0
 })
@@ -338,8 +343,9 @@ describe("whole-account playlist mappings", () => {
 
             sources = [{id: "old-source", name: "Road trip", itemCount: 0}, ...sources]
             await runSyncTask(accountTaskId, "manual")
-            expect(fullSyncLeaseMs).toBeGreaterThan(19 * 60 * 1000)
-            expect(fullSyncLeaseMs).toBeLessThan(21 * 60 * 1000)
+            // The heartbeat extends the lease, so a crash during a large full sync no longer locks the task for hours.
+            expect(fullSyncLeaseMs).toBeGreaterThan(14 * 60 * 1000)
+            expect(fullSyncLeaseMs).toBeLessThanOrEqual(15 * 60 * 1000)
             expect(created).toBe(1)
             expect(readItems).toContain("orphan")
             expect(accountTask.playlistMappings?.[0]).toEqual(orphanMapping)
@@ -394,10 +400,10 @@ describe("deleted source restore", () => {
         const addedBefore = addedCalls.length
 
         try {
-            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("The Spotify source playlist no longer exists")
             const failed = (await storedRuns()).find((run) => run.failureReason === "deleted-source")
             expect(failed?.status).toBe("failed")
-            expect(failed?.error).toBe("spotify API request failed (404)")
+            expect(failed?.error).toBe("The Spotify source playlist no longer exists")
 
             const result = await runReverseSync(taskId, deletedSourceRestore)
             expect(result.additions).toBe(2)
@@ -443,11 +449,11 @@ describe("deleted source restore", () => {
         try {
             delete playlists["source-playlist"]
             delete playlists["dest-playlist"]
-            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("The Spotify source playlist no longer exists")
             expect((await storedRuns()).at(-1)?.failureReason).toBeUndefined()
 
             playlists["source-playlist"] = [track("A:0", "Song A")]
-            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("The Spotify destination playlist no longer exists")
             expect((await storedRuns()).at(-1)?.failureReason).toBeUndefined()
 
             adapter.getPlaylistItems = async () => {
@@ -462,7 +468,7 @@ describe("deleted source restore", () => {
             }
             delete playlists["source-playlist"]
             playlists["dest-playlist"] = [track("B:0", "Song B")]
-            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("The Spotify source playlist no longer exists")
             expect((await storedRuns()).at(-1)?.failureReason).toBe("deleted-source")
             playlists["source-playlist"] = [track("A:0", "Song A")]
             await expect(runReverseSync(taskId, deletedSourceRestore)).rejects.toThrow("The playlist to restore is already there")
@@ -507,7 +513,7 @@ describe("deleted source restore", () => {
         }
 
         try {
-            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("The Spotify source playlist no longer exists")
             await expect(runReverseSync(taskId, deletedSourceRestore)).rejects.toThrow("spotify API request failed (500)")
             expect(deleted).toEqual(["restored-source"])
             expect(task.source.playlistId).toBe("source-playlist")
@@ -552,7 +558,7 @@ describe("deleted source restore", () => {
         adapter.searchTrack = async (_account, reference) => (reference.title === "Song C" ? null : {...reference})
 
         try {
-            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("spotify API request failed (404)")
+            await expect(runSyncTask(taskId, "manual")).rejects.toThrow("The Spotify source playlist no longer exists")
             const result = await runReverseSync(taskId, deletedSourceRestore)
             expect(result.skipped).toBe(1)
             expect(result.additions).toBe(1)

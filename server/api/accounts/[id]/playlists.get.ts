@@ -14,7 +14,9 @@ export default defineEventHandler(async (event) => {
     if (!account) {
         throw createError({statusCode: 404, statusMessage: "Provider account not found"})
     }
-    const playlists = await getProviderAdapter(account.provider).listPlaylists(account)
+    // Destination pickers ask for writable playlists. Source pickers keep followed playlists.
+    const writableOnly = getQuery(event).writable === "1"
+    const playlists = await getProviderAdapter(account.provider).listPlaylists(account, writableOnly ? {writableOnly: true} : undefined)
     logger.info("Accounts.listPlaylists", account.provider, `Provider account ${account.externalAccountId}`, `Playlists ${playlists.length}`)
     return {playlists}
 })

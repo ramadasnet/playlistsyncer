@@ -21,6 +21,8 @@ export interface ProviderTrack {
     durationMs?: number
     isrc?: string
     imageUrl?: string
+    // The provider still lists this entry but no longer returns its track metadata.
+    unavailable?: boolean
 }
 
 // Identifiers returned after tracks are added to a playlist.
@@ -38,7 +40,8 @@ export type TrackRemovalProgress = (itemIds: string[]) => Promise<void>
 // Operations required to synchronize one provider's playlists.
 export interface ProviderAdapter {
     provider: Provider
-    listPlaylists(account: ProviderAccountDocument): Promise<ProviderPlaylist[]>
+    // writableOnly limits the list to playlists the account can update. Source listings omit it.
+    listPlaylists(account: ProviderAccountDocument, options?: {writableOnly?: boolean}): Promise<ProviderPlaylist[]>
     createPlaylist(account: ProviderAccountDocument, name: string, description?: string): Promise<ProviderPlaylist>
     deletePlaylist(account: ProviderAccountDocument, playlistId: string): Promise<void>
     getPlaylistItems(account: ProviderAccountDocument, playlistId: string): Promise<ProviderTrack[]>

@@ -174,7 +174,9 @@ export const tidalAdapter: ProviderAdapter = {
                 return []
             }
             const resource = includedResource(included, "tracks", identifier.id)
-            return resource ? [mapTrack(resource, included, playlistItemId(identifier, index))] : []
+            const itemId = playlistItemId(identifier, index)
+            // A track TIDAL no longer returns stays as a placeholder, so a two-way sync does not read it as a removal.
+            return [resource ? mapTrack(resource, included, itemId) : {itemId, trackId: identifier.id, title: "", artists: [], unavailable: true}]
         })
     },
     async searchTrackCandidates(account, track) {
@@ -198,8 +200,10 @@ export const tidalAdapter: ProviderAdapter = {
             return resource ? [mapTrack(resource, included, resource.id)] : []
         })
     },
+    // Another release of a recording can carry a different ISRC, so a failed ISRC search retries by title and artist.
     async searchTrack(account, track) {
-        return findBestTrackMatch(track, await this.searchTrackCandidates(account, track))
+        const match = findBestTrackMatch(track, await this.searchTrackCandidates(account, track))
+        return match || !track.isrc ? match : findBestTrackMatch(track, await this.searchTrackCandidates(account, {...track, isrc: undefined}))
     },
     async getTrackDurations(account, trackIds) {
         const durations = new Map<string, number>()

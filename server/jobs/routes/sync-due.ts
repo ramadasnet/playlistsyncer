@@ -1,7 +1,8 @@
 // Process a bounded batch of scheduler-due synchronization tasks.
 import {defineEventHandler} from "h3"
 import {collections} from "../../data/collections"
-import {beginSyncTask, completeSyncTask} from "../../domain/sync/engine"
+import {beginSyncTask, completeSyncTask, failInterruptedRuns} from "../../domain/sync/engine"
+import {idleLeaseFilter} from "../../domain/sync/task-activity"
 import logger from "../../utils/logger"
 import {requireScheduler} from "../../utils/scheduler-auth"
 import {isShuttingDown, startTrackedSyncRun} from "../../utils/shutdown"
@@ -10,8 +11,11 @@ import {isShuttingDown, startTrackedSyncRun} from "../../utils/shutdown"
 export default defineEventHandler(async (event) => {
     requireScheduler(event)
     const db = await collections()
+    await failInterruptedRuns()
+    const now = new Date()
+    // A task that is still running would only return 409 and take a slot from a due task.
     const dueTasks = await db.syncTasks
-        .find({status: {$in: ["active", "needs_attention"]}, nextRunAt: {$lte: new Date()}})
+        .find({status: {$in: ["active", "needs_attention"]}, nextRunAt: {$lte: now}, ...idleLeaseFilter(now)})
         .sort({nextRunAt: 1})
         .limit(10)
         .toArray()

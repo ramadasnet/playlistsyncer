@@ -52,7 +52,8 @@ function mapTrack(track: SpotifyTrack, itemId = track.uri): ProviderTrack {
 // Spotify adapter with batched playlist mutations and stable item positions.
 export const spotifyAdapter: ProviderAdapter = {
     provider: "spotify",
-    async listPlaylists(account) {
+    // Followed playlists stay in the source list. Pass writableOnly when the caller will write to the playlist.
+    async listPlaylists(account, options) {
         const playlists = await collectPages<{
             id: string
             name?: string
@@ -60,8 +61,12 @@ export const spotifyAdapter: ProviderAdapter = {
             images?: {url: string}[]
             tracks?: {total?: number}
             items?: {total?: number}
+            owner?: {id?: string}
+            collaborative?: boolean
         }>(account, `${apiBase}/me/playlists?limit=50`)
-        return playlists.map((playlist): ProviderPlaylist => ({
+        const me = options?.writableOnly ? await providerFetch<{id: string}>(account, `${apiBase}/me`) : undefined
+        const visible = me ? playlists.filter((playlist) => playlist.collaborative || (Boolean(me.id) && playlist.owner?.id === me.id)) : playlists
+        return visible.map((playlist): ProviderPlaylist => ({
             id: playlist.id,
             name: playlist.name || `Untitled playlist (${playlist.id})`,
             description: playlist.description ?? "",
@@ -101,8 +106,10 @@ export const spotifyAdapter: ProviderAdapter = {
         const result = await providerFetch<{tracks: {items: SpotifyTrack[]}}>(account, `${apiBase}/search?type=track&limit=10&q=${encodeURIComponent(query)}`)
         return result.tracks.items.map((candidate) => mapTrack(candidate))
     },
+    // Another release of a recording can carry a different ISRC, so a failed ISRC search retries by title and artist.
     async searchTrack(account, track) {
-        return findBestTrackMatch(track, await this.searchTrackCandidates(account, track))
+        const match = findBestTrackMatch(track, await this.searchTrackCandidates(account, track))
+        return match || !track.isrc ? match : findBestTrackMatch(track, await this.searchTrackCandidates(account, {...track, isrc: undefined}))
     },
     async getTrackDurations(account, trackIds) {
         const durations = new Map<string, number>()

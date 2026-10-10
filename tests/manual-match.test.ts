@@ -11,14 +11,14 @@ const task: Pick<SyncTaskDocument, "source" | "destination" | "playlistMappings"
     destination: {providerAccountId: destinationAccount, playlistId: "dst", name: "Destination"}
 }
 
-function snapshotTrack(id: string, key: string, title = id): CanonicalTrack {
+function snapshotTrack(id: string, key: string, title = id, providerTrackId = `track-${id}`): CanonicalTrack {
     return {
         occurrenceId: id,
         canonicalKey: key,
         title,
         artists: ["Ada"],
         providerItemId: id,
-        providerTrackId: `track-${id}`
+        providerTrackId
     }
 }
 
@@ -75,6 +75,8 @@ describe("manual unmatched-track matching", () => {
         )
 
         expect(findSnapshotItem([unmatched], {providerItemId: "src-2", providerTrackId: "track-src-2"})).toBe(unmatched)
+        const earlier = snapshotTrack("src-1", "canonical:other", "Other", "track-src-2")
+        expect(findSnapshotItem([earlier, unmatched], {providerItemId: "src-2", providerTrackId: "track-src-2"})).toBe(unmatched)
         expect(linked.map((item) => item.canonicalKey)).toEqual(["canonical:missing", "canonical:missing"])
         expect(trackKey({title: "Other Song", artists: ["Bea"]})).not.toBe(unmatched.canonicalKey)
     })

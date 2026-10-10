@@ -12,7 +12,7 @@ import {youtubeAdapter} from "./youtube"
 export function withoutProviderWrites(adapter: ProviderAdapter): ProviderAdapter {
     return {
         provider: adapter.provider,
-        listPlaylists: (account) => adapter.listPlaylists(account),
+        listPlaylists: (account, options) => adapter.listPlaylists(account, options),
         getPlaylistItems: (account, playlistId) => adapter.getPlaylistItems(account, playlistId),
         searchTrack: (account, track) => adapter.searchTrack(account, track),
         searchTrackCandidates: (account, track) => adapter.searchTrackCandidates(account, track),

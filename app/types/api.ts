@@ -120,4 +120,14 @@ export interface SyncRunDetail {
     addedTracks: SyncRunTrack[]
     removedTracks: SyncRunTrack[]
     unmatchedTracks: SyncRunTrack[]
+    failedPlaylists?: SyncRunPlaylistIssue[]
+    missingSourcePlaylists?: SyncRunPlaylistIssue[]
+}
+
+// A full-sync playlist that failed or whose source playlist is gone.
+export interface SyncRunPlaylistIssue {
+    sourcePlaylistId: string
+    destinationPlaylistId?: string
+    name: string
+    error?: string
 }

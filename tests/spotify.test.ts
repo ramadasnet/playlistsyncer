@@ -49,24 +49,60 @@ describe("Spotify provider", () => {
         })
     })
 
-    test("lists playlists with item and track totals", async () => {
-        providerFetch.mockResolvedValue({
+    test("lists every playlist, including followed ones, for a source sync", async () => {
+        providerFetch.mockResolvedValueOnce({
             items: [
-                {id: "playlist-items", name: "Items playlist", description: null, images: [], items: {total: 37}},
-                {id: "playlist-tracks", name: "Tracks playlist", description: "", images: [], tracks: {total: 12}},
-                {id: "playlist-empty", images: []}
+                {id: "playlist-items", name: "Items playlist", description: null, images: [], items: {total: 37}, owner: {id: "me"}},
+                {id: "playlist-followed", name: "Followed", images: [], owner: {id: "friend"}},
+                {id: "playlist-editorial", name: "Today's Top Hits", images: [], owner: {id: "spotify"}}
             ],
             next: null
         })
 
         const playlists = await spotifyAdapter.listPlaylists(account)
 
+        expect(providerFetch).toHaveBeenCalledTimes(1)
         expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists?limit=50")
+        expect(playlists.map((playlist) => playlist.id)).toEqual(["playlist-items", "playlist-followed", "playlist-editorial"])
+        expect(playlists[0]).toMatchObject({name: "Items playlist", description: "", itemCount: 37})
+    })
+
+    test("lists only owned and collaborative playlists when the caller will write", async () => {
+        providerFetch.mockResolvedValueOnce({
+            items: [
+                {id: "playlist-items", name: "Items playlist", description: null, images: [], items: {total: 37}, owner: {id: "me"}},
+                {id: "playlist-tracks", name: "Tracks playlist", description: "", images: [], tracks: {total: 12}, owner: {id: "me"}},
+                {id: "playlist-empty", images: [], owner: {id: "me"}},
+                {id: "playlist-shared", name: "Shared", images: [], owner: {id: "friend"}, collaborative: true},
+                {id: "playlist-followed", name: "Followed", images: [], owner: {id: "friend"}},
+                {id: "playlist-editorial", name: "Today's Top Hits", images: [], owner: {id: "spotify"}}
+            ],
+            next: null
+        })
+        providerFetch.mockResolvedValueOnce({id: "me"})
+
+        const playlists = await spotifyAdapter.listPlaylists(account, {writableOnly: true})
+
+        expect(providerFetch).toHaveBeenNthCalledWith(1, account, "https://api.spotify.com/v1/me/playlists?limit=50")
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, "https://api.spotify.com/v1/me")
         expect(playlists).toEqual([
             {id: "playlist-items", name: "Items playlist", description: "", imageUrl: undefined, itemCount: 37},
             {id: "playlist-tracks", name: "Tracks playlist", description: "", imageUrl: undefined, itemCount: 12},
-            {id: "playlist-empty", name: "Untitled playlist (playlist-empty)", description: "", imageUrl: undefined, itemCount: 0}
+            {id: "playlist-empty", name: "Untitled playlist (playlist-empty)", description: "", imageUrl: undefined, itemCount: 0},
+            {id: "playlist-shared", name: "Shared", description: "", imageUrl: undefined, itemCount: 0}
         ])
+    })
+
+    test("searches by title when the ISRC finds no release of the recording", async () => {
+        const candidate = {id: "title", uri: "spotify:track:title", name: "Song", artists: [{name: "Artist"}], external_ids: {isrc: "GBOTHER0001"}}
+        providerFetch.mockResolvedValueOnce({tracks: {items: []}})
+        providerFetch.mockResolvedValueOnce({tracks: {items: [candidate]}})
+
+        const match = await spotifyAdapter.searchTrack(account, {itemId: "source", trackId: "source", title: "Song", artists: ["Artist"], isrc: "USRC17607839"})
+
+        expect(providerFetch).toHaveBeenNthCalledWith(1, account, "https://api.spotify.com/v1/search?type=track&limit=10&q=isrc%3AUSRC17607839")
+        expect(providerFetch).toHaveBeenNthCalledWith(2, account, `https://api.spotify.com/v1/search?type=track&limit=10&q=${encodeURIComponent("track:Song artist:Artist")}`)
+        expect(match?.trackId).toBe("spotify:track:title")
     })
 
     test("gives unnamed YouTube playlists a unique fallback name", async () => {

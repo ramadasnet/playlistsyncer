@@ -25,12 +25,71 @@ export function normalizeText(value: string): string {
         .trim()
 }
 
-// Prefer a provider canonical key and otherwise derive one from track metadata.
+// Country, registrant, year, and designation. Anything else is not an identity.
+const isrcPattern = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/
+
+function metadataKey(track: Pick<ProviderTrack, "title" | "artists">): string {
+    return `meta:${normalizeText(track.title)}:${normalizeText(track.artists[0] || "")}`
+}
+
+// Return a 12-character ISRC, or nothing when the provider value is missing or malformed.
+export function recordingIsrc(isrc?: string): string | undefined {
+    const normalized = isrc?.replace(/[^a-z0-9]/gi, "").toUpperCase()
+    return normalized && isrcPattern.test(normalized) ? normalized : undefined
+}
+
+// Prefer a saved canonical key, then metadata. An ISRC becomes the key only through shareRecordingKeys.
 export function trackKey(track: Pick<ProviderTrack, "isrc" | "title" | "artists" | "durationMs">): string {
     if ("canonicalKey" in track && track.canonicalKey) {
         return track.canonicalKey as string
     }
-    return `meta:${normalizeText(track.title)}:${normalizeText(track.artists[0] || "")}`
+    return metadataKey(track)
+}
+
+// Give both sides an ISRC key when they share a valid ISRC. A one-sided ISRC keeps the metadata key.
+export function shareRecordingKeys(groups: ProviderTrack[][]): ProviderTrack[][] {
+    const isrcSides = new Map<string, number>()
+    for (const group of groups) {
+        const seen = new Set<string>()
+        for (const track of group) {
+            const isrc = recordingIsrc(track.isrc)
+            if (!isrc || seen.has(isrc)) continue
+            seen.add(isrc)
+            isrcSides.set(isrc, (isrcSides.get(isrc) || 0) + 1)
+        }
+    }
+    const sharedIsrcs = new Set([...isrcSides].filter(([, count]) => count > 1).map(([isrc]) => isrc))
+    const blocked = new Set<string>()
+    for (const group of groups) {
+        for (const track of group) {
+            const isrc = recordingIsrc(track.isrc)
+            if (!isrc || !sharedIsrcs.has(isrc)) continue
+            if (track.canonicalKey && track.canonicalKey !== `isrc:${isrc}`) blocked.add(isrc)
+        }
+    }
+    const canonicalUsers = new Map<string, number>()
+    for (const group of groups) {
+        const seen = new Set<string>()
+        for (const track of group) {
+            if (!track.canonicalKey || seen.has(track.canonicalKey)) continue
+            seen.add(track.canonicalKey)
+            canonicalUsers.set(track.canonicalKey, (canonicalUsers.get(track.canonicalKey) || 0) + 1)
+        }
+    }
+    return groups.map((group) =>
+        group.map((track) => {
+            const isrc = recordingIsrc(track.isrc)
+            const isrcKey = isrc ? `isrc:${isrc}` : undefined
+            if (isrc && isrcKey && sharedIsrcs.has(isrc) && !blocked.has(isrc) && (!track.canonicalKey || track.canonicalKey === isrcKey)) {
+                return track.canonicalKey === isrcKey ? track : {...track, canonicalKey: isrcKey}
+            }
+            // A saved ISRC key that the other side does not use must not hide an equal metadata key.
+            if (track.canonicalKey?.startsWith("isrc:") && (canonicalUsers.get(track.canonicalKey) || 0) < 2) {
+                return {...track, canonicalKey: metadataKey(track)}
+            }
+            return track
+        })
+    )
 }
 
 // Count track occurrences by their reconciliation key.
