@@ -7,7 +7,7 @@ import {formatSyncProgressMessage} from "~~/shared/sync-progress"
 import {formatRunPlaylistLabel, groupRunPlaylists, trackInRunPlaylist} from "~~/shared/sync-run-playlists"
 import {isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
 import {isUnavailableSyncTrack, unmatchedCategoryCounts} from "~~/shared/unavailable-tracks"
-import type {ReverseSyncReason} from "~~/shared/reverse-sync"
+import {finishedRestoreMessage, type ReverseSyncReason} from "~~/shared/reverse-sync"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import type {SimilarTrackSuggestion, SyncRunDetail, SyncRunTrack, SyncTaskDetail} from "~/types/api"
 
@@ -315,13 +315,13 @@ watch(selectedRunId, () => {
     restoreMessage.value = ""
 })
 
-// Replace the in-progress note once the selected restore run finishes; a failed run already shows its own error.
+// Replace the in-progress note once the selected restore run finishes. A failed run shows its own error.
 watch(
     () => (selectedRun.value?.id === restoreRunId ? selectedRun.value.status : undefined),
     (status) => {
         if (!status || status === "running" || !restoreMessage.value) return
         restoreRunId = ""
-        restoreMessage.value = status === "failed" ? "" : "The source playlist was restored from the target. Later syncs keep their usual direction."
+        restoreMessage.value = finishedRestoreMessage(status)
     }
 )
 
