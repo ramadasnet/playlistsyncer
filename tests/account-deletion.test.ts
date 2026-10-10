@@ -10,6 +10,7 @@ import {collections, ensureIndexes} from "../server/data/collections"
 import {deleteUserAccount, disconnectProviderAccount} from "../server/domain/accounts"
 import {hashOpaqueToken} from "../server/domain/auth/session"
 import * as engine from "../server/domain/sync/engine"
+import {getServerConfig} from "../server/utils/config"
 import {closeDatabase} from "../server/utils/database"
 import * as shutdown from "../server/utils/shutdown"
 
@@ -21,6 +22,8 @@ globals.setResponseStatus = () => undefined
 globals.getCookie = getCookie
 
 const mongoUri = process.env.PLS_MONGODB_URI
+const config = getServerConfig()
+const originalSessionSecret = config.sessionSecret
 // The sync busy check relies on the Nitro auto-imported createError.
 const originalCreateError = globals.createError
 const createdUserIds: ObjectId[] = []
@@ -74,9 +77,12 @@ describe.skipIf(!mongoUri)("disconnecting providers and deleting accounts agains
     beforeEach(async () => {
         await ensureIndexes()
         globals.createError = createError
+        // CI has no PLS_SESSION_SECRET. Fill the cached config the same way the OAuth flow test does.
+        config.sessionSecret = config.sessionSecret || "account-deletion-session"
     })
 
     afterAll(async () => {
+        config.sessionSecret = originalSessionSecret
         globals.createError = originalCreateError
         const db = await collections()
         const tasks = await db.syncTasks.find({userId: {$in: createdUserIds}}).toArray()
