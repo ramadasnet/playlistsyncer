@@ -3,6 +3,7 @@ import {z} from "zod"
 import {requireUser} from "../../../../domain/auth/session"
 import {suggestMatchesForUnmatched} from "../../../../domain/sync/manual-match"
 import {parseObjectId} from "../../../../utils/object-id"
+import {enforceProviderRequestLimit} from "../../../../utils/user-rate-limit"
 
 const suggestionSchema = z.object({
     runId: z.string().min(1).optional(),
@@ -13,6 +14,7 @@ const suggestionSchema = z.object({
 
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
+    enforceProviderRequestLimit(event, user._id!)
     const taskId = parseObjectId(getRouterParam(event, "id"), "task id")
     const body = suggestionSchema.parse(await readBody(event))
     return suggestMatchesForUnmatched(user._id!, taskId, body)

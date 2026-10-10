@@ -3,6 +3,7 @@ import {createHash, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
 import {truncateDisplayName} from "../../../shared/display-name"
+import {normalizeRedirect} from "../../../shared/redirect"
 import type {Provider, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
@@ -13,15 +14,19 @@ import {decryptSecret, encryptSecret} from "../../utils/secrets"
 import {getOAuthProvider, type OAuthProfile} from "./providers"
 import {isProviderEnabled} from "../../utils/provider-availability"
 import {createSession, getCurrentUser, hashOpaqueToken} from "./session"
+import {withUserLock} from "../../utils/user-lock"
+
+const oauthTransactionSeconds = 10 * 60
+const oauthCookieOptions = {httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const, path: "/api/auth"}
+
+// Name the browser cookie after the transaction state so each tab keeps its own nonce.
+function oauthBrowserCookie(state: string): string {
+    return `ps_oauth_${hashOpaqueToken(state)}`
+}
 
 // Build the callback URL registered for a provider.
 function callbackUrl(provider: Provider): string {
     return `${getServerConfig().appUrl}/api/auth/${provider}/callback`
-}
-
-// Accept only safe local redirects after authentication.
-function normalizeRedirect(value: unknown): string {
-    return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") ? value : "/sync"
 }
 
 // Create a PKCE OAuth transaction and return the provider authorization URL.
@@ -33,19 +38,24 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
     const state = randomBytes(32).toString("base64url")
     const codeVerifier = randomBytes(48).toString("base64url")
     const challenge = createHash("sha256").update(codeVerifier).digest("base64url")
+    // The callback must arrive in the browser that started the flow, so a leaked authorize URL or callback URL is useless elsewhere.
+    // A separate cookie per state lets a second tab start a flow without erasing the first one.
+    const browserNonce = randomBytes(32).toString("base64url")
     const currentUser = await getCurrentUser(event)
     const db = await collections()
     const now = new Date()
     await db.oauthTransactions.insertOne({
         provider,
         stateHash: hashOpaqueToken(state),
+        browserNonceHash: hashOpaqueToken(browserNonce),
         // Store the PKCE verifier encrypted at rest alongside the challenge derived from its plaintext value.
         codeVerifier: await encryptSecret(codeVerifier),
         linkingUserId: currentUser?._id,
         redirectAfter: normalizeRedirect(getQuery(event).redirect),
         createdAt: now,
-        expiresAt: new Date(now.getTime() + 10 * 60 * 1000)
+        expiresAt: new Date(now.getTime() + oauthTransactionSeconds * 1000)
     })
+    setCookie(event, oauthBrowserCookie(state), browserNonce, {...oauthCookieOptions, maxAge: oauthTransactionSeconds})
     logger.info("OAuth.begin", provider, currentUser?._id ? `Linking user ${currentUser._id.toHexString()}` : "New login")
 
     const url = new URL(definition.authorizeUrl)
@@ -185,50 +195,80 @@ async function assignVerifiedProviderEmail(user: UserDocument, profile: OAuthPro
 // Consume the OAuth transaction, persist the account, and establish a session.
 export async function finishOAuth(event: H3Event, provider: Provider, code: string, state: string): Promise<string> {
     const db = await collections()
-    const transaction = await db.oauthTransactions.findOneAndDelete({
-        provider,
-        stateHash: hashOpaqueToken(state),
-        expiresAt: {$gt: new Date()}
-    })
+    // Clear only this transaction. A failed or finished callback must not delete another tab's cookie.
+    const cookieName = oauthBrowserCookie(state)
+    const browserNonce = getCookie(event, cookieName)
+    deleteCookie(event, cookieName, oauthCookieOptions)
+    const transaction = browserNonce
+        ? await db.oauthTransactions.findOneAndDelete({
+              provider,
+              stateHash: hashOpaqueToken(state),
+              browserNonceHash: hashOpaqueToken(browserNonce),
+              expiresAt: {$gt: new Date()}
+          })
+        : null
     if (!transaction) {
-        logger.warn("OAuth.finish", provider, "OAuth transaction is invalid or expired")
+        logger.warn("OAuth.finish", provider, browserNonce ? "OAuth transaction is invalid or expired" : "OAuth browser cookie is missing")
         throw createError({statusCode: 400, statusMessage: "OAuth transaction is invalid or expired"})
+    }
+    // A link started by one user must not complete in a session that now belongs to someone else, or to nobody.
+    if (transaction.linkingUserId) {
+        const currentUser = await getCurrentUser(event)
+        if (!currentUser?._id?.equals(transaction.linkingUserId)) {
+            logger.warn("OAuth.finish", provider, `Linking user ${transaction.linkingUserId.toHexString()}`, "Signed-in user does not match")
+            throw createError({statusCode: 401, statusMessage: "Sign in again to connect this provider"})
+        }
     }
     const codeVerifier = await decryptSecret(transaction.codeVerifier)
     const {token, definition} = await exchangeCode(provider, code, codeVerifier)
     const profile = await definition.fetchProfile(token.access_token)
-    const conflictingAccount = await db.providerAccounts.findOne({provider, externalAccountId: profile.id})
+    const accountIds = [profile.id, ...(profile.previousIds || [])]
+    const storedAccounts = await db.providerAccounts.find({provider, externalAccountId: {$in: accountIds}}).toArray()
+    const conflictingAccount = storedAccounts.find((account) => account.externalAccountId === profile.id) || storedAccounts[0]
     if (transaction.linkingUserId && conflictingAccount && !conflictingAccount.userId.equals(transaction.linkingUserId)) {
         logger.warn("OAuth.finish", provider, `Provider account ${profile.id}`, "Account is already linked to another user")
         throw createError({statusCode: 409, statusMessage: "This provider account is already linked to another user"})
     }
     let user: UserDocument = conflictingAccount ? await db.users.findOne({_id: conflictingAccount.userId}).then((value) => value!) : await findOrCreateUser(profile, transaction.linkingUserId)
-    const anotherProviderAccount = await db.providerAccounts.findOne({userId: user._id!, provider, externalAccountId: {$ne: profile.id}})
+    const anotherProviderAccount = await db.providerAccounts.findOne({userId: user._id!, provider, externalAccountId: {$nin: accountIds}})
     if (anotherProviderAccount) {
         logger.warn("OAuth.finish", provider, `User ${user._id!.toHexString()}`, "Another account from this provider is already linked")
         throw createError({statusCode: 409, statusMessage: "Only one account per music provider can be connected"})
     }
     user = await assignVerifiedProviderEmail(user, profile)
     const now = new Date()
-    await db.providerAccounts.updateOne(
-        {provider, externalAccountId: profile.id},
-        {
-            $set: {
-                userId: user._id!,
-                email: profile.email?.trim().toLowerCase(),
-                emailVerified: profile.emailVerified,
-                displayName: profile.displayName,
-                accessToken: await encryptSecret(token.access_token),
-                ...(token.refresh_token ? {refreshToken: await encryptSecret(token.refresh_token)} : {}),
-                tokenExpiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
-                scopes: token.scope?.split(" ").filter(Boolean) || definition.scopes,
-                connectedAt: now,
-                updatedAt: now
-            }
-        },
-        {upsert: true}
-    )
-    await createSession(event, user._id!)
+    const accessToken = await encryptSecret(token.access_token)
+    const refreshToken = token.refresh_token ? await encryptSecret(token.refresh_token) : undefined
+    // Share the deletion lock, then make sure the user still exists, so a finished deletion cannot be followed by a new token or session.
+    await withUserLock(user._id!, async () => {
+        const owner = await db.users.findOne({_id: user._id}, {projection: {_id: 1}})
+        if (!owner) {
+            logger.warn("OAuth.finish", provider, `User ${user._id!.toHexString()}`, "User was deleted before the account was saved")
+            throw createError({statusCode: 401, statusMessage: "This account is no longer available"})
+        }
+        // Updating the stored account by _id re-keys an account stored under a previous provider id.
+        await db.providerAccounts.updateOne(
+            conflictingAccount ? {_id: conflictingAccount._id} : {provider, externalAccountId: profile.id},
+            {
+                $set: {
+                    provider,
+                    externalAccountId: profile.id,
+                    userId: user._id!,
+                    email: profile.email?.trim().toLowerCase(),
+                    emailVerified: profile.emailVerified,
+                    displayName: profile.displayName,
+                    accessToken,
+                    ...(refreshToken ? {refreshToken} : {}),
+                    tokenExpiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
+                    scopes: token.scope?.split(" ").filter(Boolean) || definition.scopes,
+                    connectedAt: now,
+                    updatedAt: now
+                }
+            },
+            {upsert: true}
+        )
+        await createSession(event, user._id!)
+    })
     logger.info("OAuth.finish", provider, `User ${user._id!.toHexString()}`, `Provider account ${profile.id}`, transaction.linkingUserId ? "Account linked" : "Login completed")
     return oauthRedirectAfterLogin(user, transaction.redirectAfter)
 }

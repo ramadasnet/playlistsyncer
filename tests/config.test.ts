@@ -39,6 +39,12 @@ describe("server configuration", () => {
         expect(() => parseServerConfig({youtubeMaxRequestsPerMinute: "-1"})).toThrow()
     })
 
+    test("parses the per-user provider request limit with a default", () => {
+        expect(parseServerConfig({}).userProviderRequestsPerMinute).toBe(30)
+        expect(parseServerConfig({userProviderRequestsPerMinute: "0"}).userProviderRequestsPerMinute).toBe(0)
+        expect(() => parseServerConfig({userProviderRequestsPerMinute: "-1"})).toThrow()
+    })
+
     test("accepts Creem production configuration", () => {
         const config = parseServerConfig({
             creemApiKey: "creem_live_key",

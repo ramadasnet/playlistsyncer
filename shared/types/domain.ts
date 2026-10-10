@@ -143,6 +143,7 @@ export interface OAuthTransactionDocument {
     _id?: ObjectId
     provider: Provider
     stateHash: string
+    browserNonceHash: string
     codeVerifier: EncryptedValue
     linkingUserId?: ObjectId
     redirectAfter: string

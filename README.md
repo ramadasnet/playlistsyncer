@@ -131,6 +131,7 @@ Application settings use the `PLS_` prefix.
 | `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE`      | Shared TIDAL request pacing; `0` disables pacing.                                                                                            | `60`                                                                                                    |
 | `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` | Shared SoundCloud request pacing; `0` disables pacing.                                                                                       | `60`                                                                                                    |
 | `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE`     | Shared Amazon request pacing; `0` disables pacing.                                                                                           | `60`                                                                                                    |
+| `PLS_USER_PROVIDER_REQUESTS_PER_MINUTE`  | Requests one user can make per minute, counted separately on each web process, to routes that call music providers; `0` disables the limit.  | `30`                                                                                                    |
 | `PLS_CREEM_API_KEY`                      | Creem API credential for checkout and price lookup.                                                                                          | Unset                                                                                                   |
 | `PLS_CREEM_PRO_PRODUCT_ID`               | Creem product charged at PRO checkout and used for the displayed price.                                                                      | Unset                                                                                                   |
 | `PLS_CREEM_WEBHOOK_SECRET`               | Secret used to verify Creem webhook signatures.                                                                                              | Unset                                                                                                   |
@@ -151,6 +152,7 @@ Some of the environment variables are optional, and will dictate which features 
     - `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE` (default 60)
     - `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` (default 60)
     - `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE` (default 60)
+- `PLS_USER_PROVIDER_REQUESTS_PER_MINUTE` (default 30) caps how often one user can load playlists, request match suggestions, or start syncs, so a single account cannot use up the shared provider limits. Each user can also request at most 5 confirmation emails per hour. Both caps are counted in memory on each web process, so another process keeps its own count.
 
 ### Spotify
 

@@ -8,10 +8,12 @@ import {assertSyncTaskIdle} from "../../../domain/sync/task-activity"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
 import {startTrackedSyncRun} from "../../../utils/shutdown"
+import {enforceProviderRequestLimit} from "../../../utils/user-rate-limit"
 
 // Reject runs during the cooldown, start the run immediately, and finish it in the background.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
+    enforceProviderRequestLimit(event, user._id!)
     const taskId = parseObjectId(getRouterParam(event, "id"), "task id")
     const db = await collections()
     const task = await db.syncTasks.findOne({_id: taskId, userId: user._id!})

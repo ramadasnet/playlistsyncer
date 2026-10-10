@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import {ArrowUpRight, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus} from "lucide-vue-next"
+import {ArrowUpRight, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus, Trash2, Unlink} from "lucide-vue-next"
 import type {ConnectedAccount, SessionUser} from "~/types/api"
-import type {Provider} from "~~/shared/types/domain"
+import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
 import {maxDisplayNameLength, normalizeDisplayName} from "~~/shared/display-name"
 
@@ -33,6 +33,13 @@ const emailDialogAction = computed(() => (auth.user?.email ? "Change email" : "A
 const displayNameInput = ref("")
 const displayNameField = useTemplateRef<HTMLInputElement>("displayNameField")
 const normalizedDisplayName = computed(() => normalizeDisplayName(displayNameInput.value))
+const disconnectTarget = ref<ConnectedAccount | null>(null)
+const showDisconnectDialog = ref(false)
+const disconnectBusy = ref(false)
+const disconnectError = ref("")
+const showDeleteDialog = ref(false)
+const deleteBusy = ref(false)
+const deleteError = ref("")
 
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
 const pendingEmail = computed(() => Boolean(auth.user?.tempEmail))
@@ -262,6 +269,57 @@ function connectedAccount(provider: Provider) {
     return data.value?.accounts.find((account) => account.provider === provider)
 }
 
+function openDisconnectDialog(account: ConnectedAccount) {
+    disconnectTarget.value = account
+    disconnectError.value = ""
+    showDisconnectDialog.value = true
+}
+
+// Delete the stored provider access; the server refuses while a sync task still uses the account.
+async function confirmDisconnect() {
+    const account = disconnectTarget.value
+    if (!account || disconnectBusy.value) {
+        return
+    }
+    disconnectBusy.value = true
+    disconnectError.value = ""
+    errorMessage.value = ""
+    successMessage.value = ""
+    try {
+        await api(`/api/accounts/${account.id}`, {method: "DELETE"})
+        await refresh()
+        showDisconnectDialog.value = false
+        successMessage.value = `${providerDisplayNames[account.provider]} was disconnected.`
+    } catch (error) {
+        disconnectError.value = statusMessage(error, "The account could not be disconnected")
+    } finally {
+        disconnectBusy.value = false
+    }
+}
+
+function openDeleteDialog() {
+    deleteError.value = ""
+    showDeleteDialog.value = true
+}
+
+async function confirmDeleteAccount() {
+    if (deleteBusy.value) {
+        return
+    }
+    deleteBusy.value = true
+    deleteError.value = ""
+    try {
+        await api("/api/me", {method: "DELETE"})
+        showDeleteDialog.value = false
+        auth.setUser(null)
+        await navigateTo("/")
+    } catch (error) {
+        deleteError.value = statusMessage(error, "Your account could not be deleted")
+    } finally {
+        deleteBusy.value = false
+    }
+}
+
 onMounted(() => refresh())
 </script>
 
@@ -360,7 +418,12 @@ onMounted(() => refresh())
                             ><span>{{ connectedAccount(provider)?.email || "Connected" }}</span
                             ><span>{{ connectedAccount(provider)?.playlistCount ?? 0 }} {{ connectedAccount(provider)?.playlistCount === 1 ? "playlist" : "playlists" }}</span>
                         </div>
-                        <span class="status-dot"><span /> Connected</span>
+                        <div class="connection-actions">
+                            <span class="status-dot"><span /> Connected</span>
+                            <button class="button button-small button-secondary" type="button" aria-haspopup="dialog" :aria-label="`Disconnect ${providerDisplayNames[provider]}`" @click="openDisconnectDialog(connectedAccount(provider)!)">
+                                <Unlink :size="16" /> Disconnect
+                            </button>
+                        </div>
                     </template>
                     <template v-else>
                         <div class="connection-copy"><strong>Not connected</strong><span>Add this provider to use it in playlist pairs.</span></div>
@@ -369,6 +432,21 @@ onMounted(() => refresh())
                 </div>
             </div>
         </section>
+
+        <OverlayDialog v-model="showDisconnectDialog" :title="`Disconnect ${disconnectTarget ? providerDisplayNames[disconnectTarget.provider] : ''}`" :busy="disconnectBusy">
+            <p v-if="disconnectTarget" class="confirm-dialog-copy">
+                PlaylistSyncer deletes its access to <strong>{{ disconnectTarget.displayName }}</strong
+                >. Your playlists on {{ providerDisplayNames[disconnectTarget.provider] }} stay as they are, and you can connect again at any time.
+            </p>
+            <p v-if="disconnectError" class="dialog-error" role="alert">{{ disconnectError }}</p>
+            <div class="dialog-actions">
+                <button class="button button-secondary" type="button" :disabled="disconnectBusy" @click="showDisconnectDialog = false">Cancel</button>
+                <button class="button button-danger" type="button" :disabled="disconnectBusy" @click="confirmDisconnect">
+                    <LoaderCircle v-if="disconnectBusy" class="spin" :size="17" />
+                    Disconnect
+                </button>
+            </div>
+        </OverlayDialog>
 
         <section class="settings-section" aria-labelledby="notifications-heading">
             <div class="settings-heading">
@@ -418,5 +496,30 @@ onMounted(() => refresh())
                 </button>
             </div>
         </section>
+
+        <section class="settings-section" aria-labelledby="delete-account-heading">
+            <div class="settings-heading">
+                <div>
+                    <h2 id="delete-account-heading">Delete account</h2>
+                </div>
+                <Trash2 :size="22" />
+            </div>
+            <div class="billing-copy">
+                <p>Permanently delete your PlaylistSyncer account, sync tasks, run history, and access to your music services.</p>
+                <button class="button button-danger" type="button" aria-haspopup="dialog" @click="openDeleteDialog">Delete account</button>
+            </div>
+        </section>
+
+        <OverlayDialog v-model="showDeleteDialog" title="Delete account" :busy="deleteBusy">
+            <p class="confirm-dialog-copy">This permanently deletes your account and everything PlaylistSyncer stores for it. Playlists on your music services stay as they are. This cannot be undone.</p>
+            <p v-if="deleteError" class="dialog-error" role="alert">{{ deleteError }}</p>
+            <div class="dialog-actions">
+                <button class="button button-secondary" type="button" :disabled="deleteBusy" @click="showDeleteDialog = false">Cancel</button>
+                <button class="button button-danger" type="button" :disabled="deleteBusy" @click="confirmDeleteAccount">
+                    <LoaderCircle v-if="deleteBusy" class="spin" :size="17" />
+                    Delete account
+                </button>
+            </div>
+        </OverlayDialog>
     </div>
 </template>

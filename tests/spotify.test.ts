@@ -15,14 +15,14 @@ const account = {provider: "spotify"} as ProviderAccountDocument
 describe("Spotify provider", () => {
     beforeEach(() => providerFetch.mockReset())
 
-    test("creates playlists for the current user", async () => {
+    test("creates private playlists for the current user", async () => {
         providerFetch.mockResolvedValue({id: "playlist-id", name: "Source playlist", images: []})
 
         await spotifyAdapter.createPlaylist(account, "Source playlist")
 
         expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists", {
             method: "POST",
-            body: JSON.stringify({name: "Source playlist", description: ""})
+            body: JSON.stringify({name: "Source playlist", public: false, description: ""})
         })
     })
 
@@ -33,7 +33,7 @@ describe("Spotify provider", () => {
 
         expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists", {
             method: "POST",
-            body: JSON.stringify({name: "Source playlist", description: "Late night mix"})
+            body: JSON.stringify({name: "Source playlist", public: false, description: "Late night mix"})
         })
     })
 
@@ -45,7 +45,7 @@ describe("Spotify provider", () => {
 
         expect(providerFetch).toHaveBeenCalledWith(account, "https://api.spotify.com/v1/me/playlists", {
             method: "POST",
-            body: JSON.stringify({name: "Source playlist", description: "a".repeat(300)})
+            body: JSON.stringify({name: "Source playlist", public: false, description: "a".repeat(300)})
         })
     })
 

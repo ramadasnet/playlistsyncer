@@ -4,10 +4,12 @@ import {requireUser} from "../../../domain/auth/session"
 import {getProviderAdapter} from "../../../domain/providers"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
+import {enforceProviderRequestLimit} from "../../../utils/user-rate-limit"
 
 // Check ownership before making the external provider request.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
+    enforceProviderRequestLimit(event, user._id!)
     const accountId = parseObjectId(getRouterParam(event, "id"), "account id")
     const db = await collections()
     const account = await db.providerAccounts.findOne({_id: accountId, userId: user._id!})

@@ -10,6 +10,8 @@ const originalClientId = config.spotifyClientId
 const originalClientSecret = config.spotifyClientSecret
 const originalSoundCloudClientId = config.soundcloudClientId
 const originalSoundCloudClientSecret = config.soundcloudClientSecret
+const originalAmazonClientId = config.amazonClientId
+const originalAmazonClientSecret = config.amazonClientSecret
 const originalDefaults = {...fetchRetryDefaults}
 const fetchMock = mock(async (): Promise<Response> => new Response(JSON.stringify({id: "listener", display_name: "Listener"})))
 
@@ -27,10 +29,13 @@ describe("OAuth provider profile requests", () => {
         config.spotifyClientSecret = originalClientSecret
         config.soundcloudClientId = originalSoundCloudClientId
         config.soundcloudClientSecret = originalSoundCloudClientSecret
+        config.amazonClientId = originalAmazonClientId
+        config.amazonClientSecret = originalAmazonClientSecret
         globalThis.fetch = originalFetch
         Object.assign(fetchRetryDefaults, originalDefaults)
         providerRateLimiters.delete("spotify")
         providerRateLimiters.delete("soundcloud")
+        providerRateLimiters.delete("amazon")
     })
 
     test("uses the shared provider limiter on retries and falls back from blank names", async () => {
@@ -47,6 +52,37 @@ describe("OAuth provider profile requests", () => {
         expect(acquire).toHaveBeenCalledTimes(2)
         expect(onRateLimited).toHaveBeenCalledWith(0)
         expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    test("never trusts a Spotify email and keys the account on the immutable account_id", async () => {
+        providerRateLimiters.set("spotify", new ProviderRateLimiter("spotify", 0, {cooldownMs: 0}))
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({id: "listener", account_id: "aB3dE5fG7h", display_name: "Listener", email: "victim@example.test"})))
+
+        const profile = await getOAuthProvider("spotify").fetchProfile("test-access-token")
+
+        expect(profile).toMatchObject({id: "aB3dE5fG7h", previousIds: ["listener"], email: "victim@example.test", emailVerified: false})
+    })
+
+    test("falls back to the Spotify user id when account_id is missing", async () => {
+        providerRateLimiters.set("spotify", new ProviderRateLimiter("spotify", 0, {cooldownMs: 0}))
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({id: "listener", display_name: "Listener", email: "listener@example.test"})))
+
+        const profile = await getOAuthProvider("spotify").fetchProfile("test-access-token")
+
+        expect(profile.id).toBe("listener")
+        expect(profile.previousIds).toBeUndefined()
+        expect(profile.emailVerified).toBe(false)
+    })
+
+    test("never trusts an Amazon email", async () => {
+        config.amazonClientId = "amazon-client-id"
+        config.amazonClientSecret = "amazon-client-secret"
+        providerRateLimiters.set("amazon", new ProviderRateLimiter("amazon", 0, {cooldownMs: 0}))
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({user_id: "amzn1.account.1", email: "victim@example.test", name: "Listener"})))
+
+        const profile = await getOAuthProvider("amazon").fetchProfile("test-access-token")
+
+        expect(profile.emailVerified).toBe(false)
     })
 
     test("reads a SoundCloud profile with the OAuth scheme and without an email", async () => {
