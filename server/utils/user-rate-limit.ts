@@ -9,6 +9,7 @@ const sweepThreshold = 10_000
 
 export class SlidingWindowLimiter {
     private readonly hits = new Map<string, number[]>()
+    private lastSweepAt = Number.NEGATIVE_INFINITY
 
     constructor(
         readonly label: string,
@@ -23,6 +24,7 @@ export class SlidingWindowLimiter {
             return 0
         }
         const now = this.now()
+        this.sweep(now)
         const recent = (this.hits.get(key) || []).filter((at) => now - at < this.windowMs)
         if (recent.length >= this.limit) {
             this.hits.set(key, recent)
@@ -30,12 +32,19 @@ export class SlidingWindowLimiter {
         }
         recent.push(now)
         this.hits.set(key, recent)
-        if (this.hits.size > sweepThreshold) {
-            for (const [staleKey, times] of this.hits) {
-                if (now - times[times.length - 1]! >= this.windowMs) this.hits.delete(staleKey)
-            }
-        }
         return 0
+    }
+
+    // Drop expired keys at most once per window after the map is large, instead of scanning it on every allowed request.
+    private sweep(now: number): void {
+        if (this.hits.size <= sweepThreshold || now - this.lastSweepAt < this.windowMs) {
+            return
+        }
+        this.lastSweepAt = now
+        for (const [staleKey, times] of this.hits) {
+            const latest = times[times.length - 1]
+            if (latest !== undefined && now - latest >= this.windowMs) this.hits.delete(staleKey)
+        }
     }
 }
 

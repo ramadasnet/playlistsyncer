@@ -22,6 +22,30 @@ describe("per-user rate limit", () => {
         expect(limiter.take("user")).toBe(400)
     })
 
+    test("sweeps a large map once per window instead of on every allowed request", () => {
+        let now = 0
+        const limiter = new SlidingWindowLimiter("test", 1, 1_000, () => now)
+        for (let index = 0; index < 10_001; index++) limiter.take(`user-${index}`)
+        const scans: number[] = []
+        const iterate = Map.prototype[Symbol.iterator]
+        const iterator = spyOn(Map.prototype, Symbol.iterator).mockImplementation(function (this: Map<unknown, unknown>) {
+            if (this.size > 10_000) scans.push(this.size)
+            return iterate.call(this)
+        })
+
+        try {
+            now = 1_000
+            expect(limiter.take("fresh")).toBe(0)
+            const swept = scans.length
+            expect(swept).toBeGreaterThan(0)
+            expect(limiter.take("fresh")).toBe(1_000)
+            expect(scans.length).toBe(swept)
+            expect(limiter.take("user-0")).toBe(0)
+        } finally {
+            iterator.mockRestore()
+        }
+    })
+
     test("a limit of 0 disables the limiter", () => {
         const limiter = new SlidingWindowLimiter("test", 0, 1000)
 
