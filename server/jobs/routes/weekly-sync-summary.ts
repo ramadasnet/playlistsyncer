@@ -18,6 +18,7 @@ export default defineEventHandler(async (event) => {
         send: sendMail,
         appUrl: getServerConfig().appUrl
     })
-    logger.info("Jobs.weeklySyncSummary", `Processed ${result.processed}`, `Sent ${result.sent}`, `Skipped ${result.skipped}`)
+    const log = result.failed ? logger.warn : logger.info
+    log("Jobs.weeklySyncSummary", `Processed ${result.processed}`, `Sent ${result.sent}`, `Skipped ${result.skipped}`, `Failed ${result.failed}`)
     return result
 })

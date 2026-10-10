@@ -1,11 +1,12 @@
 // Process a bounded batch of scheduler-due synchronization tasks.
 import {defineEventHandler} from "h3"
 import {collections} from "../../data/collections"
-import {runSyncTask} from "../../domain/sync/engine"
+import {beginSyncTask, completeSyncTask} from "../../domain/sync/engine"
 import logger from "../../utils/logger"
 import {requireScheduler} from "../../utils/scheduler-auth"
+import {isShuttingDown, startTrackedSyncRun} from "../../utils/shutdown"
 
-// Require scheduler authentication and isolate failures per task.
+// Require scheduler authentication, isolate failures per task, and stop starting tasks once shutdown begins.
 export default defineEventHandler(async (event) => {
     requireScheduler(event)
     const db = await collections()
@@ -17,8 +18,14 @@ export default defineEventHandler(async (event) => {
     logger.info("Jobs.syncDue", `Due tasks ${dueTasks.length}`)
     const results = []
     for (const task of dueTasks) {
+        // Tasks left over stay due and run on the next scheduler call.
+        if (isShuttingDown()) {
+            logger.warn("Jobs.syncDue", "Shutting down; not starting the remaining due tasks")
+            break
+        }
         try {
-            results.push({id: task._id!.toHexString(), ok: true, result: await runSyncTask(task._id!, "scheduled")})
+            const {finished} = await startTrackedSyncRun(() => beginSyncTask(task._id!, "scheduled"), completeSyncTask)
+            results.push({id: task._id!.toHexString(), ok: true, result: await finished})
         } catch (error) {
             logger.error("Jobs.syncDue", `Task ${task._id!.toHexString()}`, error)
             results.push({

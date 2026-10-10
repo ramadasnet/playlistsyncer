@@ -7,7 +7,7 @@ import {formatSyncProgressMessage} from "~~/shared/sync-progress"
 import {formatRunPlaylistLabel, groupRunPlaylists, trackInRunPlaylist} from "~~/shared/sync-run-playlists"
 import {isSyncInProgress, syncTaskBusyMessage} from "~~/shared/sync-task-activity"
 import {isUnavailableSyncTrack, unmatchedCategoryCounts} from "~~/shared/unavailable-tracks"
-import type {ReverseSyncReason} from "~~/shared/reverse-sync"
+import {finishedRestoreMessage, type ReverseSyncReason} from "~~/shared/reverse-sync"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import type {SimilarTrackSuggestion, SyncRunDetail, SyncRunTrack, SyncTaskDetail} from "~/types/api"
 
@@ -23,6 +23,7 @@ const restoring = ref(false)
 const restoreError = ref("")
 const restoreMessage = ref("")
 let keepRestoreMessage = false
+let restoreRunId = ""
 const selectedPlaylistKey = ref(allPlaylistsKey)
 const suggestionState = ref<
     Record<
@@ -166,10 +167,12 @@ async function restoreSource() {
     restoreError.value = ""
     restoreMessage.value = ""
     try {
-        await api(`/api/tasks/${task.value.id}/reverse-sync`, {method: "POST", body: plan})
+        const started = await api<{runId: string}>(`/api/tasks/${task.value.id}/reverse-sync`, {method: "POST", body: plan})
         await refresh()
-        keepRestoreMessage = true
-        restoreMessage.value = "The source playlist was restored from the target. Later syncs keep their usual direction."
+        keepRestoreMessage = selectedRunId.value !== started.runId
+        selectedRunId.value = started.runId
+        restoreRunId = started.runId
+        restoreMessage.value = "Restoring the source playlist from the target. Later syncs keep their usual direction."
     } catch (caught) {
         restoreError.value = statusMessage(caught, "The source playlist could not be restored")
     } finally {
@@ -311,6 +314,16 @@ watch(selectedRunId, () => {
     restoreError.value = ""
     restoreMessage.value = ""
 })
+
+// Replace the in-progress note once the selected restore run finishes. A failed run shows its own error.
+watch(
+    () => (selectedRun.value?.id === restoreRunId ? selectedRun.value.status : undefined),
+    (status) => {
+        if (!status || status === "running" || !restoreMessage.value) return
+        restoreRunId = ""
+        restoreMessage.value = finishedRestoreMessage(status)
+    }
+)
 
 watch(playlistOptions, (options) => {
     if (selectedPlaylistKey.value === allPlaylistsKey) return

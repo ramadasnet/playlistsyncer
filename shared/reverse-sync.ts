@@ -83,3 +83,14 @@ export function availableReverseSync(run: ReverseSyncRunState, newerRuns: readon
     }
     return reverseSyncRequestFor(syncCase.reason)
 }
+
+// Note shown when a source restore leaves the running state. A partial run still has unmatched tracks.
+export function finishedRestoreMessage(status: SyncRunStatus): string {
+    if (status === "succeeded") {
+        return "The source playlist was restored from the target. Later syncs keep their usual direction."
+    }
+    if (status === "partial") {
+        return "The source playlist was restored, but some tracks remain unmatched. Later syncs keep their usual direction."
+    }
+    return ""
+}

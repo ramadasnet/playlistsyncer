@@ -1,10 +1,17 @@
-// Register startup, request-error, and shutdown logging hooks.
-import {getServerConfig} from "../utils/config"
+// Register startup, request-error, and shutdown logging hooks, and refuse to start with invalid production configuration.
+import {assertStartupConfig, getServerConfig} from "../utils/config"
 import logger from "../utils/logger"
 
 // Attach lifecycle logging to the Nitro application.
 export default defineNitroPlugin((nitroApp) => {
     logger.info("PlaylistSync.startup", `PID ${process.pid}`, `Environment ${process.env.NODE_ENV || "development"}`)
+    try {
+        assertStartupConfig("website")
+    } catch (error) {
+        // Exit before Bun starts listening, so the health check never reports a misconfigured process as healthy.
+        logger.error("PlaylistSync.startup", error)
+        process.exit(1)
+    }
     if (getServerConfig().safeMode) {
         logger.warn("PlaylistSync.startup", "PLS_SAFE_MODE is enabled; music providers will not be written")
     }

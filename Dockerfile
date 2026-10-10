@@ -15,6 +15,8 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3007
 ENV PLS_JSON_LOGGING=true
+# Bun closes idle requests after 10 s by default; 255 s is its maximum.
+ENV NITRO_BUN_IDLE_TIMEOUT=255
 COPY --from=builder --chown=bun:bun /app/.output ./.output
 COPY --from=builder --chown=bun:bun /app/server ./server
 COPY --from=builder --chown=bun:bun /app/shared ./shared

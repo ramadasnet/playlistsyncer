@@ -2,10 +2,12 @@
 import {createServer, type Server} from "node:http"
 import {toNodeListener} from "h3"
 import {ensureIndexes} from "../data/collections"
-import {getServerConfig} from "../utils/config"
+import {assertStartupConfig, getServerConfig} from "../utils/config"
 import {closeDatabase} from "../utils/database"
 import logger from "../utils/logger"
+import {drainSyncRuns} from "../utils/shutdown"
 import {createJobsApp} from "./app"
+import {drainNonSyncRequests} from "./requests"
 
 // Read the jobs listener port without using the website PORT.
 export function resolveJobsPort(raw = process.env.PLS_JOBS_PORT): number {
@@ -21,6 +23,7 @@ export function resolveJobsPort(raw = process.env.PLS_JOBS_PORT): number {
 export async function startJobsServer(): Promise<Server> {
     const config = getServerConfig()
     logger.info("Jobs.startup", `PID ${process.pid}`, `Environment ${process.env.NODE_ENV || "development"}`)
+    assertStartupConfig("jobs")
     if (config.safeMode) {
         logger.warn("Jobs.startup", "PLS_SAFE_MODE is enabled; music providers will not be written")
     }
@@ -43,11 +46,23 @@ export async function startJobsServer(): Promise<Server> {
 
     const shutdown = async (signal: string) => {
         logger.info("Jobs.shutdown", signal)
-        await new Promise<void>((resolve) => server.close(() => resolve()))
-        await closeDatabase()
+        await shutdownJobsServer(server, config.shutdownTimeoutSeconds * 1000)
         process.exit(0)
     }
     process.once("SIGINT", () => void shutdown("SIGINT"))
     process.once("SIGTERM", () => void shutdown("SIGTERM"))
     return server
+}
+
+/**
+ * Stops new connections, finishes accepted non-sync requests and tracked sync runs, then closes MongoDB.
+ * server.close() would wait without a deadline for a long sync-due request, so both drains share the shutdown budget.
+ * @param server Jobs HTTP server.
+ * @param timeoutMs Total budget before MongoDB is closed.
+ * @param closeDb Closes the database after the drains return.
+ */
+export async function shutdownJobsServer(server: Server, timeoutMs: number, closeDb: () => Promise<void> = closeDatabase): Promise<void> {
+    server.close()
+    await Promise.all([drainSyncRuns(timeoutMs), drainNonSyncRequests(timeoutMs)])
+    await closeDb()
 }

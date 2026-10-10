@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test"
 import {ObjectId} from "mongodb"
 import type {SyncRunDocument, SyncTaskDocument} from "../shared/types/domain"
-import {availableReverseSync, readSyncFailureReason, reverseSyncRequestFor} from "../shared/reverse-sync"
+import {availableReverseSync, finishedRestoreMessage, readSyncFailureReason, reverseSyncRequestFor} from "../shared/reverse-sync"
 import {serializeSyncRun} from "../server/domain/sync/history-visibility"
 
 const deletedSourceRestore = reverseSyncRequestFor("deleted-source")
@@ -54,5 +54,12 @@ describe("reverse sync offer", () => {
         expect(readSyncFailureReason({data: {failureReason: "deleted-source"}})).toBe("deleted-source")
         expect(readSyncFailureReason({data: {failureReason: "toString"}})).toBeUndefined()
         expect(readSyncFailureReason({data: {failureReason: "constructor"}})).toBeUndefined()
+    })
+
+    test("uses a partial note when a restore finishes with unmatched tracks", () => {
+        expect(finishedRestoreMessage("succeeded")).toBe("The source playlist was restored from the target. Later syncs keep their usual direction.")
+        expect(finishedRestoreMessage("partial")).toBe("The source playlist was restored, but some tracks remain unmatched. Later syncs keep their usual direction.")
+        expect(finishedRestoreMessage("failed")).toBe("")
+        expect(finishedRestoreMessage("running")).toBe("")
     })
 })

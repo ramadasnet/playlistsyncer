@@ -6,11 +6,12 @@ import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {getProviderAdapter} from "../../domain/providers"
 import {accountSyncPairField} from "../../domain/sync/account-sync-pair"
-import {runSyncTask} from "../../domain/sync/engine"
+import {beginSyncTask, completeSyncTask} from "../../domain/sync/engine"
 import {isSafeModeEnabled, logSafeModeCreatePlaylist, safeModeWriteBlockedMessage} from "../../domain/sync/safe-mode"
 import logger from "../../utils/logger"
 import {isDuplicateKeyError} from "../../utils/mongodb"
 import {parseObjectId} from "../../utils/object-id"
+import {startTrackedSyncRun} from "../../utils/shutdown"
 import {accountSyncConflictMessage, accountSyncProviderPairKey, findAccountSyncBetweenProviders, type SyncTaskDirection} from "~~/shared/types/domain"
 
 const taskSchema = z.object({
@@ -115,9 +116,11 @@ export default defineEventHandler(async (event) => {
     }
     logger.info("Tasks.create", `Task ${result.insertedId.toHexString()}`, `User ${user._id!.toHexString()}`, `${accounts[0]!.provider} to ${accounts[1]!.provider}`, direction)
     event.waitUntil(
-        runSyncTask(result.insertedId, "created").catch((error) => {
-            logger.error("Tasks.createRun", `Task ${result.insertedId.toHexString()}`, error)
-        })
+        startTrackedSyncRun(() => beginSyncTask(result.insertedId, "created"), completeSyncTask)
+            .then(({finished}) => finished)
+            .catch((error) => {
+                logger.error("Tasks.createRun", `Task ${result.insertedId.toHexString()}`, error)
+            })
     )
     setResponseStatus(event, 201)
     return {id: result.insertedId.toHexString()}
