@@ -94,7 +94,9 @@ describe("server configuration", () => {
             "https://172.31.255.255",
             "https://192.168.1.1",
             "https://0xc0.0xa8.1.1",
+            "https://localhost.",
             "https://app.localhost",
+            "https://app.localhost.",
             "https://[::]",
             "https://[::1]",
             "https://[fd12::1]",
@@ -105,7 +107,7 @@ describe("server configuration", () => {
         for (const appUrl of nonPublic) {
             expect(errorsFor(appUrl)).toEqual([expect.stringContaining("PLS_APP_URL must be the public https origin")])
         }
-        for (const appUrl of ["https://playlistsyncer.com", "https://8.8.8.8", "https://172.32.0.1", "https://[2001:4860::8888]"]) {
+        for (const appUrl of ["https://playlistsyncer.com", "https://playlistsyncer.com.", "https://8.8.8.8", "https://172.32.0.1", "https://[2001:4860::8888]"]) {
             expect(errorsFor(appUrl)).toEqual([])
         }
     })

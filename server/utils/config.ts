@@ -173,7 +173,9 @@ for (const [address, prefix] of [
 
 // Whether a URL hostname (already normalized by URL) names this machine or a non-public network.
 function isNonPublicHostname(hostname: string): boolean {
-    if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    // URL keeps one trailing dot, so localhost. is still the loopback name.
+    const dnsName = hostname.replace(/\.$/, "")
+    if (dnsName === "localhost" || dnsName.endsWith(".localhost")) {
         return true
     }
     const address = hostname.replace(/^\[|\]$/g, "")
