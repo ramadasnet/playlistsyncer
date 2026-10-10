@@ -14,6 +14,7 @@ import {decryptSecret, encryptSecret} from "../../utils/secrets"
 import {getOAuthProvider, type OAuthProfile} from "./providers"
 import {isProviderEnabled} from "../../utils/provider-availability"
 import {createSession, getCurrentUser, hashOpaqueToken} from "./session"
+import {withUserLock} from "../../utils/user-lock"
 
 const oauthTransactionSeconds = 10 * 60
 const oauthCookieOptions = {httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const, path: "/api/auth"}
@@ -236,28 +237,38 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
     }
     user = await assignVerifiedProviderEmail(user, profile)
     const now = new Date()
-    // Updating the stored account by _id re-keys an account stored under a previous provider id.
-    await db.providerAccounts.updateOne(
-        conflictingAccount ? {_id: conflictingAccount._id} : {provider, externalAccountId: profile.id},
-        {
-            $set: {
-                provider,
-                externalAccountId: profile.id,
-                userId: user._id!,
-                email: profile.email?.trim().toLowerCase(),
-                emailVerified: profile.emailVerified,
-                displayName: profile.displayName,
-                accessToken: await encryptSecret(token.access_token),
-                ...(token.refresh_token ? {refreshToken: await encryptSecret(token.refresh_token)} : {}),
-                tokenExpiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
-                scopes: token.scope?.split(" ").filter(Boolean) || definition.scopes,
-                connectedAt: now,
-                updatedAt: now
-            }
-        },
-        {upsert: true}
-    )
-    await createSession(event, user._id!)
+    const accessToken = await encryptSecret(token.access_token)
+    const refreshToken = token.refresh_token ? await encryptSecret(token.refresh_token) : undefined
+    // Share the deletion lock, then make sure the user still exists, so a finished deletion cannot be followed by a new token or session.
+    await withUserLock(user._id!, async () => {
+        const owner = await db.users.findOne({_id: user._id}, {projection: {_id: 1}})
+        if (!owner) {
+            logger.warn("OAuth.finish", provider, `User ${user._id!.toHexString()}`, "User was deleted before the account was saved")
+            throw createError({statusCode: 401, statusMessage: "This account is no longer available"})
+        }
+        // Updating the stored account by _id re-keys an account stored under a previous provider id.
+        await db.providerAccounts.updateOne(
+            conflictingAccount ? {_id: conflictingAccount._id} : {provider, externalAccountId: profile.id},
+            {
+                $set: {
+                    provider,
+                    externalAccountId: profile.id,
+                    userId: user._id!,
+                    email: profile.email?.trim().toLowerCase(),
+                    emailVerified: profile.emailVerified,
+                    displayName: profile.displayName,
+                    accessToken,
+                    ...(refreshToken ? {refreshToken} : {}),
+                    tokenExpiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
+                    scopes: token.scope?.split(" ").filter(Boolean) || definition.scopes,
+                    connectedAt: now,
+                    updatedAt: now
+                }
+            },
+            {upsert: true}
+        )
+        await createSession(event, user._id!)
+    })
     logger.info("OAuth.finish", provider, `User ${user._id!.toHexString()}`, `Provider account ${profile.id}`, transaction.linkingUserId ? "Account linked" : "Login completed")
     return oauthRedirectAfterLogin(user, transaction.redirectAfter)
 }

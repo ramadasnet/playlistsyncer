@@ -1,7 +1,7 @@
 import {createServer} from "node:http"
 import type {AddressInfo} from "node:net"
 import * as h3 from "h3"
-import {afterAll, beforeEach, describe, expect, test} from "bun:test"
+import {afterAll, beforeEach, describe, expect, spyOn, test} from "bun:test"
 import {ObjectId} from "mongodb"
 
 // The OAuth module relies on Nitro auto-imports; provide them from h3 and put the previous globals back afterwards.
@@ -10,7 +10,8 @@ const nitroGlobals = {createError: h3.createError, getQuery: h3.getQuery, getCoo
 const originalGlobals = Object.fromEntries(Object.keys(nitroGlobals).map((name) => [name, globals[name]]))
 Object.assign(globals, nitroGlobals)
 
-const {collections, ensureIndexes} = await import("../server/data/collections")
+const data = await import("../server/data/collections")
+const {collections, ensureIndexes} = data
 const {beginOAuth, finishOAuth} = await import("../server/domain/auth/oauth")
 const {hashOpaqueToken} = await import("../server/domain/auth/session")
 const {ProviderRateLimiter, providerRateLimiters} = await import("../server/domain/providers/rate-limit")
@@ -44,10 +45,13 @@ app.use(
         )
 )
 const server = createServer(h3.toNodeListener(app))
-const baseUrl = await new Promise<string>((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`))
-})
+// Skip the listen when MongoDB is unset: the suite does not run, and its afterAll would not close the port.
+const baseUrl = mongoUri
+    ? await new Promise<string>((resolve, reject) => {
+          server.once("error", reject)
+          server.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`))
+      })
+    : "http://127.0.0.1"
 
 // Keep cookies per simulated browser so the flow can start in one browser and end in another.
 function oauthCookieNames(browser: Browser): string[] {
@@ -272,5 +276,65 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         expect((await browser.callback(second)).status).toBe(200)
         expect(oauthCookieNames(browser)).toHaveLength(0)
         expect(await trackSessionUser(browser)).toBeDefined()
+    })
+
+    test("does not save tokens or a session when the user is deleted before the account is stored", async () => {
+        const owner = await createUser()
+        const externalId = spotifyProfile.id as string
+        const db = await collections()
+        const now = new Date()
+        await db.providerAccounts.insertOne({
+            userId: owner,
+            provider: "spotify",
+            externalAccountId: externalId,
+            emailVerified: false,
+            displayName: "Listener",
+            accessToken: {version: 2, iv: "iv", ciphertext: "ciphertext"},
+            scopes: [],
+            connectedAt: now,
+            updatedAt: now
+        })
+        const realCollections = data.collections
+        let continueLookup: () => void = () => undefined
+        const continueGate = new Promise<void>((resolve) => {
+            continueLookup = resolve
+        })
+        let reached: () => void = () => undefined
+        const reachedGate = new Promise<void>((resolve) => {
+            reached = resolve
+        })
+        let paused = false
+        const collectionsSpy = spyOn(data, "collections").mockImplementation(async () => {
+            const current = await realCollections()
+            const findOne = current.users.findOne.bind(current.users)
+            current.users.findOne = (async (filter, options) => {
+                const user = await findOne(filter, options)
+                if (user?._id?.equals(owner) && !paused) {
+                    paused = true
+                    reached()
+                    await continueGate
+                }
+                return user
+            }) as typeof current.users.findOne
+            return current
+        })
+        const browser = new Browser()
+
+        try {
+            const pending = browser.callback(await browser.begin())
+            await Promise.race([reachedGate, new Promise((_, reject) => setTimeout(() => reject(new Error("OAuth did not load the user")), 3_000))])
+            const fresh = await realCollections()
+            await Promise.all([fresh.users.deleteOne({_id: owner}), fresh.providerAccounts.deleteMany({userId: owner}), fresh.sessions.deleteMany({userId: owner})])
+            continueLookup()
+
+            expect((await pending).status).toBe(401)
+            expect(browser.cookies.has("ps_session")).toBe(false)
+            expect(await fresh.users.countDocuments({_id: owner})).toBe(0)
+            expect(await fresh.providerAccounts.countDocuments({provider: "spotify", externalAccountId: externalId})).toBe(0)
+            expect(await fresh.sessions.countDocuments({userId: owner})).toBe(0)
+        } finally {
+            continueLookup()
+            collectionsSpy.mockRestore()
+        }
     })
 })
