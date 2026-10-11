@@ -35,7 +35,7 @@ jobs:
 
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
-                  # Keep in sync with the Dockerfile base image.
+                  # Keep in sync with the production Bun runtime (see Dockerfile / PM2 host).
                   bun-version: 1.4.0
 
             - name: Install

@@ -23,6 +23,7 @@ COPY --from=builder --chown=bun:bun /app/shared ./shared
 COPY --from=builder --chown=bun:bun /app/node_modules ./node_modules
 COPY --from=builder --chown=bun:bun /app/package.json ./package.json
 COPY --from=builder --chown=bun:bun /app/tsconfig.json ./tsconfig.json
+COPY --from=builder --chown=bun:bun /app/jobs.json ./jobs.json
 USER bun
 EXPOSE 3007
 EXPOSE 3008

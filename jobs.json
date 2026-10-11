@@ -1,0 +1,16 @@
+[
+    {
+        "name": "sync-due",
+        "schedule": "0 * * * *",
+        "parameters": {
+            "limit": 10
+        }
+    },
+    {
+        "name": "weekly-sync-summary",
+        "schedule": "15 * * * *",
+        "parameters": {
+            "limit": 25
+        }
+    }
+]

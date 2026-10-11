@@ -12,7 +12,7 @@ An open-source service that allows users to sync their playlists among multiple 
 
 - TypeScript + Nuxt 4 running on Bun
 - MongoDB database, also compatible with Google Firestore and Amazon DocumentDB
-- Platform agnostic, should run anywhere using Docker
+- Platform agnostic, should run anywhere using Docker or PM2
 - Creem is used for billing and payments
 
 ## Architecture and persistence
@@ -78,7 +78,7 @@ Provider API requests retry rate limits up to 5 times and honor cooldowns up to 
 
 Development logging output is timestamped and includes `INFO`, `WARN`, or `ERROR` plus a component name / reference such as `OAuth.finish`, `Sync.run`, or `Creem.processEvent`.
 
-Production containers set `PLS_JSON_LOGGING=true` and emit one JSON object per line with GCP-compatible severity names, for example `{"severity":"INFO","message":"..."}`. This format is also ingested by AWS CloudWatch and other container log collectors. Set `PLS_JSON_LOGGING=false` to retain human-readable output in a production process.
+Production processes set `PLS_JSON_LOGGING=true` (via `ecosystem.config.cjs`) and emit one JSON object per line with GCP-compatible severity names, for example `{"severity":"INFO","message":"..."}`. Set `PLS_JSON_LOGGING=false` to retain human-readable output in a production process.
 
 Secrets will be masked automatically, except for `DEBUG` which might contain the full response or request trail.
 
@@ -86,56 +86,56 @@ Secrets will be masked automatically, except for `DEBUG` which might contain the
 
 Application settings use the `PLS_` prefix.
 
-| Variable                                 | Description                                                                                                                                  | Default when unset                                                                                      |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                               | Runtime mode; production enables secure cookies and production logging.                                                                      | Runtime-dependent; Docker sets `production`                                                             |
-| `HOST`                                   | Address the production HTTP server binds to.                                                                                                 | Runtime-dependent; Docker sets `0.0.0.0`                                                                |
-| `PORT`                                   | Port the production HTTP server listens on.                                                                                                  | Runtime-dependent; Docker sets `3007`                                                                   |
-| `PLS_JOBS_PORT`                          | Port the separate scheduled-jobs HTTP server listens on.                                                                                     | `3008`                                                                                                  |
-| `NITRO_BUN_IDLE_TIMEOUT`                 | Seconds the website keeps an idle request open (Bun's maximum is 255).                                                                       | Bun's 10 s; Docker sets `255`                                                                           |
-| `NITRO_PRESET`                           | Nuxt build output target.                                                                                                                    | `bun` (also set by the build script)                                                                    |
-| `PLS_APP_URL`                            | Base app URL including http(s); used for OAuth callbacks and origin checks. Production requires a public `https` origin.                     | `http://localhost:3007`                                                                                 |
-| `PLS_APP_NAME`                           | Public application name.                                                                                                                     | `PlaylistSyncer`                                                                                        |
-| `PLS_DEVTOOLS`                           | Enable Nuxt DevTools only when set to `true`.                                                                                                | `false`                                                                                                 |
-| `PLS_SUPPORT_EMAIL`                      | Public support address and fallback SMTP sender address.                                                                                     | Unset; `.env.example` uses `info@playlistsyncer.com`                                                    |
-| `PLS_CHATBASE_HELP_URL`                  | Public help-chat URL.                                                                                                                        | Unset; `.env.example` supplies the chat URL                                                             |
-| `PLS_JSON_LOGGING`                       | Emit JSON severity logs when `true` in production.                                                                                           | `false`; Docker sets `true`                                                                             |
-| `PLS_SHUTDOWN_TIMEOUT_SECONDS`           | Seconds a stopping process waits for its in-flight sync runs before marking them failed; keep it below the container stop grace period.      | `8`                                                                                                     |
-| `PLS_SAFE_MODE`                          | Block writes to music providers and log the intended changes.                                                                                | `false`                                                                                                 |
-| `PLS_SESSION_SECRET`                     | Secret used for server-side session and email-confirmation tokens.                                                                           | Unset; required for sessions and for a production website start                                         |
-| `PLS_TOKEN_ENCRYPTION_KEY`               | Key material for encrypting provider tokens and OAuth verifiers.                                                                             | Unset; required for OAuth and for a production start                                                    |
-| `PLS_SCHEDULER_SECRET`                   | Bearer secret protecting scheduled job endpoints.                                                                                            | Unset; required for jobs and for a production jobs start                                                |
-| `PLS_MONGODB_URI`                        | MongoDB connection URI.                                                                                                                      | Unset; `.env.example` uses `mongodb://localhost:27017/playlistsync`, Compose uses the `mongodb` service |
-| `PLS_MONGODB_DATABASE`                   | Database name within MongoDB.                                                                                                                | `playlistsync`                                                                                          |
-| `PLS_SMTP_HOST`                          | SMTP server for confirmation and summary emails; omitting it disables delivery.                                                              | Unset                                                                                                   |
-| `PLS_SMTP_PORT`                          | SMTP server port (465 uses implicit TLS; other ports require STARTTLS).                                                                      | `587`                                                                                                   |
-| `PLS_SMTP_USER`                          | SMTP authentication username.                                                                                                                | Unset                                                                                                   |
-| `PLS_SMTP_PASSWORD`                      | SMTP authentication password.                                                                                                                | Unset                                                                                                   |
-| `PLS_SMTP_FROM`                          | Sender name and address for outgoing mail.                                                                                                   | `PlaylistSyncer <PLS_SUPPORT_EMAIL>`                                                                    |
-| `PLS_DEVELOPMENT_PRO_USER_EMAILS`        | Comma-separated email addresses with a PRO override in development only.                                                                     | Empty list                                                                                              |
-| `PLS_PRO_SUBSCRIPTION_REQUIRED_AT`       | ISO 8601 cutoff for complimentary PRO access in both scheduling and public plan copy; absent means a subscription is required immediately.   | Unset                                                                                                   |
-| `PLS_TASKSYNC_INTERVAL`                  | Minutes after a successful PRO sync until the next automatic run is due; also controls the public cadence label. Must be a positive integer. | `720` (12 hours)                                                                                        |
-| `PLS_SPOTIFY_CLIENT_ID`                  | Spotify OAuth client ID.                                                                                                                     | Unset                                                                                                   |
-| `PLS_SPOTIFY_CLIENT_SECRET`              | Spotify OAuth client secret.                                                                                                                 | Unset                                                                                                   |
-| `PLS_GOOGLE_CLIENT_ID`                   | Google OAuth client ID for YouTube.                                                                                                          | Unset                                                                                                   |
-| `PLS_GOOGLE_CLIENT_SECRET`               | Google OAuth client secret for YouTube.                                                                                                      | Unset                                                                                                   |
-| `PLS_TIDAL_CLIENT_ID`                    | TIDAL OAuth client ID.                                                                                                                       | Unset                                                                                                   |
-| `PLS_TIDAL_CLIENT_SECRET`                | TIDAL OAuth client secret.                                                                                                                   | Unset                                                                                                   |
-| `PLS_SOUNDCLOUD_CLIENT_ID`               | SoundCloud OAuth client ID.                                                                                                                  | Unset                                                                                                   |
-| `PLS_SOUNDCLOUD_CLIENT_SECRET`           | SoundCloud OAuth client secret.                                                                                                              | Unset                                                                                                   |
-| `PLS_AMAZON_CLIENT_ID`                   | Login with Amazon client ID.                                                                                                                 | Unset                                                                                                   |
-| `PLS_AMAZON_CLIENT_SECRET`               | Login with Amazon client secret.                                                                                                             | Unset                                                                                                   |
-| `PLS_AMAZON_MUSIC_API_BASE_URL`          | Reserved endpoint for an approved Amazon Music partner API.                                                                                  | Unset                                                                                                   |
-| `PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE`    | Shared Spotify request pacing; `0` disables pacing.                                                                                          | `120`                                                                                                   |
-| `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE`    | Shared YouTube request pacing; `0` disables pacing.                                                                                          | `300`                                                                                                   |
-| `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE`      | Shared TIDAL request pacing; `0` disables pacing.                                                                                            | `60`                                                                                                    |
-| `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` | Shared SoundCloud request pacing; `0` disables pacing.                                                                                       | `60`                                                                                                    |
-| `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE`     | Shared Amazon request pacing; `0` disables pacing.                                                                                           | `60`                                                                                                    |
-| `PLS_USER_PROVIDER_REQUESTS_PER_MINUTE`  | Requests one user can make per minute, counted separately on each web process, to routes that call music providers; `0` disables the limit.  | `30`                                                                                                    |
-| `PLS_CREEM_API_KEY`                      | Creem API credential for checkout and price lookup.                                                                                          | Unset                                                                                                   |
-| `PLS_CREEM_PRO_PRODUCT_ID`               | Creem product charged at PRO checkout and used for the displayed price.                                                                      | Unset                                                                                                   |
-| `PLS_CREEM_WEBHOOK_SECRET`               | Secret used to verify Creem webhook signatures.                                                                                              | Unset                                                                                                   |
-| `PLS_CREEM_SERVER`                       | Creem environment: `test` or `prod`.                                                                                                         | `prod` when `NODE_ENV=production`, `test` otherwise                                                     |
+| Variable                                 | Description                                                                                                                                  | Default when unset                                                  |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `NODE_ENV`                               | Runtime mode; production enables secure cookies and production logging.                                                                      | `development` locally; PM2 sets `production`                        |
+| `HOST`                                   | Address the production HTTP server binds to.                                                                                                 | `localhost` in dev; PM2 sets `0.0.0.0` for the website              |
+| `PORT`                                   | Port the production HTTP server listens on.                                                                                                  | `3007`                                                              |
+| `PLS_JOBS_PORT`                          | Port the separate scheduled-jobs HTTP server listens on.                                                                                     | `3008`                                                              |
+| `NITRO_BUN_IDLE_TIMEOUT`                 | Seconds the website keeps an idle request open (Bun's maximum is 255).                                                                       | Bun's 10 s; PM2 sets `255` for the website                          |
+| `NITRO_PRESET`                           | Nuxt build output target.                                                                                                                    | `bun` (also set by the build script)                                |
+| `PLS_APP_URL`                            | Base app URL including http(s); used for OAuth callbacks and origin checks. Production requires a public `https` origin.                     | `http://localhost:3007`                                             |
+| `PLS_APP_NAME`                           | Public application name.                                                                                                                     | `PlaylistSyncer`                                                    |
+| `PLS_DEVTOOLS`                           | Enable Nuxt DevTools only when set to `true`.                                                                                                | `false`                                                             |
+| `PLS_SUPPORT_EMAIL`                      | Public support address and fallback SMTP sender address.                                                                                     | Unset; `.env.example` uses `info@playlistsyncer.com`                |
+| `PLS_CHATBASE_HELP_URL`                  | Public help-chat URL.                                                                                                                        | Unset; `.env.example` supplies the chat URL                         |
+| `PLS_JSON_LOGGING`                       | Emit JSON severity logs when `true` in production.                                                                                           | `false`; PM2 sets `true` for the website                            |
+| `PLS_SHUTDOWN_TIMEOUT_SECONDS`           | Seconds a stopping process waits for its in-flight sync runs before marking them failed; keep it below PM2's kill grace period.              | `8`                                                                 |
+| `PLS_SAFE_MODE`                          | Block writes to music providers and log the intended changes.                                                                                | `false`                                                             |
+| `PLS_SESSION_SECRET`                     | Secret used for server-side session and email-confirmation tokens.                                                                           | Unset; required for sessions and for a production website start     |
+| `PLS_TOKEN_ENCRYPTION_KEY`               | Key material for encrypting provider tokens and OAuth verifiers.                                                                             | Unset; required for OAuth and for a production start                |
+| `PLS_SCHEDULER_SECRET`                   | Bearer secret protecting scheduled job endpoints.                                                                                            | Unset; required for jobs and for a production jobs start            |
+| `PLS_MONGODB_URI`                        | MongoDB connection URI.                                                                                                                      | Unset; `.env.example` uses `mongodb://localhost:27017/playlistsync` |
+| `PLS_MONGODB_DATABASE`                   | Database name within MongoDB.                                                                                                                | `playlistsync`                                                      |
+| `PLS_SMTP_HOST`                          | SMTP server for confirmation and summary emails; omitting it disables delivery.                                                              | Unset                                                               |
+| `PLS_SMTP_PORT`                          | SMTP server port (465 uses implicit TLS; other ports require STARTTLS).                                                                      | `587`                                                               |
+| `PLS_SMTP_USER`                          | SMTP authentication username.                                                                                                                | Unset                                                               |
+| `PLS_SMTP_PASSWORD`                      | SMTP authentication password.                                                                                                                | Unset                                                               |
+| `PLS_SMTP_FROM`                          | Sender name and address for outgoing mail.                                                                                                   | `PlaylistSyncer <PLS_SUPPORT_EMAIL>`                                |
+| `PLS_DEVELOPMENT_PRO_USER_EMAILS`        | Comma-separated email addresses with a PRO override in development only.                                                                     | Empty list                                                          |
+| `PLS_PRO_SUBSCRIPTION_REQUIRED_AT`       | ISO 8601 cutoff for complimentary PRO access in both scheduling and public plan copy; absent means a subscription is required immediately.   | Unset                                                               |
+| `PLS_TASKSYNC_INTERVAL`                  | Minutes after a successful PRO sync until the next automatic run is due; also controls the public cadence label. Must be a positive integer. | `720` (12 hours)                                                    |
+| `PLS_SPOTIFY_CLIENT_ID`                  | Spotify OAuth client ID.                                                                                                                     | Unset                                                               |
+| `PLS_SPOTIFY_CLIENT_SECRET`              | Spotify OAuth client secret.                                                                                                                 | Unset                                                               |
+| `PLS_GOOGLE_CLIENT_ID`                   | Google OAuth client ID for YouTube.                                                                                                          | Unset                                                               |
+| `PLS_GOOGLE_CLIENT_SECRET`               | Google OAuth client secret for YouTube.                                                                                                      | Unset                                                               |
+| `PLS_TIDAL_CLIENT_ID`                    | TIDAL OAuth client ID.                                                                                                                       | Unset                                                               |
+| `PLS_TIDAL_CLIENT_SECRET`                | TIDAL OAuth client secret.                                                                                                                   | Unset                                                               |
+| `PLS_SOUNDCLOUD_CLIENT_ID`               | SoundCloud OAuth client ID.                                                                                                                  | Unset                                                               |
+| `PLS_SOUNDCLOUD_CLIENT_SECRET`           | SoundCloud OAuth client secret.                                                                                                              | Unset                                                               |
+| `PLS_AMAZON_CLIENT_ID`                   | Login with Amazon client ID.                                                                                                                 | Unset                                                               |
+| `PLS_AMAZON_CLIENT_SECRET`               | Login with Amazon client secret.                                                                                                             | Unset                                                               |
+| `PLS_AMAZON_MUSIC_API_BASE_URL`          | Reserved endpoint for an approved Amazon Music partner API.                                                                                  | Unset                                                               |
+| `PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE`    | Shared Spotify request pacing; `0` disables pacing.                                                                                          | `120`                                                               |
+| `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE`    | Shared YouTube request pacing; `0` disables pacing.                                                                                          | `300`                                                               |
+| `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE`      | Shared TIDAL request pacing; `0` disables pacing.                                                                                            | `60`                                                                |
+| `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` | Shared SoundCloud request pacing; `0` disables pacing.                                                                                       | `60`                                                                |
+| `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE`     | Shared Amazon request pacing; `0` disables pacing.                                                                                           | `60`                                                                |
+| `PLS_USER_PROVIDER_REQUESTS_PER_MINUTE`  | Requests one user can make per minute, counted separately on each web process, to routes that call music providers; `0` disables the limit.  | `30`                                                                |
+| `PLS_CREEM_API_KEY`                      | Creem API credential for checkout and price lookup.                                                                                          | Unset                                                               |
+| `PLS_CREEM_PRO_PRODUCT_ID`               | Creem product charged at PRO checkout and used for the displayed price.                                                                      | Unset                                                               |
+| `PLS_CREEM_WEBHOOK_SECRET`               | Secret used to verify Creem webhook signatures.                                                                                              | Unset                                                               |
+| `PLS_CREEM_SERVER`                       | Creem environment: `test` or `prod`.                                                                                                         | `prod` when `NODE_ENV=production`, `test` otherwise                 |
 
 ## Setup guide
 
@@ -234,7 +234,7 @@ Subscribe to Creem checkout and subscription events. At minimum, enable `checkou
 
 ## Running locally
 
-Prerequisites: Bun 1.4+, Docker with Compose, and the provider credentials described below.
+Prerequisites: Bun 1.4+, optionally Docker Compose for a local MongoDB container, and the provider credentials described below.
 
 ```bash
 cp .env.example .env
@@ -261,35 +261,62 @@ bun run format:check
 bun run build
 ```
 
-Run the complete container stack:
+## Running in production
+
+Prerequisites: Bun 1.4+ on the host, [PM2](https://pm2.keymetrics.io/) installed globally (`npm install -g pm2`), a managed MongoDB deployment, and the secrets from `.env.example`.
+
+On the server, copy `.env.example` to `.env`, fill in production values (`PLS_APP_URL` must be a public `https` origin), then build and start both processes:
 
 ```bash
-docker compose up --build
+bun install --frozen-lockfile
+bun run build
+pm2 start ecosystem.config.cjs
+pm2 save
 ```
+
+`ecosystem.config.cjs` runs the website from `.output/server/index.mjs` on `PORT` (`3007` by default) and the jobs server from `server/jobs/main.ts` on `PLS_JOBS_PORT` (`3008`). It loads `.env`, sets `NODE_ENV=production`, and applies the same defaults the former Docker image used for logging and Bun idle timeouts.
+
+Deploy updates after pulling changes:
+
+```bash
+make deploy
+```
+
+That runs `bun install --frozen-lockfile`, `bun run build`, and `pm2 reload ecosystem.config.cjs --update-env`. Use `make prod-stop` and `make prod-logs` to stop processes or follow logs.
+
+Put a reverse proxy (nginx, Caddy, etc.) in front of the website port. Leave the jobs port on localhost; it serves health checks and manual job triggers.
 
 ## Scheduled jobs
 
-Scheduled work runs in its own HTTP process (`bun run jobs`), not in the website process. The paths, bearer token, and responses are unchanged. Point the scheduler at the jobs listener (`PLS_JOBS_PORT`, `3008` by default), not at `PLS_APP_URL`. Keep that port reachable by the scheduler and closed to the public internet.
+Scheduled work runs inside the jobs process (`bun run jobs`), not in the website process. On startup that process reads `jobs.json` from the project root and runs each entry on its own UTC cron schedule. The same jobs stay available as authenticated HTTP endpoints, so you can still trigger one by hand.
 
-### Triggering sync tasks
+`jobs.json` is an array. Each entry has a `name`, a `schedule`, and optional `parameters`:
 
-Invoke the portable due-task endpoint from Cloud Scheduler, EventBridge Scheduler, cron, or any HTTPS scheduler. Use a jobs URL that the scheduler can reach (for example `https://jobs.example.com` or your private network hostname), not `127.0.0.1`, which refers to the scheduler host itself.
+| `name`                | What it runs                                                                       | Parameters                             |
+| --------------------- | ---------------------------------------------------------------------------------- | -------------------------------------- |
+| `sync-due`            | Up to `limit` sync tasks whose `nextRunAt` is due (default 10, maximum 100)        | `limit`                                |
+| `weekly-sync-summary` | Weekly PRO playlist summaries for up to `limit` accounts (default 25, maximum 100) | `limit`                                |
+| `sync-task`           | One synchronization task                                                           | `id` (required): the task's MongoDB id |
+
+`schedule` is a 5-field cron expression (`minute hour day month weekday`) evaluated in UTC, or one of `@hourly`, `@daily`, `@weekly`, and `@monthly`. When both day-of-month and weekday are restricted, the job runs if either matches. A job that is still running when its next tick arrives is skipped until it finishes. The committed file runs `sync-due` at the top of every hour and `weekly-sync-summary` at 15 minutes past every hour.
+
+`PLS_TASKSYNC_INTERVAL` still sets how long after a successful PRO sync that task becomes due again. The cron expression only decides how often the jobs process looks for due work. Hourly is enough for the default 720-minute interval. Weekly summaries can run hourly too: each opted-in PRO account is due only every seven days, and a call with no changes does not send mail.
+
+If `jobs.json` is missing, the process still serves the HTTP endpoints and does not run jobs on its own. An invalid file stops startup.
+
+### Triggering a job manually
 
 ```bash
-curl -X POST "${PLS_JOBS_URL:-http://127.0.0.1:3008}/api/jobs/sync-due" \
+curl -X POST "http://127.0.0.1:3008/api/jobs/sync-due" \
 	-H "Authorization: Bearer $PLS_SCHEDULER_SECRET"
 ```
 
-Schedule the endpoint independently from `PLS_TASKSYNC_INTERVAL`, which sets each PRO task's due time, not the scheduler's polling frequency. Call it at least as often as the configured interval (hourly is suitable for the default 720 minutes). The endpoint selects only tasks whose own `nextRunAt` is due. It processes at most ten tasks per call, with MongoDB leases preventing concurrent runs. A targeted retry is available at `POST /api/jobs/sync-task/:id` with the same bearer token.
-
-Send weekly PRO playlist summaries with the same bearer token:
-
 ```bash
-curl -X POST "${PLS_JOBS_URL:-http://127.0.0.1:3008}/api/jobs/weekly-sync-summary" \
+curl -X POST "http://127.0.0.1:3008/api/jobs/weekly-sync-summary" \
 	-H "Authorization: Bearer $PLS_SCHEDULER_SECRET"
 ```
 
-Call it at least once a week; hourly is safe because each opted-in PRO account is due only every seven days. The job emails a playlist-by-playlist list of added and removed tracks, and skips the send when nothing changed. It processes at most 25 accounts per call.
+A single task can be run with `POST /api/jobs/sync-task/:id` and the same bearer token. MongoDB leases prevent concurrent runs of the same task. Keep `PLS_JOBS_PORT` (`3008` by default) off the public internet.
 
 ## Runtime endpoints
 
@@ -307,8 +334,8 @@ Jobs process (`PLS_JOBS_PORT`):
 
 ## Deployment notes
 
-The production image listens on `0.0.0.0:$PORT` for the website and can start the jobs process with `bun run jobs` on `0.0.0.0:$PLS_JOBS_PORT`. Both run as the image's non-root `bun` user. The image contains no environment files or secrets. Supply environment variables through the target platform's secret manager. MongoDB should be a replica set for production resilience, configured with TLS, authentication, backups, and network access restricted to the service.
+The website listens on `0.0.0.0:$PORT` and the jobs process on `0.0.0.0:$PLS_JOBS_PORT`. Keep secrets in `.env` on the host (or inject them through your provisioning layer); do not commit them. MongoDB should be a replica set for production resilience, configured with TLS, authentication, backups, and network access restricted to the service.
 
 With `NODE_ENV=production`, both processes refuse to start (exit code 1) when `PLS_MONGODB_URI` or `PLS_TOKEN_ENCRYPTION_KEY` is missing, when `PLS_APP_URL` is not a public `https` origin, or when Creem is only partially configured. The website also requires `PLS_SESSION_SECRET`, and the jobs process requires `PLS_SCHEDULER_SECRET`. A missing `PLS_SMTP_HOST` only logs a warning.
 
-On `SIGTERM` or `SIGINT`, the website answers new requests with 503. The jobs server stops accepting new connections, so a client opening a new connection does not receive that 503. A request that reaches the jobs app on an already open connection does. The jobs process stops starting due tasks. Each process waits up to `PLS_SHUTDOWN_TIMEOUT_SECONDS` for the sync runs it started, and the jobs process also waits for accepted non-sync requests, such as a weekly summary, before closing MongoDB. Tracked runs still going at the deadline are marked failed. A sync start that has not recorded its run ID by the deadline can remain running. Give the container a stop grace period longer than that timeout.
+On `SIGTERM` or `SIGINT`, the website answers new requests with 503. The jobs server stops accepting new connections and stops scheduling new jobs from `jobs.json`. A client opening a new connection does not receive that 503. A request that reaches the jobs app on an already open connection does. The jobs process stops starting due tasks. Each process waits up to `PLS_SHUTDOWN_TIMEOUT_SECONDS` for the sync runs it started, and the jobs process also waits for scheduled jobs and accepted non-sync requests, such as a weekly summary, before closing MongoDB. Tracked runs still going at the deadline are marked failed. A sync start that has not recorded its run ID by the deadline can remain running. PM2's `kill_timeout` in `ecosystem.config.cjs` is 10 seconds; keep `PLS_SHUTDOWN_TIMEOUT_SECONDS` below that.

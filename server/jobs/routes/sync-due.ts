@@ -7,9 +7,13 @@ import logger from "../../utils/logger"
 import {requireScheduler} from "../../utils/scheduler-auth"
 import {isShuttingDown, startTrackedSyncRun} from "../../utils/shutdown"
 
-// Require scheduler authentication, isolate failures per task, and stop starting tasks once shutdown begins.
-export default defineEventHandler(async (event) => {
-    requireScheduler(event)
+export const syncDueBatchSize = 10
+
+/**
+ * Runs due synchronization tasks, isolating a failure to the task that caused it.
+ * @param limit Maximum tasks to start on this call.
+ */
+export async function runSyncDue(limit = syncDueBatchSize) {
     const db = await collections()
     await failInterruptedRuns()
     const now = new Date()
@@ -17,7 +21,7 @@ export default defineEventHandler(async (event) => {
     const dueTasks = await db.syncTasks
         .find({status: {$in: ["active", "needs_attention"]}, nextRunAt: {$lte: now}, ...idleLeaseFilter(now)})
         .sort({nextRunAt: 1})
-        .limit(10)
+        .limit(limit)
         .toArray()
     logger.info("Jobs.syncDue", `Due tasks ${dueTasks.length}`)
     const results = []
@@ -43,4 +47,10 @@ export default defineEventHandler(async (event) => {
     const log = failed ? logger.warn : logger.info
     log("Jobs.syncDue", `Processed ${results.length}`, `Succeeded ${results.length - failed}`, `Failed ${failed}`)
     return {processed: results.length, results}
+}
+
+// Require scheduler authentication, then run the default batch.
+export default defineEventHandler(async (event) => {
+    requireScheduler(event)
+    return runSyncDue()
 })
