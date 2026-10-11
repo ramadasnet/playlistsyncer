@@ -8,6 +8,7 @@
         "check": "bun run typecheck && bun test",
         "dev": "nuxt dev --host 0.0.0.0 --port 3007",
         "jobs": "bun server/jobs/main.ts",
+        "start": "bun run .output/server/index.mjs",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "generate": "nuxt generate",
