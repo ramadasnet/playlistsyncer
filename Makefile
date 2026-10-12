@@ -3,7 +3,6 @@ clean:
 	rm -rf ./.nuxt
 	rm -rf ./.output
 	rm -rf ./node_modules
-	rm -f bun.lock
 
 # Install dependencies
 install:
