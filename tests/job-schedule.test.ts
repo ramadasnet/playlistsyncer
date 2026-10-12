@@ -48,6 +48,14 @@ describe("cron", () => {
         expect(cronMatches(parseCron("0 0 12 * 1"), sundayMidnight)).toBe(false)
     })
 
+    test("keeps a wildcard day step unrestricted when the other day field is specific", () => {
+        const mondayMorning = new Date("2026-10-12T00:00:00.000Z")
+        expect(cronMatches(parseCron("0 0 */1 * MON"), sundayMidnight)).toBe(false)
+        expect(cronMatches(parseCron("0 0 */1 * MON"), mondayMorning)).toBe(true)
+        expect(cronMatches(parseCron("0 0 */2 * *"), new Date("2026-10-11T00:00:00.000Z"))).toBe(true)
+        expect(cronMatches(parseCron("0 0 */2 * *"), new Date("2026-10-12T00:00:00.000Z"))).toBe(false)
+    })
+
     test("rejects an incomplete, unknown, or out-of-range expression", () => {
         expect(() => parseCron("0 * * *")).toThrow("5-field")
         expect(() => parseCron("@yearly")).toThrow("Unknown schedule alias")

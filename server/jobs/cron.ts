@@ -32,7 +32,11 @@ const weekdayNames: Record<string, number> = {
     sat: 6
 }
 
-export type CronField = "any" | Set<number>
+export interface CronField {
+    values: "any" | Set<number>
+    // True when the field contains "*", including steps such as */2.
+    starred: boolean
+}
 
 export interface ParsedCron {
     minute: CronField
@@ -63,15 +67,15 @@ export function parseCron(expression: string): ParsedCron {
     }
 }
 
-// Whether the expression matches this instant. Day-of-month and weekday are OR'd when both are restricted, matching standard cron.
+// Whether the expression matches this instant. Day-of-month and weekday are OR'd only when both omit "*".
 export function cronMatches(cron: ParsedCron, date: Date): boolean {
     if (!matches(cron.minute, date.getUTCMinutes()) || !matches(cron.hour, date.getUTCHours()) || !matches(cron.month, date.getUTCMonth() + 1)) {
         return false
     }
     const dayOfMonth = matches(cron.dayOfMonth, date.getUTCDate())
     const dayOfWeek = matches(cron.dayOfWeek, date.getUTCDay())
-    if (cron.dayOfMonth === "any") return dayOfWeek
-    if (cron.dayOfWeek === "any") return dayOfMonth
+    // A field that contains "*" is unrestricted, so */1 still means every day rather than a listed set of days.
+    if (cron.dayOfMonth.starred || cron.dayOfWeek.starred) return dayOfMonth && dayOfWeek
     return dayOfMonth || dayOfWeek
 }
 
@@ -81,13 +85,14 @@ export function delayUntilNextMinute(now = new Date()): number {
 }
 
 function matches(field: CronField, value: number): boolean {
-    return field === "any" || field.has(value)
+    return field.values === "any" || field.values.has(value)
 }
 
 function parseField(label: string, raw: string, min: number, max: number, names?: Record<string, number>, normalize?: (value: number) => number): CronField {
     try {
         const field = substituteNames(raw, names)
-        if (field === "*") return "any"
+        const starred = field.includes("*")
+        if (field === "*") return {values: "any", starred}
         const values = new Set<number>()
         for (const part of field.split(",")) {
             if (!part) throw new Error("empty list entry")
@@ -116,7 +121,7 @@ function parseField(label: string, raw: string, min: number, max: number, names?
             }
         }
         if (!values.size) throw new Error("matched no values")
-        return values
+        return {values, starred}
     } catch (error) {
         const message = error instanceof Error ? error.message : "invalid value"
         throw new Error(`${label}: ${message}`)
