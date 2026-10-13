@@ -47,7 +47,7 @@ services:
     mongodb:
         container_name: playlistsyncer-db
         restart: unless-stopped
-        image: mongo:latest
+        image: mongo:9
         command: ["mongod", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
         ports:
             - "27017:27017"
