@@ -29,7 +29,7 @@ db:
 	docker compose up -d mongodb
 
 # Run the app locally (dev server with hot reload)
-run: db
+run:
 	bun run dev
 
 # Run the scheduled jobs process locally
@@ -37,19 +37,19 @@ jobs:
 	bun run jobs
 
 # Build and reload both production processes under PM2
-deploy: install build
+pm2-deploy: install build
 	pm2 reload ecosystem.config.cjs --update-env
 
 # Start both production processes under PM2 (first deploy)
-prod-start:
+pm2-start:
 	pm2 start ecosystem.config.cjs
 
 # Stop both production processes
-prod-stop:
+pm2-stop:
 	pm2 stop ecosystem.config.cjs
 
 # Tail PM2 logs for both processes
-prod-logs:
+pm2-logs:
 	pm2 logs
 
 # Update dependencies (within their semver ranges) and set new version
@@ -58,4 +58,4 @@ update:
 	npm pkg set version=$(shell date '+%y.%-V%u.1%H%M')
 	bun run check
 
-.PHONY: clean install build check test format db run jobs deploy prod-start prod-stop prod-logs update
+.PHONY: clean install build check test format db run jobs pm2-deploy pm2-start pm2-stop pm2-logs update

@@ -1,5 +1,7 @@
 # PlaylistSyncer (BETA)
 
+**This app is not in production yet!!! No migrations are necessary!**
+
 An open-source service that allows users to sync their playlists among multiple music providers.
 
 - Two-way sync: changes made to a playlist on one service will also update the playlist on the other service.
@@ -28,7 +30,7 @@ MongoDB collections hold:
 
 Indexes enforce unique users, provider identities, sessions, OAuth states, snapshots, and webhook events. Sessions and OAuth transactions expire automatically.
 
-Sync runs are retained for 180 days and webhook event records for 90 days.
+Sync runs are retained for 180 days and webhook event records for 90 days. The `sync-cleanup` job deletes sync runs sooner (after 3 months by default) and removes inactive accounts without sync tasks, see [Scheduled jobs](#scheduled-jobs).
 
 ## Synchronization Steps
 
@@ -263,7 +265,44 @@ bun run build
 
 ## Running in production
 
-Prerequisites: Bun 1.4+ on the host, [PM2](https://pm2.keymetrics.io/) installed globally (`npm install -g pm2`), a managed MongoDB deployment, and the secrets from `.env.example`.
+Prerequisites: Bun 1.4+ on the host, and a managed MongoDB (or MongoDB-compatible) database deployed, and the secrets from `.env.example`.
+
+### Docker
+
+The `Dockerfile` builds one image for both processes. It sets `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=3007`, `PLS_JSON_LOGGING=true` and `NITRO_BUN_IDLE_TIMEOUT=255`. The default command starts the website. Start the jobs process from the same image with `bun run jobs`.
+
+On the server, copy `.env.example` to `.env` and fill in production values (`PLS_APP_URL` must be a public `https` origin). Docker reads `.env` literally, so do not put quotes around values.
+
+When deploying it standalone, make sure to set `PLS_MONGODB_URI` in `.env` to an address that the containers can reach. `localhost` in a container is the container itself, not the host.
+
+```bash
+docker build -t playlistsyncer .
+docker run -d --name playlistsyncer-app --restart unless-stopped \
+	--env-file .env -p 3007:3007 playlistsyncer
+docker run -d --name playlistsyncer-jobs --restart unless-stopped \
+	--env-file .env -e PLS_JOBS_PORT=3008 -p 127.0.0.1:3008:3008 playlistsyncer bun run jobs
+```
+
+To deploy updates, pull the changes, build the image again, then remove and run both containers again with the same commands.
+
+### Docker Compose
+
+The `compose.yaml` builds the image and runs three services: `app` (website on port `3007`), `jobs` (jobs server on `127.0.0.1:3008`) and `mongodb` (MongoDB with a persistent `mongodb-data` volume). It sets `PLS_MONGODB_URI` to the `mongodb` service, so the value in `.env` is not used. The services start in order, after the health check of the earlier service passes: `mongodb`, then `jobs`, then `app`.
+
+```bash
+docker compose up -d --build
+docker compose logs -f app jobs
+```
+
+Deploy updates after pulling changes with `docker compose up -d --build`. Stop everything with `docker compose down`. The MongoDB data stays in the volume.
+
+To use a managed MongoDB instead, remove the `mongodb` service, the `PLS_MONGODB_URI` overrides and the `mongodb` entries under `depends_on`, then set `PLS_MONGODB_URI` in `.env`. The bundled `mongodb` service publishes port `27017` on all host interfaces without authentication. On a public server, change it to `127.0.0.1:27017:27017` or remove the `ports` entry.
+
+`docker stop` waits 10 seconds before it kills a container, so keep `PLS_SHUTDOWN_TIMEOUT_SECONDS` below that. Put a reverse proxy in front of port `3007` and keep port `3008` off the public internet.
+
+### With PM2
+
+Make sure [PM2](https://pm2.keymetrics.io/) is installed globally: `npm install -g pm2`.
 
 On the server, copy `.env.example` to `.env`, fill in production values (`PLS_APP_URL` must be a public `https` origin), then build and start both processes:
 
@@ -274,15 +313,15 @@ pm2 start ecosystem.config.cjs
 pm2 save
 ```
 
-`ecosystem.config.cjs` runs the website from `.output/server/index.mjs` on `PORT` (`3007` by default) and the jobs server from `server/jobs/main.ts` on `PLS_JOBS_PORT` (`3008`). It loads `.env`, sets `NODE_ENV=production`, and applies the same defaults the former Docker image used for logging and Bun idle timeouts.
+`ecosystem.config.cjs` runs the website from `.output/server/index.mjs` on `PORT` (`3007` by default) and the jobs server from `server/jobs/main.ts` on `PLS_JOBS_PORT` (`3008`). It loads `.env`, sets `NODE_ENV=production`, and applies the same defaults as the Docker image for logging and Bun idle timeouts.
 
 Deploy updates after pulling changes:
 
 ```bash
-make deploy
+make pm2-deploy
 ```
 
-That runs `bun install --frozen-lockfile`, `bun run build`, and `pm2 reload ecosystem.config.cjs --update-env`. Use `make prod-stop` and `make prod-logs` to stop processes or follow logs.
+That runs `bun install --frozen-lockfile`, `bun run build`, and `pm2 reload ecosystem.config.cjs --update-env`. Use `make pm2-stop` and `make pm2-logs` to stop processes or follow logs.
 
 Put a reverse proxy (nginx, Caddy, etc.) in front of the website port. Leave the jobs port on localhost; it serves health checks and manual job triggers.
 
@@ -297,12 +336,23 @@ Scheduled work runs inside the jobs process (`bun run jobs`), not in the website
 | `sync-due`            | Up to `limit` sync tasks whose `nextRunAt` is due (default 10, maximum 100)        | `limit`                                |
 | `weekly-sync-summary` | Weekly PRO playlist summaries for up to `limit` accounts (default 25, maximum 100) | `limit`                                |
 | `sync-task`           | One synchronization task                                                           | `id` (required): the task's MongoDB id |
+| `sync-cleanup`        | Deletes old sync runs, warns and then deletes inactive users without sync tasks    | See below                              |
 
-`schedule` is a 5-field cron expression (`minute hour day month weekday`) evaluated in UTC, or one of `@hourly`, `@daily`, `@weekly`, and `@monthly`. When both day-of-month and weekday are restricted, the job runs if either matches. A job that is still running when its next tick arrives is skipped until it finishes. The committed file runs `sync-due` at the top of every hour and `weekly-sync-summary` at 15 minutes past every hour.
+`schedule` is a 5-field cron expression (`minute hour day month weekday`) evaluated in UTC, or one of `@hourly`, `@daily`, `@weekly`, and `@monthly`. When both day-of-month and weekday are restricted, the job runs if either matches. A job that is still running when its next tick arrives is skipped until it finishes. The committed file runs `sync-due` at the top of every hour, `weekly-sync-summary` at 15 minutes past every hour, and `sync-cleanup` every Sunday and Wednesday at 05:00 UTC.
 
 `PLS_TASKSYNC_INTERVAL` still sets how long after a successful PRO sync that task becomes due again. The cron expression only decides how often the jobs process looks for due work. Hourly is enough for the default 720-minute interval. Weekly summaries can run hourly too: each opted-in PRO account is due only every seven days, and a call with no changes does not send mail.
 
 If `jobs.json` is missing, the process still serves the HTTP endpoints and does not run jobs on its own. An invalid file stops startup.
+
+`sync-cleanup` only touches users who have no sync tasks and no renewing PRO subscription. A login updates the user's `lastLoginAt` and cancels a pending deletion. Parameters:
+
+| Parameter            | Default | What it does                                                                                   |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `runRetentionMonths` | 3       | Deletes sync runs that started more than this many months ago                                  |
+| `warnAfterMonths`    | 12      | Emails users who have not logged in for this many months that their account will be deleted    |
+| `deleteAfterMonths`  | 12      | Deletes users who have not logged in for this many months                                      |
+| `deletionGraceDays`  | 30      | Minimum days between the warning email and the deletion. Users without an email are not warned |
+| `limit`              | 100     | Maximum users to warn, and maximum users to delete, per call (maximum 100)                     |
 
 ### Triggering a job manually
 
@@ -331,11 +381,14 @@ Jobs process (`PLS_JOBS_PORT`):
 - `POST /api/jobs/sync-due`: authenticated scheduled batch
 - `POST /api/jobs/sync-task/:id`: authenticated run of one task
 - `POST /api/jobs/weekly-sync-summary`: authenticated weekly PRO sync summary emails
+- `POST /api/jobs/sync-cleanup`: authenticated cleanup of old sync runs and inactive users, with the default parameters
 
 ## Deployment notes
 
-The website listens on `0.0.0.0:$PORT` and the jobs process on `0.0.0.0:$PLS_JOBS_PORT`. Keep secrets in `.env` on the host (or inject them through your provisioning layer); do not commit them. MongoDB should be a replica set for production resilience, configured with TLS, authentication, backups, and network access restricted to the service.
+The website listens on `0.0.0.0:$PORT` and the jobs process on `0.0.0.0:$PLS_JOBS_PORT`. Keep secrets in `.env` on the host (or inject them through your provisioning layer); do not commit them. MongoDB (or whatever MongoDB-compatible database) should be a replica set for production resilience, configured with TLS, authentication, backups, and network access restricted to the service.
 
 With `NODE_ENV=production`, both processes refuse to start (exit code 1) when `PLS_MONGODB_URI` or `PLS_TOKEN_ENCRYPTION_KEY` is missing, when `PLS_APP_URL` is not a public `https` origin, or when Creem is only partially configured. The website also requires `PLS_SESSION_SECRET`, and the jobs process requires `PLS_SCHEDULER_SECRET`. A missing `PLS_SMTP_HOST` only logs a warning.
 
-On `SIGTERM` or `SIGINT`, the website answers new requests with 503. The jobs server stops accepting new connections and stops scheduling new jobs from `jobs.json`. A client opening a new connection does not receive that 503. A request that reaches the jobs app on an already open connection does. The jobs process stops starting due tasks. Each process waits up to `PLS_SHUTDOWN_TIMEOUT_SECONDS` for the sync runs it started, and the jobs process also waits for scheduled jobs and accepted non-sync requests, such as a weekly summary, before closing MongoDB. Tracked runs still going at the deadline are marked failed. A sync start that has not recorded its run ID by the deadline can remain running. PM2's `kill_timeout` in `ecosystem.config.cjs` is 10 seconds; keep `PLS_SHUTDOWN_TIMEOUT_SECONDS` below that.
+On `SIGTERM` or `SIGINT`, the website answers new requests with 503. The jobs server stops accepting new connections and stops scheduling new jobs from `jobs.json`. A client opening a new connection does not receive that 503. A request that reaches the jobs app on an already open connection does. The jobs process stops starting due tasks. Each process waits up to `PLS_SHUTDOWN_TIMEOUT_SECONDS` for the sync runs it started, and the jobs process also waits for scheduled jobs and accepted non-sync requests, such as a weekly summary, before closing MongoDB. Tracked runs still going at the deadline are marked failed. A sync start that has not recorded its run ID by the deadline can remain running.
+
+If using PM2 in production: PM2's `kill_timeout` in `ecosystem.config.cjs` is 10 seconds; keep `PLS_SHUTDOWN_TIMEOUT_SECONDS` below that.
