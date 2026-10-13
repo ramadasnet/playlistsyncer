@@ -12,6 +12,7 @@ definePageMeta({
         return navigateTo(user.email || user.tempEmail ? normalizeRedirect(to.query.redirect) : "/account")
     }
 })
+useSeoMeta({title: "Login"})
 
 const route = useRoute()
 const redirectAfter = computed(() => normalizeRedirect(route.query.redirect))

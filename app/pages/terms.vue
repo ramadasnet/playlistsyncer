@@ -4,7 +4,7 @@ const supportEmail = computed(() => String(config.public.supportEmail))
 const siteUrl = computed(() => String(config.public.siteUrl || "https://playlistsyncer.com").replace(/\/$/, ""))
 
 useSeoMeta({
-    title: "Terms and Conditions · PlaylistSyncer",
+    title: "Terms and Conditions",
     description: "Terms of service and privacy policy for PlaylistSyncer."
 })
 </script>

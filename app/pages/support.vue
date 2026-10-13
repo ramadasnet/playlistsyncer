@@ -2,7 +2,7 @@
 const config = useRuntimeConfig()
 
 useSeoMeta({
-    title: "Support · PlaylistSyncer",
+    title: "Support",
     description: "Chat with PlaylistSyncer support or email us if you need a human follow-up."
 })
 </script>

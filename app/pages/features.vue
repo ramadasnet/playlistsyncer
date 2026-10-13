@@ -3,6 +3,8 @@ import {ArrowRight, Check, Minus, RefreshCw, ShieldCheck} from "lucide-vue-next"
 import {formatProviderNames} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate} from "~/utils/plan"
 
+useSeoMeta({title: "Features"})
+
 const config = useRuntimeConfig()
 const auth = useAuthStore()
 const {enabledProviders} = await useEnabledProviders()
