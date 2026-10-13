@@ -75,10 +75,17 @@ describe("jobs.json", () => {
         const jobs = loadJobSchedule(defaultJobsPath)
         expect(jobs.map((job) => [job.name, job.schedule])).toEqual([
             ["sync-due", "0 * * * *"],
-            ["weekly-sync-summary", "15 * * * *"]
+            ["weekly-sync-summary", "15 * * * *"],
+            ["sync-cleanup", "0 5 * * SUN,WED"]
         ])
         expect(jobs[0]?.parameters).toEqual({limit: 10})
         expect(jobs[1]?.parameters).toEqual({limit: 25})
+        expect(jobs[2]?.parameters).toEqual({runRetentionMonths: 3, warnAfterMonths: 12})
+        const cleanup = jobs[2]!.cron
+        expect(cronMatches(cleanup, new Date("2026-10-11T05:00:00.000Z"))).toBe(true)
+        expect(cronMatches(cleanup, new Date("2026-10-14T05:00:00.000Z"))).toBe(true)
+        expect(cronMatches(cleanup, new Date("2026-10-12T05:00:00.000Z"))).toBe(false)
+        expect(cronMatches(cleanup, new Date("2026-10-11T06:00:00.000Z"))).toBe(false)
     })
 
     test("returns no jobs when the file is missing", async () => {

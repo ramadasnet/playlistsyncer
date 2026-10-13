@@ -9,6 +9,7 @@ import {z} from "zod"
 import logger from "../utils/logger"
 import {isShuttingDown} from "../utils/shutdown"
 import {cronMatches, delayUntilNextMinute, parseCron, type ParsedCron} from "./cron"
+import {runSyncCleanup} from "./routes/sync-cleanup"
 import {runSyncDue} from "./routes/sync-due"
 import {runSyncTask} from "./routes/sync-task"
 import {runWeeklySyncSummary} from "./routes/weekly-sync-summary"
@@ -16,15 +17,25 @@ import {runWeeklySyncSummary} from "./routes/weekly-sync-summary"
 export const defaultJobsPath = join(dirname(fileURLToPath(import.meta.url)), "../../jobs.json")
 
 const limitParameter = z.number().int().min(1).max(100).optional()
+const monthsParameter = z.number().int().min(1).max(120).optional()
 const parameterSchemas = {
     "sync-due": z.object({limit: limitParameter}).strict(),
     "sync-task": z.object({id: z.string().refine((value) => ObjectId.isValid(value), {message: "must be a task id"})}).strict(),
-    "weekly-sync-summary": z.object({limit: limitParameter}).strict()
+    "weekly-sync-summary": z.object({limit: limitParameter}).strict(),
+    "sync-cleanup": z
+        .object({
+            runRetentionMonths: monthsParameter,
+            warnAfterMonths: monthsParameter,
+            deleteAfterMonths: monthsParameter,
+            deletionGraceDays: z.number().int().min(1).max(365).optional(),
+            limit: limitParameter
+        })
+        .strict()
 }
 
 const scheduledJobSchema = z
     .object({
-        name: z.enum(["sync-due", "sync-task", "weekly-sync-summary"]),
+        name: z.enum(["sync-due", "sync-task", "weekly-sync-summary", "sync-cleanup"]),
         schedule: z.string().trim().min(1),
         parameters: z.record(z.string(), z.unknown()).optional()
     })
@@ -88,6 +99,8 @@ export async function runConfiguredJob(job: ScheduledJob): Promise<unknown> {
             return runSyncTask(job.parameters.id)
         case "weekly-sync-summary":
             return runWeeklySyncSummary(job.parameters.limit)
+        case "sync-cleanup":
+            return runSyncCleanup(job.parameters)
     }
 }
 

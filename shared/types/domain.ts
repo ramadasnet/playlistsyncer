@@ -101,6 +101,9 @@ export interface UserDocument {
     creemCustomerId?: string
     creemSubscriptionId?: string
     creemSubscriptionStatus?: string
+    lastLoginAt?: Date
+    // Set when the inactive account warning was sent; cleared on the next login.
+    inactivityWarningSentAt?: Date
     createdAt: Date
     updatedAt: Date
 }
