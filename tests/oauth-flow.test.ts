@@ -6,7 +6,7 @@ import {ObjectId} from "mongodb"
 
 // The OAuth module relies on Nitro auto-imports; provide them from h3 and put the previous globals back afterwards.
 const globals = globalThis as Record<string, unknown>
-const nitroGlobals = {createError: h3.createError, getQuery: h3.getQuery, getCookie: h3.getCookie, setCookie: h3.setCookie, deleteCookie: h3.deleteCookie}
+const nitroGlobals = {createError: h3.createError, getQuery: h3.getQuery, getRequestURL: h3.getRequestURL, getCookie: h3.getCookie, setCookie: h3.setCookie, deleteCookie: h3.deleteCookie}
 const originalGlobals = Object.fromEntries(Object.keys(nitroGlobals).map((name) => [name, globals[name]]))
 Object.assign(globals, nitroGlobals)
 
@@ -122,7 +122,7 @@ async function trackSessionUser(browser: Browser): Promise<ObjectId | undefined>
 describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
     beforeEach(async () => {
         await ensureIndexes()
-        Object.assign(config, {spotifyClientId: "spotify-client", spotifyClientSecret: "spotify-secret", sessionSecret: config.sessionSecret || "oauth-flow-session", tokenEncryptionKey: config.tokenEncryptionKey || "oauth-flow-key"})
+        Object.assign(config, {appUrl: baseUrl, spotifyClientId: "spotify-client", spotifyClientSecret: "spotify-secret", sessionSecret: config.sessionSecret || "oauth-flow-session", tokenEncryptionKey: config.tokenEncryptionKey || "oauth-flow-key"})
         Object.assign(fetchRetryDefaults, {baseDelayMs: 0, maxDelayMs: 0})
         providerRateLimiters.set("spotify", new ProviderRateLimiter("spotify", 0, {cooldownMs: 0}))
         spotifyProfile = {id: `listener-${new ObjectId().toHexString()}`, display_name: "Listener"}
@@ -151,6 +151,20 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         }
         await closeDatabase()
         await new Promise<void>((resolve) => server.close(() => resolve()))
+    })
+
+    test("redirects an OAuth start to the callback origin before setting a browser cookie", async () => {
+        config.appUrl = "https://dev.playlistsyncer.test"
+        const browser = new Browser()
+
+        const response = await browser.get("/api/auth/spotify?redirect=%2Ftasks%3Fpage%3D2")
+
+        expect(response.status).toBe(302)
+        const location = new URL(response.headers.get("location")!)
+        expect(location.origin).toBe(config.appUrl)
+        expect(location.pathname).toBe("/api/auth/spotify")
+        expect(location.searchParams.get("redirect")).toBe("/tasks?page=2")
+        expect(oauthCookieNames(browser)).toHaveLength(0)
     })
 
     test("rejects a callback opened in a browser that did not start the flow", async () => {

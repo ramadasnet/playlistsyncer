@@ -34,6 +34,11 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
     if (!isProviderEnabled(provider)) {
         throw createError({statusCode: 404, statusMessage: "Unknown provider"})
     }
+    const startUrl = new URL(`/api/auth/${provider}`, getServerConfig().appUrl)
+    if (getRequestURL(event).origin !== startUrl.origin) {
+        startUrl.searchParams.set("redirect", normalizeRedirect(getQuery(event).redirect))
+        return startUrl.toString()
+    }
     const definition = getOAuthProvider(provider)
     const state = randomBytes(32).toString("base64url")
     const codeVerifier = randomBytes(48).toString("base64url")
