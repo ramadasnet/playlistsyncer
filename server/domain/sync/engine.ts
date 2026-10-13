@@ -1006,6 +1006,18 @@ async function scheduledIntervalMs(userId: ObjectId): Promise<number> {
     return user && resolveEntitlement(user).tier === "pro" ? proSyncIntervalMs(getServerConfig().proSyncIntervalMinutes) : 7 * 24 * 60 * 60 * 1000
 }
 
+/**
+ * Next run of a successful sync, kept on the cadence of its due time so scheduler ticks and run time do not push it later every cycle.
+ * A run that started late still waits at least half an interval, so a backlog does not run tasks back to back.
+ * @param dueAt When a scheduled run was due, or undefined for runs started by a user.
+ */
+export function nextScheduledRunAt(dueAt: Date | undefined, finishedAt: Date, intervalMs: number): Date {
+    if (!dueAt || dueAt > finishedAt) {
+        return new Date(finishedAt.getTime() + intervalMs)
+    }
+    return new Date(Math.max(dueAt.getTime() + intervalMs, finishedAt.getTime() + intervalMs / 2))
+}
+
 const failureBackoffBaseMs = 60 * 60 * 1000
 
 // Retry a failing task after 1 hour, doubling with each consecutive failure, but never later than its usual schedule.
@@ -1073,7 +1085,7 @@ export async function beginSyncTask(taskId: ObjectId, trigger: "created" | "manu
 // Execute a prepared run and persist its final outcome.
 export async function completeSyncTask(context: SyncRunContext) {
     const db = await collections()
-    const {task, taskId, leaseId, runId, startedAt, taskLabel, reverseSync} = context
+    const {task, taskId, leaseId, runId, trigger, startedAt, taskLabel, reverseSync} = context
     const recordChanges: RecordTrackChanges = async ({addedTracks = [], removedTracks = [], unmatchedTracks = [], failedPlaylists = [], missingSourcePlaylists = []}) => {
         if (failedPlaylists.length) {
             await db.syncRuns.updateOne({_id: runId}, {$push: {failedPlaylists: {$each: failedPlaylists}}})
@@ -1115,7 +1127,7 @@ export async function completeSyncTask(context: SyncRunContext) {
                     status: result.conflicts ? "needs_attention" : "active",
                     lastRunAt: finishedAt,
                     lastSuccessAt: finishedAt,
-                    nextRunAt: new Date(finishedAt.getTime() + nextRunMs),
+                    nextRunAt: nextScheduledRunAt(trigger === "scheduled" ? task.nextRunAt : undefined, finishedAt, nextRunMs),
                     updatedAt: finishedAt,
                     ...(warning ? {lastError: warning} : {})
                 },
