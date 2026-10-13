@@ -1,4 +1,4 @@
-import {afterAll, describe, expect, test} from "bun:test"
+import {afterAll, afterEach, describe, expect, test} from "bun:test"
 import {createError} from "h3"
 import {ObjectId} from "mongodb"
 import type {UserDocument} from "../shared/types/domain"
@@ -84,9 +84,24 @@ describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
         return insertedId
     }
 
-    afterAll(async () => {
+    async function deleteCreatedFixtures() {
+        if (!createdUserIds.length && !createdTaskIds.length) {
+            return
+        }
         const db = await collections()
-        await Promise.all([db.syncRuns.deleteMany({taskId: {$in: createdTaskIds}}), db.syncTasks.deleteMany({_id: {$in: createdTaskIds}}), db.users.deleteMany({_id: {$in: createdUserIds}})])
+        await Promise.all([
+            db.syncRuns.deleteMany({taskId: {$in: createdTaskIds}}),
+            db.syncTasks.deleteMany({_id: {$in: createdTaskIds}}),
+            db.users.deleteMany({_id: {$in: createdUserIds}})
+        ])
+        createdUserIds.length = 0
+        createdTaskIds.length = 0
+    }
+
+    afterEach(deleteCreatedFixtures)
+
+    afterAll(async () => {
+        await deleteCreatedFixtures()
         await closeDatabase()
     })
 
