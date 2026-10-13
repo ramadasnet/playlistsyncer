@@ -264,4 +264,21 @@ describe("Spotify provider", () => {
 
         expect(providerFetch).not.toHaveBeenCalled()
     })
+
+    test("drops deleted and private YouTube videos from search candidates", async () => {
+        const youtubeAccount = {provider: "youtube"} as ProviderAccountDocument
+        providerFetch.mockResolvedValueOnce({
+            items: [
+                {id: {videoId: "aaaaaaaaaaa"}, snippet: {title: "Song", channelTitle: "Artist - Topic"}},
+                {id: {videoId: "bbbbbbbbbbb"}, snippet: {title: "Deleted video"}},
+                {id: {videoId: "ccccccccccc"}, snippet: {title: "Song (Live)", channelTitle: "Artist"}}
+            ]
+        })
+        providerFetch.mockResolvedValueOnce({items: [{id: "aaaaaaaaaaa", contentDetails: {duration: "PT3M"}}]})
+
+        const candidates = await youtubeAdapter.searchTrackCandidates(youtubeAccount, {itemId: "source", trackId: "source", title: "Song", artists: ["Artist"]})
+
+        expect(providerFetch).toHaveBeenNthCalledWith(2, youtubeAccount, "https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=aaaaaaaaaaa%2Cccccccccccc&maxResults=50")
+        expect(candidates.map((candidate) => [candidate.trackId, candidate.durationMs])).toEqual([["aaaaaaaaaaa", 180_000]])
+    })
 })
