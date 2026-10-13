@@ -1,0 +1,24 @@
+[
+    {
+        "name": "sync-due",
+        "schedule": "0 * * * *",
+        "parameters": {
+            "limit": 10
+        }
+    },
+    {
+        "name": "weekly-sync-summary",
+        "schedule": "15 * * * *",
+        "parameters": {
+            "limit": 25
+        }
+    },
+    {
+        "name": "sync-cleanup",
+        "schedule": "0 5 * * SUN,WED",
+        "parameters": {
+            "runRetentionMonths": 3,
+            "warnAfterMonths": 12
+        }
+    }
+]

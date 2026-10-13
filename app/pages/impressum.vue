@@ -3,7 +3,7 @@ const config = useRuntimeConfig()
 const supportEmail = computed(() => String(config.public.supportEmail))
 
 useSeoMeta({
-    title: "Impressum · PlaylistSyncer",
+    title: "Impressum",
     description: "Legal notice for PlaylistSyncer according to §5 TMG."
 })
 </script>

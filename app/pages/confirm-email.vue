@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {CheckCircle2, CircleAlert, LoaderCircle} from "lucide-vue-next"
 
+useSeoMeta({title: "Confirm Email"})
+
 const route = useRoute()
 const auth = useAuthStore()
 const token = computed(() => (typeof route.query.token === "string" ? route.query.token : ""))

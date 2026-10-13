@@ -20,3 +20,13 @@ export function isProviderTrackId(provider: Provider, trackId: string): boolean 
 export function trackIdsForProvider(provider: Provider, trackIds: string[]): string[] {
     return [...new Set(trackIds.filter((trackId) => isProviderTrackId(provider, trackId)))]
 }
+
+// Public page where a user can listen to a catalog track.
+export function providerTrackUrl(provider: Provider, track: {trackId: string; url?: string}): string | undefined {
+    if (track.url) return track.url
+    if (!isProviderTrackId(provider, track.trackId)) return undefined
+    if (provider === "spotify") return `https://open.spotify.com/track/${track.trackId.replace("spotify:track:", "")}`
+    if (provider === "youtube") return `https://music.youtube.com/watch?v=${track.trackId}`
+    if (provider === "tidal") return `https://tidal.com/browse/track/${track.trackId}`
+    return undefined
+}

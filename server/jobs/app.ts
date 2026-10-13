@@ -4,6 +4,7 @@ import logger from "../utils/logger"
 import {isShuttingDown} from "../utils/shutdown"
 import {beginNonSyncRequest} from "./requests"
 import health from "./routes/health"
+import syncCleanup from "./routes/sync-cleanup"
 import syncDue from "./routes/sync-due"
 import syncTask from "./routes/sync-task"
 import weeklySyncSummary from "./routes/weekly-sync-summary"
@@ -37,6 +38,7 @@ export function createJobsApp(): App {
     router.post("/api/jobs/sync-due", syncDue)
     router.post("/api/jobs/sync-task/:id", syncTask)
     router.post("/api/jobs/weekly-sync-summary", weeklySyncSummary)
+    router.post("/api/jobs/sync-cleanup", syncCleanup)
     app.use(router.handler)
     return app
 }

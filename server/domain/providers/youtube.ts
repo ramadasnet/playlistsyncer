@@ -1,5 +1,6 @@
 // Adapt YouTube playlist operations to the provider-neutral sync contract.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
+import {isUnavailableSyncTrack} from "~~/shared/unavailable-tracks"
 import {providerFetch} from "./http"
 import {findBestTrackMatch, parseIsoDurationMs, searchableTitle, youtubeMetadata} from "./matching"
 import {trackIdsForProvider} from "./track-ids"
@@ -22,9 +23,9 @@ async function collectPages<T>(account: ProviderAccountDocument, url: URL): Prom
     return items
 }
 
-// Load ISO durations for search candidates so similar-track ranking can use length.
-async function videoDurationsMs(account: ProviderAccountDocument, videoIds: string[]): Promise<Map<string, number>> {
-    const durations = new Map<string, number>()
+// Look up ISO durations by video ID. Deleted and private videos are missing from the result.
+async function lookupVideoDurations(account: ProviderAccountDocument, videoIds: string[]): Promise<Map<string, number | undefined>> {
+    const durations = new Map<string, number | undefined>()
     const uniqueIds = [...new Set(trackIdsForProvider("youtube", videoIds))]
     for (let index = 0; index < uniqueIds.length; index += 50) {
         const batch = uniqueIds.slice(index, index + 50)
@@ -32,10 +33,18 @@ async function videoDurationsMs(account: ProviderAccountDocument, videoIds: stri
         url.search = new URLSearchParams({part: "contentDetails", id: batch.join(","), maxResults: "50"}).toString()
         const result = await providerFetch<{items?: {id: string; contentDetails?: {duration?: string}}[]}>(account, url.toString())
         for (const item of result.items || []) {
-            const durationMs = parseIsoDurationMs(item.contentDetails?.duration)
-            if (durationMs) {
-                durations.set(item.id, durationMs)
-            }
+            durations.set(item.id, parseIsoDurationMs(item.contentDetails?.duration) || undefined)
+        }
+    }
+    return durations
+}
+
+// Load ISO durations for search candidates so similar-track ranking can use length.
+async function videoDurationsMs(account: ProviderAccountDocument, videoIds: string[]): Promise<Map<string, number>> {
+    const durations = new Map<string, number>()
+    for (const [id, durationMs] of await lookupVideoDurations(account, videoIds)) {
+        if (durationMs) {
+            durations.set(id, durationMs)
         }
     }
     return durations
@@ -117,17 +126,20 @@ export const youtubeAdapter: ProviderAdapter = {
                 snippet: {title: string; channelTitle?: string; thumbnails?: {high?: {url: string}}}
             }[]
         }>(account, url.toString())
-        const candidates = (result.items || []).map((candidate): ProviderTrack => ({
-            itemId: candidate.id.videoId,
-            trackId: candidate.id.videoId,
-            ...youtubeMetadata(candidate.snippet.title, candidate.snippet.channelTitle),
-            imageUrl: candidate.snippet.thumbnails?.high?.url
-        }))
-        const durations = await videoDurationsMs(
+        const candidates = (result.items || [])
+            .filter((candidate) => !isUnavailableSyncTrack({title: candidate.snippet.title}))
+            .map((candidate): ProviderTrack => ({
+                itemId: candidate.id.videoId,
+                trackId: candidate.id.videoId,
+                ...youtubeMetadata(candidate.snippet.title, candidate.snippet.channelTitle),
+                imageUrl: candidate.snippet.thumbnails?.high?.url
+            }))
+        const durations = await lookupVideoDurations(
             account,
             candidates.map((candidate) => candidate.trackId)
         )
-        return candidates.map((candidate) => ({...candidate, durationMs: durations.get(candidate.trackId)}))
+        // Search results can still list deleted or private videos that the videos endpoint no longer returns.
+        return candidates.filter((candidate) => durations.has(candidate.trackId)).map((candidate) => ({...candidate, durationMs: durations.get(candidate.trackId)}))
     },
     async searchTrack(account, track) {
         return findBestTrackMatch(track, await this.searchTrackCandidates(account, track))

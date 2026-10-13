@@ -24,6 +24,7 @@ interface SoundCloudTrack {
     title?: string
     duration?: number
     artwork_url?: string
+    permalink_url?: string
     isrc?: string
     metadata_artist?: string
     release?: string
@@ -105,6 +106,7 @@ function mapTrack(track: SoundCloudTrack, itemId?: string): ProviderTrack | unde
         return undefined
     }
     const artist = track.metadata_artist?.trim() || track.user?.username?.trim()
+    const url = track.permalink_url?.trim()
     return {
         itemId: itemId || urn,
         trackId: urn,
@@ -113,7 +115,8 @@ function mapTrack(track: SoundCloudTrack, itemId?: string): ProviderTrack | unde
         album: track.release?.trim() || undefined,
         durationMs: track.duration && track.duration > 0 ? track.duration : undefined,
         isrc: track.isrc?.trim() || undefined,
-        imageUrl: track.artwork_url?.trim() || undefined
+        imageUrl: track.artwork_url?.trim() || undefined,
+        ...(url?.startsWith("https://soundcloud.com/") ? {url} : {})
     }
 }
 

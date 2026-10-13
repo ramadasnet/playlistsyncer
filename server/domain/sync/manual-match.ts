@@ -1,10 +1,11 @@
 // Suggest similar catalog tracks and persist a manual match so later syncs keep the pair.
 import {ObjectId} from "mongodb"
-import type {CanonicalTrack, ManualTrackAlias, ProviderAccountDocument, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "~~/shared/types/domain"
+import type {CanonicalTrack, ManualTrackAlias, Provider, ProviderAccountDocument, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {getProviderAdapter, type ProviderTrack} from "../providers"
 import {rankSimilarTracks} from "../providers/matching"
+import {providerTrackUrl} from "../providers/track-ids"
 import {unmatchedTracksFromSnapshot} from "./history-visibility"
 import {combinedSnapshot, loadTaskSnapshots, snapshotItemsForPlaylist} from "./snapshot-batches"
 import {saveMergedPlaylistMappings} from "./playlist-mappings"
@@ -33,6 +34,7 @@ export interface SimilarTrackSuggestion {
     album?: string
     durationMs?: number
     imageUrl?: string
+    url?: string
 }
 
 export interface MatchSuggestionsResult {
@@ -138,14 +140,16 @@ export function canonicalItemsWithAliases(items: ProviderTrack[], aliases: Map<s
     )
 }
 
-function serializeSuggestion(track: ProviderTrack): SimilarTrackSuggestion {
+function serializeSuggestion(provider: Provider, track: ProviderTrack): SimilarTrackSuggestion {
+    const url = providerTrackUrl(provider, track)
     return {
         trackId: track.trackId,
         title: track.title,
         artists: track.artists,
         ...(track.album ? {album: track.album} : {}),
         ...(track.durationMs ? {durationMs: track.durationMs} : {}),
-        ...(track.imageUrl ? {imageUrl: track.imageUrl} : {})
+        ...(track.imageUrl ? {imageUrl: track.imageUrl} : {}),
+        ...(url ? {url} : {})
     }
 }
 
@@ -279,7 +283,7 @@ export async function suggestMatchesForUnmatched(userId: ObjectId, taskId: Objec
         },
         targetProvider: targetAccount.provider,
         targetPlaylistName: placement.target.targetPlaylistName,
-        suggestions: ranked.map((item) => serializeSuggestion(item.track))
+        suggestions: ranked.map((item) => serializeSuggestion(targetAccount.provider, item.track))
     }
 }
 

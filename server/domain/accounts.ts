@@ -11,7 +11,7 @@ import {withUserLock} from "../utils/user-lock"
 import logger from "../utils/logger"
 
 // Subscription states that still renew and charge the customer.
-const renewingSubscriptionStatuses = new Set(["active", "trialing"])
+export const renewingSubscriptionStatuses = new Set(["active", "trialing"])
 
 // Resolve a playlist count without letting one provider failure hide the other accounts.
 export async function playlistCountForAccount(account: ProviderAccountDocument): Promise<number | undefined> {

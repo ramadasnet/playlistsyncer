@@ -8,7 +8,7 @@ const {everyLabel} = useProSyncCadence()
 useSeoMeta({
     title: () => {
         const names = formatProviderNames(enabledProviders.value)
-        return names ? `PlaylistSyncer - Sync ${names} playlists` : "PlaylistSyncer - Sync playlists"
+        return names ? `Sync ${names} playlists` : "Sync playlists"
     },
     description: () => {
         const names = formatProviderNames(enabledProviders.value)

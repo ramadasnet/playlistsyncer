@@ -8,11 +8,11 @@ import * as providers from "../server/domain/providers"
 import * as schedulerAuth from "../server/utils/scheduler-auth"
 import {nextQuotaResetAt} from "../server/domain/providers/http"
 import {applyTaskEntitlement} from "../server/domain/billing/task-entitlement"
-import {beginSyncTask, completeSyncTask, failInterruptedRuns, failureBackoffMs, runSyncTask, syncLeaseHeartbeat} from "../server/domain/sync/engine"
+import {beginSyncTask, completeSyncTask, failInterruptedRuns, failureBackoffMs, nextScheduledRunAt, runSyncTask, syncLeaseHeartbeat} from "../server/domain/sync/engine"
 import {linkSnapshotRow} from "../server/domain/sync/manual-match"
 import {withTaskLease} from "../server/domain/sync/task-activity"
 import logger from "../server/utils/logger"
-import syncDue from "../server/jobs/routes/sync-due"
+import syncDue, {interleaveByUser} from "../server/jobs/routes/sync-due"
 
 // Regression tests for the production-readiness sync engine findings. They run the real engine
 // against an in-memory database and in-memory provider playlists.
@@ -344,6 +344,57 @@ describe("failed runs back off", () => {
         const result = (await syncDue({} as H3Event)) as {processed: number}
         expect(result.processed).toBe(0)
         expect((await storedTask(taskId)).leaseId).toBe("other")
+    })
+})
+
+describe("scheduled cadence", () => {
+    const hour = 60 * 60 * 1000
+    const interval = 12 * hour
+    const due = new Date("2026-01-01T00:07:00Z")
+
+    test("keeps the next run on the due-time cadence", () => {
+        expect(nextScheduledRunAt(due, new Date("2026-01-01T01:05:00Z"), interval).toISOString()).toBe("2026-01-01T12:07:00.000Z")
+    })
+
+    test("waits at least half an interval after a late run", () => {
+        expect(nextScheduledRunAt(due, new Date("2026-01-01T11:00:00Z"), interval).toISOString()).toBe("2026-01-01T17:00:00.000Z")
+        expect(nextScheduledRunAt(due, new Date("2026-01-03T00:00:00Z"), interval).toISOString()).toBe("2026-01-03T06:00:00.000Z")
+    })
+
+    test("counts from the finish time when the run was not due", () => {
+        const finished = new Date("2025-12-31T20:00:00Z")
+        expect(nextScheduledRunAt(undefined, finished, interval).getTime()).toBe(finished.getTime() + interval)
+        expect(nextScheduledRunAt(due, finished, interval).getTime()).toBe(finished.getTime() + interval)
+    })
+
+    test("a scheduled run stays on cadence while a manual run restarts it", async () => {
+        setPlaylist("spotify", "src", "Source", [])
+        setPlaylist("tidal", "dst", "Destination", [])
+        const dueAt = new Date(Date.now() - 30 * 60 * 1000)
+        const taskId = await insertTask({source: side("spotify", "src"), destination: side("tidal", "dst"), nextRunAt: dueAt})
+        await runSyncTask(taskId, "scheduled")
+        expect((await storedTask(taskId)).nextRunAt.getTime()).toBe(dueAt.getTime() + interval)
+        await runSyncTask(taskId, "manual")
+        expect(Math.round(((await storedTask(taskId)).nextRunAt.getTime() - Date.now()) / 60000)).toBe(720)
+    })
+
+    test("interleaves users in the due batch", async () => {
+        const other = new ObjectId()
+        const task = (owner: ObjectId, name: string) => ({_id: new ObjectId(), userId: owner, name}) as unknown as SyncTaskDocument
+        const names = interleaveByUser([task(userId, "a1"), task(userId, "a2"), task(userId, "a3"), task(other, "b1"), task(other, "b2")]).map((item) => (item as unknown as {name: string}).name)
+        expect(names).toEqual(["a1", "b1", "a2", "b2", "a3"])
+    })
+
+    test("one user's backlog does not fill the whole batch", async () => {
+        const other = new ObjectId()
+        db.users.store.push({_id: other, tier: "pro", displayName: "Other", createdAt: new Date(), updatedAt: new Date()})
+        const old = Date.now() - hour
+        for (let index = 0; index < 12; index++) {
+            await insertTask({source: {providerAccountId: new ObjectId(), playlistId: "gone", name: `Mine ${index}`}, destination: side("tidal", "dst"), nextRunAt: new Date(old + index)})
+        }
+        const theirs = await insertTask({userId: other, source: {providerAccountId: new ObjectId(), playlistId: "gone", name: "Theirs"}, destination: side("tidal", "dst"), nextRunAt: new Date(old + 100)})
+        const result = (await syncDue({} as H3Event)) as {results: {id: string}[]}
+        expect(result.results.map((item) => item.id)[1]).toBe(theirs.toHexString())
     })
 })
 

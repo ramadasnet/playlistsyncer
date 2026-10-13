@@ -26,6 +26,7 @@ export async function createSession(event: H3Event, userId: ObjectId): Promise<v
         createdAt: now,
         expiresAt: new Date(now.getTime() + sessionDurationSeconds * 1000)
     })
+    await db.users.updateOne({_id: userId}, {$set: {lastLoginAt: now}, $unset: {inactivityWarningSentAt: ""}})
     setCookie(event, sessionCookie, token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",

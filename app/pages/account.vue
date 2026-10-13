@@ -6,6 +6,7 @@ import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabe
 import {maxDisplayNameLength, normalizeDisplayName} from "~~/shared/display-name"
 
 definePageMeta({middleware: "auth"})
+useSeoMeta({title: "Account"})
 
 const auth = useAuthStore()
 const route = useRoute()
