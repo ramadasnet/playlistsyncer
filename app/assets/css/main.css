@@ -1135,6 +1135,10 @@ main {
         width: 100%;
         justify-content: center;
     }
+    .similar-track .similar-track-link {
+        width: auto;
+        margin-left: auto;
+    }
 }
 .email-capture {
     display: flex;

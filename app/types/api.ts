@@ -87,6 +87,7 @@ export interface SimilarTrackSuggestion {
     album?: string
     durationMs?: number
     imageUrl?: string
+    url?: string
 }
 
 export interface SyncTaskDetail {

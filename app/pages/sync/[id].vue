@@ -1,7 +1,7 @@
 <!-- Run history for one sync task. -->
 
 <script setup lang="ts">
-import {ArrowLeft, ArrowLeftRight, ArrowRight, LoaderCircle, Search, Undo2} from "lucide-vue-next"
+import {ArrowLeft, ArrowLeftRight, ArrowRight, ExternalLink, LoaderCircle, Search, Undo2} from "lucide-vue-next"
 import {formatDuration} from "~~/shared/format-duration"
 import {formatSyncProgressMessage} from "~~/shared/sync-progress"
 import {formatRunPlaylistLabel, groupRunPlaylists, trackInRunPlaylist} from "~~/shared/sync-run-playlists"
@@ -53,6 +53,7 @@ const pageTitle = computed(() => {
     if (!current) return "Sync run"
     return current.source.name === current.destination.name ? current.source.name : `${current.source.name} · ${current.destination.name}`
 })
+useSeoMeta({title: pageTitle})
 const pageDescription = computed(() => (task.value?.direction === "one-way" ? "One-way sync" : "Two-way sync"))
 const loadError = computed(() => {
     if (!error.value) return ""
@@ -433,6 +434,20 @@ onUnmounted(() => {
             </div>
 
             <div class="run-detail-panel">
+                <section class="run-track-section unmatched">
+                    <h3>Unmatched ({{ selectedPlaylistUnmatchedCount }})</h3>
+                    <p v-if="selectedPlaylistUnmatchedCount" class="run-track-note">These tracks could not be found automatically. Search for a close match and add it yourself.</p>
+                    <p v-if="!filteredUnmatched.length && !selectedPlaylistUnmatchedCount" class="run-track-empty">{{ filteredUnavailable.length ? "No tracks need a manual match." : "Every track was matched." }}</p>
+                    <p v-else-if="!filteredUnmatched.length" class="run-track-empty">This run skipped {{ selectedPlaylistUnmatchedCount }} {{ selectedPlaylistUnmatchedCount === 1 ? "track" : "tracks" }}, but individual titles were not stored.</p>
+                    <RunTrackTable v-else :rows="filteredUnmatched" :show-playlist="showPlaylistColumn" actions>
+                        <template #actions="{track, index}">
+                            <button v-if="canSuggest(track)" class="button button-small button-secondary" type="button" :disabled="taskIsRunning" :title="taskIsRunning ? syncTaskBusyMessage : 'Find similar'" @click="openMatchDialog(track, index)">
+                                <Search :size="14" /> Find similar
+                            </button>
+                        </template>
+                    </RunTrackTable>
+                </section>
+
                 <section class="run-track-section">
                     <h3>Added ({{ filteredAdded.length }})</h3>
                     <p v-if="!filteredAdded.length" class="run-track-empty">No tracks were added.</p>
@@ -443,22 +458,6 @@ onUnmounted(() => {
                     <h3>Removed ({{ filteredRemoved.length }})</h3>
                     <p v-if="!filteredRemoved.length" class="run-track-empty">No tracks were removed.</p>
                     <RunTrackTable v-else :rows="removedRows" :show-playlist="showPlaylistColumn" />
-                </section>
-
-                <section class="run-track-section unmatched">
-                    <h3>Unmatched ({{ selectedPlaylistUnmatchedCount }})</h3>
-                    <p v-if="selectedPlaylistUnmatchedCount" class="run-track-note">
-                        These tracks could not be found automatically. Search for a close match and add it yourself — PlaylistSyncer will keep that pair linked so later syncs do not remove it.
-                    </p>
-                    <p v-if="!filteredUnmatched.length && !selectedPlaylistUnmatchedCount" class="run-track-empty">{{ filteredUnavailable.length ? "No tracks need a manual match." : "Every track was matched." }}</p>
-                    <p v-else-if="!filteredUnmatched.length" class="run-track-empty">This run skipped {{ selectedPlaylistUnmatchedCount }} {{ selectedPlaylistUnmatchedCount === 1 ? "track" : "tracks" }}, but individual titles were not stored.</p>
-                    <RunTrackTable v-else :rows="filteredUnmatched" :show-playlist="showPlaylistColumn" actions>
-                        <template #actions="{track, index}">
-                            <button v-if="canSuggest(track)" class="button button-small button-secondary" type="button" :disabled="taskIsRunning" :title="taskIsRunning ? syncTaskBusyMessage : 'Find similar'" @click="openMatchDialog(track, index)">
-                                <Search :size="14" /> Find similar
-                            </button>
-                        </template>
-                    </RunTrackTable>
                 </section>
 
                 <section class="run-track-section unavailable">
@@ -489,6 +488,17 @@ onUnmounted(() => {
                                 <span>{{ formatTrack(suggestion) }}</span>
                                 <span v-if="suggestion.album || formatDuration(suggestion.durationMs)" class="similar-track-meta">{{ [suggestion.album, formatDuration(suggestion.durationMs)].filter(Boolean).join(" · ") }}</span>
                             </div>
+                            <a
+                                v-if="suggestion.url"
+                                class="button button-small button-secondary similar-track-link"
+                                :href="suggestion.url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                :title="`Listen on ${providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)]}`"
+                                :aria-label="`Listen to ${suggestion.title} on ${providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)]} (opens in a new window)`"
+                            >
+                                <ExternalLink :size="14" />
+                            </a>
                             <button class="button button-small button-primary" type="button" :disabled="Boolean(matchState.matchingId) || taskIsRunning" @click="chooseSuggestion(matchTarget.track, matchTarget.index, suggestion)">
                                 <LoaderCircle v-if="matchState.matchingId === suggestion.trackId" class="spin" :size="14" />
                                 Add to {{ providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)] }}

@@ -21,6 +21,8 @@ export interface ProviderTrack {
     durationMs?: number
     isrc?: string
     imageUrl?: string
+    // Public page for the track, when it cannot be derived from the track ID.
+    url?: string
     // The provider still lists this entry but no longer returns its track metadata.
     unavailable?: boolean
 }
