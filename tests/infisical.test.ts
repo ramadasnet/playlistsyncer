@@ -1,8 +1,6 @@
-import {afterAll, beforeEach, describe, expect, mock, test} from "bun:test"
+import {afterEach, beforeEach, describe, expect, spyOn, test} from "bun:test"
 import {loadInfisicalSecrets} from "../server/utils/infisical"
 
-const originalFetch = globalThis.fetch
-const fetchMock = mock(async (_input: string | URL | Request, _init?: RequestInit): Promise<Response> => new Response("{}"))
 const settings = {PLS_INFISICAL_CLIENT_ID: "client-id", PLS_INFISICAL_CLIENT_SECRET: "client-secret", PLS_INFISICAL_PROJECT_ID: "project-id"}
 
 function secret(secretKey: string, secretValue: string) {
@@ -10,28 +8,30 @@ function secret(secretKey: string, secretValue: string) {
 }
 
 describe("Infisical secrets", () => {
+    let fetchSpy: ReturnType<typeof spyOn>
+
     beforeEach(() => {
-        fetchMock.mockReset()
-        globalThis.fetch = fetchMock as unknown as typeof fetch
+        fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => new Response("{}"))
     })
 
-    afterAll(() => {
-        globalThis.fetch = originalFetch
+    afterEach(() => {
+        fetchSpy.mockRestore()
     })
 
     test("does nothing without a client ID", async () => {
         expect(await loadInfisicalSecrets({PLS_INFISICAL_PROJECT_ID: "project-id"})).toEqual([])
-        expect(fetchMock).not.toHaveBeenCalled()
+        expect(fetchSpy).not.toHaveBeenCalled()
     })
 
     test("requires the client secret and project ID", async () => {
-        await expect(loadInfisicalSecrets({PLS_INFISICAL_CLIENT_ID: "client-id"})).rejects.toThrow("PLS_INFISICAL_PROJECT_ID")
-        expect(fetchMock).not.toHaveBeenCalled()
+        await expect(loadInfisicalSecrets({PLS_INFISICAL_CLIENT_ID: "client-id", PLS_INFISICAL_PROJECT_ID: "project-id"})).rejects.toThrow("PLS_INFISICAL_CLIENT_SECRET")
+        await expect(loadInfisicalSecrets({PLS_INFISICAL_CLIENT_ID: "client-id", PLS_INFISICAL_CLIENT_SECRET: "client-secret"})).rejects.toThrow("PLS_INFISICAL_PROJECT_ID")
+        expect(fetchSpy).not.toHaveBeenCalled()
     })
 
     test("sets missing variables and keeps values that are already set", async () => {
-        fetchMock.mockResolvedValueOnce(Response.json({accessToken: "access-token"}))
-        fetchMock.mockResolvedValueOnce(
+        fetchSpy.mockResolvedValueOnce(Response.json({accessToken: "access-token"}))
+        fetchSpy.mockResolvedValueOnce(
             Response.json({
                 secrets: [secret("PLS_SESSION_SECRET", "direct"), secret("PLS_MONGODB_URI", "mongodb://infisical"), secret("PLS_SMTP_HOST", "smtp.example.com")],
                 imports: [{secrets: [secret("PLS_SESSION_SECRET", "imported"), secret("PLS_SCHEDULER_SECRET", "imported")]}]
@@ -47,10 +47,10 @@ describe("Infisical secrets", () => {
         expect(env.PLS_SMTP_HOST).toBe("smtp.example.com")
         expect(env.PLS_INFISICAL_CLIENT_SECRET).toBeUndefined()
 
-        const [loginUrl, loginInit] = fetchMock.mock.calls[0]!
+        const [loginUrl, loginInit] = fetchSpy.mock.calls[0]!
         expect(String(loginUrl)).toBe("https://app.infisical.com/api/v1/auth/universal-auth/login")
         expect(JSON.parse(String(loginInit?.body))).toEqual({clientId: "client-id", clientSecret: "client-secret"})
-        const [secretsUrl, secretsInit] = fetchMock.mock.calls[1]!
+        const [secretsUrl, secretsInit] = fetchSpy.mock.calls[1]!
         const url = new URL(String(secretsUrl))
         expect(url.pathname).toBe("/api/v4/secrets")
         expect(Object.fromEntries(url.searchParams)).toEqual({projectId: "project-id", environment: "staging", secretPath: "/"})
@@ -58,7 +58,7 @@ describe("Infisical secrets", () => {
     })
 
     test("fails when Infisical rejects the request", async () => {
-        fetchMock.mockResolvedValueOnce(new Response("Invalid credentials", {status: 401}))
+        fetchSpy.mockResolvedValueOnce(new Response("Invalid credentials", {status: 401}))
 
         await expect(loadInfisicalSecrets({...settings})).rejects.toThrow("Infisical login failed: 401 Invalid credentials")
     })
