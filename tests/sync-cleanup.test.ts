@@ -89,11 +89,7 @@ describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
             return
         }
         const db = await collections()
-        await Promise.all([
-            db.syncRuns.deleteMany({taskId: {$in: createdTaskIds}}),
-            db.syncTasks.deleteMany({_id: {$in: createdTaskIds}}),
-            db.users.deleteMany({_id: {$in: createdUserIds}})
-        ])
+        await Promise.all([db.syncRuns.deleteMany({taskId: {$in: createdTaskIds}}), db.syncTasks.deleteMany({_id: {$in: createdTaskIds}}), db.users.deleteMany({_id: {$in: createdUserIds}})])
         createdUserIds.length = 0
         createdTaskIds.length = 0
     }
