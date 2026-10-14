@@ -1,11 +1,15 @@
 /** @type {import("pm2").StartOptions[]} */
 
+// PM2 forwards interpreter_args only as an array. Bun then loads Infisical in this process, before the app.
+const infisicalPreloadArgs = ["--preload", "./server/preload.ts"]
+
 const apps = [
     {
         name: "playlistsyncer",
         cwd: __dirname,
         script: ".output/server/index.mjs",
         interpreter: "bun",
+        interpreter_args: infisicalPreloadArgs,
         instances: 1,
         exec_mode: "fork",
         env_file: ".env",
@@ -23,6 +27,7 @@ const apps = [
         cwd: __dirname,
         script: "server/jobs/main.ts",
         interpreter: "bun",
+        interpreter_args: infisicalPreloadArgs,
         instances: 1,
         exec_mode: "fork",
         env_file: ".env",

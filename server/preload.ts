@@ -1,4 +1,4 @@
-// Bun runs this before every entry point (see bunfig.toml), so Infisical secrets are set before any configuration is read.
+// Passed to Bun with --preload by the website, jobs, and development commands, so secrets are set before configuration is read.
 import {infisicalLoadedKeysEnv, loadInfisicalSecrets} from "./utils/infisical"
 
 const loadedKeys = await loadInfisicalSecrets()

@@ -22,10 +22,10 @@ COPY --from=builder --chown=bun:bun /app/server ./server
 COPY --from=builder --chown=bun:bun /app/shared ./shared
 COPY --from=builder --chown=bun:bun /app/node_modules ./node_modules
 COPY --from=builder --chown=bun:bun /app/package.json ./package.json
-COPY --from=builder --chown=bun:bun /app/bunfig.toml ./bunfig.toml
 COPY --from=builder --chown=bun:bun /app/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=bun:bun /app/jobs.json ./jobs.json
 USER bun
 EXPOSE 3007
 EXPOSE 3008
-CMD ["bun", "run", ".output/server/index.mjs"]
+# Jobs override this with `bun run jobs`, which preloads the same file.
+CMD ["bun", "run", "--preload", "./server/preload.ts", ".output/server/index.mjs"]
