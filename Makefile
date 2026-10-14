@@ -30,7 +30,7 @@ db:
 
 # Run the app locally (dev server with hot reload)
 run:
-	bun run dev
+	bun --bun run dev
 
 # Run the scheduled jobs process locally
 jobs:

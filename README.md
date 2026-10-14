@@ -285,6 +285,21 @@ docker run -d --name playlistsyncer-jobs --restart unless-stopped \
 
 To deploy updates, pull the changes, build the image again, then remove and run both containers again with the same commands.
 
+### Secrets from Infisical
+
+Instead of putting every secret in `.env`, the processes can load them from Infisical when they start. Create a machine identity with Universal Auth and read access to the project environment, then set only `PLS_INFISICAL_CLIENT_ID`, `PLS_INFISICAL_CLIENT_SECRET` and `PLS_INFISICAL_PROJECT_ID` (plus `PLS_INFISICAL_ENVIRONMENT` if it is not `prod`) in `.env`. Store the other variables in Infisical with the same names.
+
+| Variable                      | Description                                                                                     | Default when unset                             |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `PLS_INFISICAL_CLIENT_ID`     | Infisical Universal Auth client ID; when set, startup loads the other variables from Infisical. | Unset; Infisical is not used                   |
+| `PLS_INFISICAL_CLIENT_SECRET` | Infisical Universal Auth client secret.                                                         | Unset; required with `PLS_INFISICAL_CLIENT_ID` |
+| `PLS_INFISICAL_PROJECT_ID`    | Infisical project ID.                                                                           | Unset; required with `PLS_INFISICAL_CLIENT_ID` |
+| `PLS_INFISICAL_ENVIRONMENT`   | Infisical environment slug.                                                                     | `prod`                                         |
+| `PLS_INFISICAL_SECRET_PATH`   | Infisical folder path that holds the secrets.                                                   | `/`                                            |
+| `PLS_INFISICAL_SITE_URL`      | Infisical instance URL, for the EU cloud or a self-hosted instance.                             | `https://app.infisical.com`                    |
+
+`bunfig.toml` preloads `server/preload.ts` for Bun entry points, so the website, the jobs process, Docker and PM2 load the secrets before any configuration is read. The development script invokes Nuxt with an explicit Bun preload, so `make run` also loads Infisical secrets. Variables that already have a value in the environment are kept, so values in `.env` or `compose.yaml` win over Infisical. If Infisical cannot be reached, the process exits and the restart policy tries again. Secrets are never written to disk or baked into the image; rotate a secret in Infisical and restart the processes to apply it.
+
 ### Docker Compose
 
 The `compose.yaml` builds the image and runs three services: `app` (website on port `3007`), `jobs` (jobs server on `127.0.0.1:3008`) and `mongodb` (MongoDB with a persistent `mongodb-data` volume). It sets `PLS_MONGODB_URI` to the `mongodb` service, so the value in `.env` is not used. The services start in order, after the health check of the earlier service passes: `mongodb`, then `jobs`, then `app`.
