@@ -40,7 +40,7 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
                 <p class="eyebrow">Free</p>
                 <h2>Sync one playlist</h2>
                 <p class="price">0 EUR</p>
-                <p>Weekly background sync for the playlist you care about most from one service to another.</p>
+                <p>Yes, free! Weekly background sync for the playlist you care about most from one service to another.</p>
                 <NuxtLink class="button button-secondary" :to="auth.user ? '/sync' : '/login'">Start free <ArrowRight :size="17" /></NuxtLink>
             </article>
             <article class="plan-panel featured">
