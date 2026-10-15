@@ -16,7 +16,7 @@ export function isMailConfigured(config: Pick<ServerConfig, "smtpHost"> = getSer
 }
 
 function mailFrom(config: ServerConfig): string {
-    return config.smtpFrom || `PlaylistSyncer <${process.env.PLS_SUPPORT_EMAIL || "info@playlistsyncer.com"}>`
+    return config.smtpFrom || `PlaylistSyncer <${process.env.PLS_SUPPORT_EMAIL}>`
 }
 
 // Send an email and report whether delivery was attempted.
