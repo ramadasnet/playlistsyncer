@@ -16,11 +16,17 @@ describe("server configuration", () => {
 
         expect(config.spotifyClientId).toBeUndefined()
         expect(config.tokenEncryptionKey).toBeUndefined()
-        expect(config.mongodbDatabase).toBe("playlistsync")
+        expect(config.mongodbDatabase).toBe("playlistsyncer")
         expect(config.creemServer).toBe("test")
         expect(config.smtpHost).toBeUndefined()
         expect(config.smtpPort).toBe(587)
         expect(config.proSyncIntervalMinutes).toBe(720)
+    })
+
+    test("defaults an unspecified or blank MongoDB database and preserves custom names", () => {
+        expect(parseServerConfig({}).mongodbDatabase).toBe("playlistsyncer")
+        expect(parseServerConfig({mongodbDatabase: ""}).mongodbDatabase).toBe("playlistsyncer")
+        expect(parseServerConfig({mongodbDatabase: "custom-database"}).mongodbDatabase).toBe("custom-database")
     })
 
     test("parses the PRO automatic sync interval in minutes", () => {
@@ -77,9 +83,29 @@ describe("server configuration", () => {
         expect(() => parseServerConfig({appUrl: "https://dev.playlistsyncer.com/base"})).toThrow()
     })
 
+    test("defaults the application URL by environment and preserves explicit overrides", () => {
+        expect(resolveAppUrl({})).toBe("http://localhost:3007/")
+        expect(resolveAppUrl({NODE_ENV: "development"})).toBe("http://localhost:3007/")
+        expect(resolveAppUrl({NODE_ENV: "production"})).toBe("https://playlistsyncer.com/")
+        expect(resolveAppUrl({NODE_ENV: "production", PLS_APP_URL: ""})).toBe("https://playlistsyncer.com/")
+        expect(resolveAppUrl({NODE_ENV: "production", PLS_APP_URL: "https://custom.example.com/"})).toBe("https://custom.example.com/")
+
+        const nodeEnv = process.env.NODE_ENV
+        try {
+            process.env.NODE_ENV = "development"
+            expect(parseServerConfig({}).appUrl).toBe("http://localhost:3007")
+            process.env.NODE_ENV = "production"
+            expect(parseServerConfig({}).appUrl).toBe("https://playlistsyncer.com")
+            expect(parseServerConfig({appUrl: "https://custom.example.com/"}).appUrl).toBe("https://custom.example.com")
+        } finally {
+            if (nodeEnv === undefined) delete process.env.NODE_ENV
+            else process.env.NODE_ENV = nodeEnv
+        }
+    })
+
     test("refuses a production start without secrets or a public app URL", () => {
-        const website = checkStartupConfig(parseServerConfig({}), "website", true)
-        const jobs = checkStartupConfig(parseServerConfig({}), "jobs", true)
+        const website = checkStartupConfig(parseServerConfig({appUrl: "http://localhost:3007"}), "website", true)
+        const jobs = checkStartupConfig(parseServerConfig({appUrl: "http://localhost:3007"}), "jobs", true)
 
         expect(website.errors).toEqual(["PLS_MONGODB_URI is required", "PLS_TOKEN_ENCRYPTION_KEY is required", "PLS_SESSION_SECRET is required", "PLS_APP_URL must be the public https origin, not http://localhost:3007"])
         expect(jobs.errors).toContain("PLS_SCHEDULER_SECRET is required")

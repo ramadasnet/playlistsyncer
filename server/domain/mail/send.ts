@@ -10,19 +10,19 @@ export interface OutboundEmail {
     html: string
 }
 
-// Check whether outbound SMTP delivery is available.
-export function isMailConfigured(config: Pick<ServerConfig, "smtpHost"> = getServerConfig()): boolean {
-    return Boolean(config.smtpHost)
+// Check whether an SMTP host and sender address are configured.
+export function isMailConfigured(config: Pick<ServerConfig, "smtpHost" | "smtpFrom"> = getServerConfig()): boolean {
+    return Boolean(config.smtpHost && (config.smtpFrom || process.env.PLS_SUPPORT_EMAIL))
 }
 
 function mailFrom(config: ServerConfig): string {
-    return config.smtpFrom || `PlaylistSyncer <${process.env.PLS_SUPPORT_EMAIL || "info@playlistsyncer.com"}>`
+    return config.smtpFrom || `PlaylistSyncer <${process.env.PLS_SUPPORT_EMAIL}>`
 }
 
 // Send an email and report whether delivery was attempted.
 export async function sendMail(message: OutboundEmail, config: ServerConfig = getServerConfig()): Promise<boolean> {
-    if (!config.smtpHost) {
-        logger.warn("Mail.send", "SMTP is not configured; message was not delivered")
+    if (!isMailConfigured(config)) {
+        logger.warn("Mail.send", "SMTP host or sender address is not configured; message was not delivered")
         return false
     }
 

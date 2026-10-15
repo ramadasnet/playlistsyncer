@@ -1,8 +1,9 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import {resolveAppUrl} from "./shared/app-url"
 import {resolvePublicSafeMode} from "./shared/env-flag"
 import {defaultProSyncIntervalMinutes} from "./shared/sync-cadence"
 
-const appUrl = process.env.PLS_APP_URL || "http://localhost:3007"
+const appUrl = resolveAppUrl(process.env)
 const appHost = new URL(appUrl).hostname
 const proSyncIntervalMinutes = Number(process.env.PLS_TASKSYNC_INTERVAL || defaultProSyncIntervalMinutes)
 
