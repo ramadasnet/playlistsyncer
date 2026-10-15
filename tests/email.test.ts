@@ -13,7 +13,8 @@ import {
     prepareEmailConfirmation
 } from "../server/domain/auth/email"
 import {hasVerifiedProviderEmail, newUserFromOAuthProfile, oauthRedirectAfterLogin} from "../server/domain/auth/oauth"
-import {isMailConfigured} from "../server/domain/mail/send"
+import {isMailConfigured, sendMail} from "../server/domain/mail/send"
+import {parseServerConfig} from "../server/utils/config"
 
 const now = new Date("2026-09-07T12:00:00.000Z")
 const secret = "test-session-secret"
@@ -139,8 +140,26 @@ describe("account email confirmation", () => {
 })
 
 describe("mail configuration", () => {
-    test("treats SMTP as unconfigured until a host is set", () => {
-        expect(isMailConfigured({smtpHost: undefined})).toBe(false)
-        expect(isMailConfigured({smtpHost: "smtp.example.com"})).toBe(true)
+    test("requires an SMTP host and either a sender or support email", async () => {
+        const supportEmail = process.env.PLS_SUPPORT_EMAIL
+        try {
+            delete process.env.PLS_SUPPORT_EMAIL
+            expect(isMailConfigured({smtpHost: undefined})).toBe(false)
+            expect(isMailConfigured({smtpHost: "smtp.example.com"})).toBe(false)
+            expect(isMailConfigured({smtpHost: undefined, smtpFrom: "sender@example.com"})).toBe(false)
+            expect(isMailConfigured({smtpHost: "smtp.example.com", smtpFrom: "sender@example.com"})).toBe(true)
+
+            const message = {to: "listener@example.com", subject: "Test", text: "Test", html: "Test"}
+            expect(await sendMail(message, parseServerConfig({smtpHost: "smtp.example.com"}))).toBe(false)
+
+            process.env.PLS_SUPPORT_EMAIL = ""
+            expect(isMailConfigured({smtpHost: "smtp.example.com", smtpFrom: ""})).toBe(false)
+            process.env.PLS_SUPPORT_EMAIL = "support@example.com"
+            expect(isMailConfigured({smtpHost: "smtp.example.com"})).toBe(true)
+            expect(isMailConfigured({smtpHost: undefined})).toBe(false)
+        } finally {
+            if (supportEmail === undefined) delete process.env.PLS_SUPPORT_EMAIL
+            else process.env.PLS_SUPPORT_EMAIL = supportEmail
+        }
     })
 })
