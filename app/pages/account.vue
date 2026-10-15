@@ -344,7 +344,7 @@ onMounted(() => {
     }
     checkoutRefreshTimer = setTimeout(() => {
         void refreshAfterCheckout()
-    }, 2000)
+    }, 4000)
 })
 
 onUnmounted(() => clearTimeout(checkoutRefreshTimer))
