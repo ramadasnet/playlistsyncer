@@ -271,7 +271,7 @@ Prerequisites: Bun 1.4+ on the host, and a managed MongoDB (or MongoDB-compatibl
 
 **Image file: `ghcr.io/ramadasnet/playlistsyncer:latest`**
 
-The `Dockerfile` builds one image for both processes. It sets `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=3007`, `PLS_JSON_LOGGING=true` and `NITRO_BUN_IDLE_TIMEOUT=255`. The default command starts the website. Start the jobs process from the same image with `bun run jobs`.
+The `Dockerfile` builds one image for both processes. It sets `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=3007`, `PLS_JSON_LOGGING=true` and `NITRO_BUN_IDLE_TIMEOUT=255`. The default command starts the website and the jobs process in one container with `pm2-runtime` and `ecosystem.config.cjs`; PM2 restarts either process if it crashes. To run them in separate containers instead, override the command with `bun run start` (website) or `bun run jobs` (jobs).
 
 On the server, copy `.env.example` to `.env` and fill in production values (`PLS_APP_URL` must be a public `https` origin). Docker reads `.env` literally, so do not put quotes around values.
 
@@ -279,13 +279,20 @@ When deploying it standalone, make sure to set `PLS_MONGODB_URI` in `.env` to an
 
 ```bash
 docker build -t playlistsyncer .
+docker run -d --name playlistsyncer --restart unless-stopped \
+	--env-file .env -p 3007:3007 -p 127.0.0.1:3008:3008 playlistsyncer
+```
+
+Or as two containers, so each process can be restarted and scaled on its own:
+
+```bash
 docker run -d --name playlistsyncer-app --restart unless-stopped \
-	--env-file .env -p 3007:3007 playlistsyncer
+	--env-file .env -p 3007:3007 playlistsyncer bun run start
 docker run -d --name playlistsyncer-jobs --restart unless-stopped \
 	--env-file .env -e PLS_JOBS_PORT=3008 -p 127.0.0.1:3008:3008 playlistsyncer bun run jobs
 ```
 
-To deploy updates, pull the changes, build the image again, then remove and run both containers again with the same commands.
+To deploy updates, pull the changes, build the image again, then remove and run the containers again with the same commands. In a single container, the website and jobs process share CPU and memory limits, and a container health check on port `3007` does not cover the jobs process.
 
 ### Secrets from Infisical
 
@@ -300,7 +307,7 @@ Instead of putting every secret in `.env`, the processes can load them from Infi
 | `PLS_INFISICAL_SECRET_PATH`   | Infisical folder path that holds the secrets.                                                   | `/`                                            |
 | `PLS_INFISICAL_SITE_URL`      | Infisical instance URL, for the EU cloud or a self-hosted instance.                             | `https://app.infisical.com`                    |
 
-The website and the jobs process preload `server/preload.ts` before reading configuration. Development (`make run`), `bun run start`, `bun run jobs`, the Docker website command, and PM2 pass that preload explicitly. Builds, typechecks, and tests do not contact Infisical. Variables that already have a value in the environment are kept, so values in `.env` or `compose.yaml` win over Infisical. If Infisical cannot be reached, the process exits and the restart policy tries again. Secrets are never written to disk or baked into the image; rotate a secret in Infisical and restart the processes to apply it.
+The website and the jobs process preload `server/preload.ts` before reading configuration. Development (`make run`), `bun run start`, `bun run jobs`, and PM2 (also used by the default Docker command) pass that preload explicitly. Builds, typechecks, and tests do not contact Infisical. Variables that already have a value in the environment are kept, so values in `.env` or `compose.yaml` win over Infisical. If Infisical cannot be reached, the process exits and the restart policy tries again. Secrets are never written to disk or baked into the image; rotate a secret in Infisical and restart the processes to apply it.
 
 ### Docker Compose
 
@@ -319,7 +326,7 @@ To use a managed MongoDB instead, remove the `mongodb` service, the `PLS_MONGODB
 
 ### With PM2
 
-Make sure [PM2](https://pm2.keymetrics.io/) is installed globally: `npm install -g pm2`.
+Make sure [PM2](https://pm2.keymetrics.io/) is installed globally: `npm install -g pm2`. (The Docker image uses its own copy from `node_modules`.)
 
 On the server, copy `.env.example` to `.env`, fill in production values (`PLS_APP_URL` must be a public `https` origin), then build and start both processes:
 
