@@ -2,9 +2,12 @@
 
 import {BlockList, isIP} from "node:net"
 import {z} from "zod"
+import {resolveAppUrl} from "../../shared/app-url"
 import {parseBooleanEnvFlag} from "../../shared/env-flag"
 import {defaultProSyncIntervalMinutes} from "../../shared/sync-cadence"
 import logger from "./logger"
+
+export {resolveAppUrl} from "../../shared/app-url"
 
 const optionalCredential = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional())
 const emailList = z.preprocess(
@@ -41,12 +44,12 @@ const appUrl = z
         message: "PLS_APP_URL must contain only an origin"
     })
     .transform((value) => new URL(value).origin)
-    .default("http://localhost:3007")
+    .prefault(() => resolveAppUrl({NODE_ENV: process.env.NODE_ENV}))
 
 const serverConfigSchema = z.object({
     appUrl,
     mongodbUri: optionalCredential,
-    mongodbDatabase: z.string().min(1).default("playlistsync"),
+    mongodbDatabase: z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).default("playlistsyncer")),
     sessionSecret: optionalCredential,
     tokenEncryptionKey: optionalCredential,
     schedulerSecret: optionalCredential,
@@ -89,11 +92,6 @@ export type ServerConfig = z.infer<typeof serverConfigSchema>
 // Validate raw configuration values and apply documented defaults.
 export function parseServerConfig(values: Record<string, unknown>): ServerConfig {
     return serverConfigSchema.parse(values)
-}
-
-// Resolve the public application URL from supported environment names.
-export function resolveAppUrl(environment: Record<string, string | undefined>): string | undefined {
-    return environment.PLS_APP_URL
 }
 
 let cachedConfig: ServerConfig | undefined
