@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ArrowUpRight, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus, Trash2, Unlink} from "lucide-vue-next"
+import {ArrowUpRight, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus, Sparkles, Trash2, Unlink} from "lucide-vue-next"
 import type {ConnectedAccount, SessionUser} from "~/types/api"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
@@ -27,6 +27,8 @@ const errorMessage = ref("")
 const emailError = ref("")
 const displayNameError = ref("")
 const successMessage = ref(route.query.email === "confirmed" ? "Your email address is confirmed." : "")
+const proWelcome = ref(false)
+let checkoutRefreshTimer: ReturnType<typeof setTimeout> | undefined
 const emailInput = ref(auth.user?.tempEmail || "")
 const devConfirmationUrl = ref("")
 const emailDialogTitle = computed(() => (auth.user?.email ? "Change email address" : "Add email address"))
@@ -321,13 +323,41 @@ async function confirmDeleteAccount() {
     }
 }
 
-onMounted(() => refresh())
+// A direct Creem return can arrive before the webhook writes PRO, so re-read the account after a short delay.
+async function refreshAfterCheckout() {
+    try {
+        const result = await api<{user: SessionUser | null}>("/api/me")
+        if (!result.user) {
+            return
+        }
+        auth.setUser(result.user)
+        proWelcome.value = result.user.tier === "pro" && !result.user.developmentProOverride && !result.user.trialAccess
+    } catch {
+        // Keep the session already shown if the refresh fails.
+    }
+}
+
+onMounted(() => {
+    refresh()
+    if (route.query.checkout !== "success") {
+        return
+    }
+    checkoutRefreshTimer = setTimeout(() => {
+        void refreshAfterCheckout()
+    }, 4000)
+})
+
+onUnmounted(() => clearTimeout(checkoutRefreshTimer))
 </script>
 
 <template>
     <div class="shell page-shell">
         <PageHeading title="Account" description="Manage your music provider connections and account preferences." />
 
+        <div v-if="proWelcome" class="notice pro-welcome" role="status">
+            <Sparkles :size="18" aria-hidden="true" />
+            <strong>Thank you, welcome to PRO!</strong>
+        </div>
         <div v-if="needsEmail" class="notice" role="status">Your music service did not share an email address. Add one to finish setting up your account.</div>
         <div v-else-if="pendingEmail" class="notice" role="status">
             Confirm {{ auth.user?.tempEmail }} from the link we sent.{{ auth.user?.email ? " Your current address stays active until then." : " You can send another confirmation from Add email." }}

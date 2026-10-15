@@ -700,6 +700,19 @@ main {
     background: #fff8de;
     font-weight: 700;
 }
+.pro-welcome {
+    justify-content: flex-start;
+    gap: 12px;
+    color: #18380d;
+    border-color: var(--green);
+    background: var(--green-bright);
+    font-size: 1rem;
+    font-weight: 800;
+}
+.pro-welcome svg {
+    flex-shrink: 0;
+    color: var(--green);
+}
 .task-builder .notice {
     margin: 0 30px 24px;
 }
