@@ -15,8 +15,9 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3007
 ENV PLS_JSON_LOGGING=true
-# Bun closes idle requests after 10 s by default; 255 s is its maximum.
 ENV NITRO_BUN_IDLE_TIMEOUT=255
+ENV PM2_HOME=/tmp/.pm2
+
 COPY --from=builder --chown=bun:bun /app/.output ./.output
 COPY --from=builder --chown=bun:bun /app/server ./server
 COPY --from=builder --chown=bun:bun /app/shared ./shared
@@ -24,8 +25,11 @@ COPY --from=builder --chown=bun:bun /app/node_modules ./node_modules
 COPY --from=builder --chown=bun:bun /app/package.json ./package.json
 COPY --from=builder --chown=bun:bun /app/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=bun:bun /app/jobs.json ./jobs.json
+COPY --from=builder --chown=bun:bun /app/ecosystem.config.cjs ./ecosystem.config.cjs
+
 USER bun
+
 EXPOSE 3007
 EXPOSE 3008
-# Jobs override this with `bun run jobs`, which preloads the same file.
-CMD ["bun", "run", "--preload", "./server/preload.ts", ".output/server/index.mjs"]
+
+CMD ["bun", "node_modules/pm2/bin/pm2-runtime", "ecosystem.config.cjs"]

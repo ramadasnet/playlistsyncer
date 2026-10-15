@@ -3,6 +3,7 @@ services:
         container_name: playlistsyncer-app
         restart: unless-stopped
         build: .
+        command: ["bun", "run", "start"]
         env_file: .env
         environment:
             HOST: 0.0.0.0
