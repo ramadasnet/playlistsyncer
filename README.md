@@ -269,6 +269,8 @@ Prerequisites: Bun 1.4+ on the host, and a managed MongoDB (or MongoDB-compatibl
 
 ### Docker
 
+**Image file: `ghcr.io/ramadasnet/playlistsyncer:latest`**
+
 The `Dockerfile` builds one image for both processes. It sets `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=3007`, `PLS_JSON_LOGGING=true` and `NITRO_BUN_IDLE_TIMEOUT=255`. The default command starts the website. Start the jobs process from the same image with `bun run jobs`.
 
 On the server, copy `.env.example` to `.env` and fill in production values (`PLS_APP_URL` must be a public `https` origin). Docker reads `.env` literally, so do not put quotes around values.
