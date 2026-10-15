@@ -283,7 +283,7 @@ docker run -d --name playlistsyncer --restart unless-stopped \
 	--env-file .env -p 3007:3007 -p 127.0.0.1:3008:3008 playlistsyncer
 ```
 
-Or as two containers, so each process can be restarted and scaled on its own:
+Or as two containers, so each process can be restarted independently:
 
 ```bash
 docker run -d --name playlistsyncer-app --restart unless-stopped \
