@@ -1,14 +1,14 @@
 {
     "name": "playlistsyncer",
-    "version": "26.422.12134",
+    "version": "26.423.12233",
     "type": "module",
     "private": true,
     "scripts": {
         "build": "NITRO_PRESET=bun nuxt build",
         "check": "bun run typecheck && bun test",
-        "dev": "nuxt dev --host 0.0.0.0 --port 3007",
-        "jobs": "bun server/jobs/main.ts",
-        "start": "bun run .output/server/index.mjs",
+        "dev": "bun --preload ./server/preload.ts ./node_modules/.bin/nuxt dev --no-fork --host 0.0.0.0 --port 3007",
+        "jobs": "bun --preload ./server/preload.ts server/jobs/main.ts",
+        "start": "bun --preload ./server/preload.ts .output/server/index.mjs",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "generate": "nuxt generate",
@@ -18,15 +18,15 @@
         "typecheck": "nuxt typecheck"
     },
     "dependencies": {
-        "@pinia/nuxt": "^1.0.2",
+        "@pinia/nuxt": "^1.0.3",
         "anyhow": "^3.4.0",
         "creem": "^1.13.0",
         "lucide-vue-next": "^1.0.0",
         "mongodb": "^7.7.0",
-        "nodemailer": "^10.1.0",
+        "nodemailer": "^10.1.1",
         "nuxt": "^4.6.1",
         "oauth4webapi": "^3.8.8",
-        "pinia": "^4.0.3",
+        "pinia": "^4.1.0",
         "vue": "^3.5.44",
         "vue-router": "^5.4.0",
         "zod": "^4.6.7"
