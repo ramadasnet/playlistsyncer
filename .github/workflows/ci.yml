@@ -53,6 +53,7 @@ jobs:
               run: bun test --randomize
 
     docker:
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         needs: check
         runs-on: ubuntu-latest
         timeout-minutes: 60
