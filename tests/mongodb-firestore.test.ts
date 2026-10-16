@@ -1,6 +1,8 @@
-import {describe, expect, test} from "bun:test"
+import {describe, expect, spyOn, test} from "bun:test"
+import {ensureTtlIndexes} from "../server/data/collections"
 import {accountSyncPairField, accountSyncPairStorageKey} from "../server/domain/sync/account-sync-pair"
-import {firestoreMongoOptions, firestoreUriDatabase, isDuplicateKeyError, isFirestoreMongoUri} from "../server/utils/mongodb"
+import logger from "../server/utils/logger"
+import {firestoreMongoOptions, firestoreUriDatabase, isDuplicateKeyError, isFirestoreMongoUri, isTtlJobPrivilegeError} from "../server/utils/mongodb"
 
 const firestoreUri = "mongodb://f116f93a-519c-208a-9a72-3ef6c9a1f081.nam5.firestore.goog:443/playlistsync?loadBalanced=true&tls=true&retryWrites=false"
 
@@ -29,5 +31,34 @@ describe("Firestore MongoDB compatibility", () => {
         expect(isDuplicateKeyError({codeName: "DuplicateKey"})).toBe(true)
         expect(isDuplicateKeyError({code: 121})).toBe(false)
         expect(isDuplicateKeyError(new Error("duplicate"))).toBe(false)
+    })
+
+    test("recognizes a missing CREATE JOB privilege on a TTL index", () => {
+        const message = "Cannot create TTL indexes without CREATE JOB privilege"
+        expect(isTtlJobPrivilegeError({code: 67, message})).toBe(true)
+        expect(isTtlJobPrivilegeError({code: 67, errmsg: message})).toBe(true)
+        expect(isTtlJobPrivilegeError({code: 67, message: "invalid index spec"})).toBe(false)
+        expect(isTtlJobPrivilegeError({code: 85, message})).toBe(false)
+        expect(isTtlJobPrivilegeError(new Error(message))).toBe(false)
+    })
+})
+
+describe("TTL indexes", () => {
+    function privilegeError() {
+        return Promise.reject(Object.assign(new Error("Cannot create TTL indexes without CREATE JOB privilege"), {code: 67}))
+    }
+
+    test("continues when every TTL index lacks the CREATE JOB privilege", async () => {
+        const warn = spyOn(logger, "warn").mockImplementation(() => undefined)
+        try {
+            await ensureTtlIndexes([privilegeError(), privilegeError()])
+            expect(warn).toHaveBeenCalledWith("Database.indexes", "TTL indexes were not created because the database user lacks the CREATE JOB privilege. sync-cleanup deletes expired documents instead.")
+        } finally {
+            warn.mockRestore()
+        }
+    })
+
+    test("still fails startup on any other index error", async () => {
+        await expect(ensureTtlIndexes([privilegeError(), Promise.reject(Object.assign(new Error("invalid index spec"), {code: 67}))])).rejects.toThrow("invalid index spec")
     })
 })

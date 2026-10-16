@@ -2,9 +2,9 @@ import {afterAll, afterEach, describe, expect, test} from "bun:test"
 import {createError} from "h3"
 import {ObjectId} from "mongodb"
 import type {UserDocument} from "../shared/types/domain"
-import {collections, ensureIndexes} from "../server/data/collections"
+import {collections, ensureIndexes, syncRunRetentionSeconds} from "../server/data/collections"
 import type {OutboundEmail} from "../server/domain/mail/send"
-import {addMonths, buildInactiveAccountEmail, inactiveAccountDeletionDate, runSyncCleanup, syncCleanupDefaults} from "../server/domain/sync-cleanup"
+import {addMonths, buildInactiveAccountEmail, inactiveAccountDeletionDate, runSyncCleanup, syncCleanupDefaults, syncRunDeletionCutoff} from "../server/domain/sync-cleanup"
 import {closeDatabase} from "../server/utils/database"
 
 const globals = globalThis as Record<string, unknown>
@@ -21,6 +21,12 @@ describe("sync cleanup dates and email", () => {
     test("moves dates by calendar months in UTC", () => {
         expect(addMonths(new Date("2026-10-13T05:00:00.000Z"), -3)).toEqual(new Date("2026-07-13T05:00:00.000Z"))
         expect(addMonths(new Date("2026-10-13T05:00:00.000Z"), -12)).toEqual(new Date("2025-10-13T05:00:00.000Z"))
+    })
+
+    test("keeps the shorter of the configured sync-run retention and the 180-day cap", () => {
+        const now = new Date("2026-10-16T00:00:00.000Z")
+        expect(syncRunDeletionCutoff(now, 3)).toEqual(addMonths(now, -3))
+        expect(syncRunDeletionCutoff(now, 12)).toEqual(new Date(now.getTime() - syncRunRetentionSeconds * 1000))
     })
 
     test("deletes no sooner than the grace period after the warning", () => {
@@ -142,8 +148,69 @@ describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
 
         // A second run inside the grace period neither warns again nor deletes the warned user.
         const again = await runSyncCleanup({now, send: async (message) => (sent.push(message), true)})
-        expect(again).toEqual({runsDeleted: 0, usersDeleted: 0, usersWarned: 0, failed: 0})
+        expect(again).toEqual({runsDeleted: 0, sessionsDeleted: 0, oauthTransactionsDeleted: 0, searchMissesDeleted: 0, webhookEventsDeleted: 0, usersDeleted: 0, usersWarned: 0, failed: 0})
         expect(sent).toHaveLength(1)
+    })
+
+    test("deletes expired documents and sync runs older than the 180-day cap", async () => {
+        const db = await collections()
+        const userId = await createUser({lastLoginAt: now})
+        const taskId = await createTask(userId)
+        const suffix = new ObjectId().toHexString()
+        const cutoff = syncRunDeletionCutoff(now, 24)
+        const expiredRun = await createRun(taskId, new Date(cutoff.getTime() - 1000))
+        const keptRun = await createRun(taskId, new Date(cutoff.getTime() + 60_000))
+        const cipher = {version: 1, iv: "iv", ciphertext: "cipher"}
+        const expiredSession = (await db.sessions.insertOne({userId, tokenHash: `expired-${suffix}`, createdAt: now, expiresAt: new Date(now.getTime() - 1000)})).insertedId
+        const liveSession = (await db.sessions.insertOne({userId, tokenHash: `live-${suffix}`, createdAt: now, expiresAt: new Date(now.getTime() + 60_000)})).insertedId
+        const expiredOauth = (
+            await db.oauthTransactions.insertOne({
+                provider: "spotify",
+                stateHash: `expired-${suffix}`,
+                browserNonceHash: suffix,
+                codeVerifier: cipher,
+                redirectAfter: "/",
+                expiresAt: new Date(now.getTime() - 1000),
+                createdAt: now
+            })
+        ).insertedId
+        const liveOauth = (
+            await db.oauthTransactions.insertOne({
+                provider: "spotify",
+                stateHash: `live-${suffix}`,
+                browserNonceHash: suffix,
+                codeVerifier: cipher,
+                redirectAfter: "/",
+                expiresAt: new Date(now.getTime() + 60_000),
+                createdAt: now
+            })
+        ).insertedId
+        const expiredMiss = (await db.searchMisses.insertOne({providerAccountId: userId, key: `expired-${suffix}`, expiresAt: new Date(now.getTime() - 1000)})).insertedId
+        const liveMiss = (await db.searchMisses.insertOne({providerAccountId: userId, key: `live-${suffix}`, expiresAt: new Date(now.getTime() + 60_000)})).insertedId
+        const webhookCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+        const expiredWebhook = (await db.webhookEvents.insertOne({eventId: `expired-${suffix}`, type: "test", processedAt: new Date(webhookCutoff.getTime() - 1000)})).insertedId
+        const liveWebhook = (await db.webhookEvents.insertOne({eventId: `live-${suffix}`, type: "test", processedAt: new Date(webhookCutoff.getTime() + 60_000)})).insertedId
+
+        try {
+            await runSyncCleanup({now, options: {runRetentionMonths: 24}, send: async () => false})
+            expect(await db.syncRuns.findOne({_id: expiredRun})).toBeNull()
+            expect(await db.syncRuns.findOne({_id: keptRun})).not.toBeNull()
+            expect(await db.sessions.findOne({_id: expiredSession})).toBeNull()
+            expect(await db.sessions.findOne({_id: liveSession})).not.toBeNull()
+            expect(await db.oauthTransactions.findOne({_id: expiredOauth})).toBeNull()
+            expect(await db.oauthTransactions.findOne({_id: liveOauth})).not.toBeNull()
+            expect(await db.searchMisses.findOne({_id: expiredMiss})).toBeNull()
+            expect(await db.searchMisses.findOne({_id: liveMiss})).not.toBeNull()
+            expect(await db.webhookEvents.findOne({_id: expiredWebhook})).toBeNull()
+            expect(await db.webhookEvents.findOne({_id: liveWebhook})).not.toBeNull()
+        } finally {
+            await Promise.all([
+                db.sessions.deleteMany({_id: {$in: [expiredSession, liveSession]}}),
+                db.oauthTransactions.deleteMany({_id: {$in: [expiredOauth, liveOauth]}}),
+                db.searchMisses.deleteMany({_id: {$in: [expiredMiss, liveMiss]}}),
+                db.webhookEvents.deleteMany({_id: {$in: [expiredWebhook, liveWebhook]}})
+            ])
+        }
     })
 
     test("leaves users unwarned when mail is not configured", async () => {
