@@ -51,14 +51,15 @@ const canEditWeeklySummary = computed(() => auth.user?.tier === "pro" && Boolean
 const isPaidPro = computed(() => Boolean(auth.user?.tier === "pro" && !auth.user.developmentProOverride && !auth.user.trialAccess))
 const trialEndsAt = computed(() => complimentaryTrialEndsAt(auth.user?.proSubscriptionRequiredAt || String(runtimeConfig.public.proSubscriptionRequiredAt || "")))
 const billingCopy = computed(() => {
-    if (!auth.user?.email) {
-        return "Confirm an email address before upgrading."
-    }
-    if (auth.user.developmentProOverride) {
+    if (auth.user?.developmentProOverride) {
         return "PRO features are enabled by a local development override. No paid subscription is active."
     }
-    if (auth.user.trialAccess && trialEndsAt.value) {
-        return `PRO features are complimentary until ${formatTrialDate(trialEndsAt.value)} while PlaylistSyncer is being tested. Subscribe to keep them afterward.`
+    if (auth.user?.trialAccess && trialEndsAt.value) {
+        const promotion = `Your PRO account is free of charge until ${formatTrialDate(trialEndsAt.value)}. You will need to subscribe to keep PRO after that date.`
+        return auth.user.email ? promotion : `${promotion} Confirm an email address before subscribing.`
+    }
+    if (!auth.user?.email) {
+        return "Confirm an email address before upgrading."
     }
     if (auth.user.tier === "pro") {
         return `Unlimited pairs · sync ${everyLabel.value} · run history`
@@ -70,7 +71,7 @@ const billingTitle = computed(() => {
         return "Development PRO access"
     }
     if (auth.user?.trialAccess) {
-        return "Complimentary PRO trial"
+        return "Promotional PRO access"
     }
     return auth.user?.tier === "pro" ? "PRO plan" : "Free plan"
 })

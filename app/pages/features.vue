@@ -32,7 +32,10 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
         <PageHeading title="Features" description="Start for free with a single playlist synced once a week. Go PRO to get all the tidbits." />
 
         <div v-if="trialEndsAt" class="notice" role="status">
-            <span> Until {{ formatTrialDate(trialEndsAt) }}, every account includes complimentary PRO features. After that date, accounts without a valid subscription will revert to Free. </span>
+            <span
+                >Temporary promotion: getting a PRO account is free of charge until {{ formatTrialDate(trialEndsAt) }}. After that date, you will need a paid subscription ({{ proPrice }} / year) to keep PRO features, or your account will revert to
+                Free.</span
+            >
         </div>
 
         <section class="plan-grid" aria-label="Account plans">
@@ -44,10 +47,17 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
                 <NuxtLink class="button button-secondary" :to="auth.user ? '/sync' : '/login'">Start free <ArrowRight :size="17" /></NuxtLink>
             </article>
             <article class="plan-panel featured">
-                <p class="eyebrow light">PRO</p>
+                <p class="eyebrow light">{{ trialEndsAt ? "PRO · Temporary promotion" : "PRO" }}</p>
                 <h2>Sync everything</h2>
-                <p class="price">{{ proPrice }} / year</p>
-                <p>Unlimited playlist with synchronization {{ everyLabel }}, sync history, weekly summaries, and more!</p>
+                <p v-if="trialEndsAt" class="price">
+                    0 EUR <span>until {{ formatTrialDate(trialEndsAt) }} · then {{ proPrice }} / year</span>
+                </p>
+                <p v-else class="price">{{ proPrice }} / year</p>
+                <p>
+                    Unlimited playlist with synchronization {{ everyLabel }}, sync history, weekly summaries, and more!<template v-if="trialEndsAt">
+                        Free of charge until {{ formatTrialDate(trialEndsAt) }}; subscribe to keep PRO after that date.</template
+                    >
+                </p>
                 <NuxtLink class="button button-light" :to="auth.user ? '/account' : '/login?redirect=/account'">Get PRO <ArrowRight :size="17" /></NuxtLink>
             </article>
         </section>

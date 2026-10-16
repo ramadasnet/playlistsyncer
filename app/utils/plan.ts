@@ -18,7 +18,7 @@ export function planBadgeLabel(user: Pick<SessionUser, "tier" | "developmentProO
         return compact ? "PRO / DEV" : "PRO / DEVELOPMENT"
     }
     if (user.trialAccess) {
-        return "PRO / TRIAL"
+        return compact ? "PRO / PROMO" : "PRO / PROMOTION"
     }
     return user.tier
 }
