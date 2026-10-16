@@ -1,8 +1,11 @@
 // Keep sync tasks aligned with the user's current billing entitlement.
 import type {ObjectId} from "mongodb"
 import type {SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
+import {parseSubscriptionRequiredAt} from "../../../shared/trial"
 import {collections} from "../../data/collections"
+import {getServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
+import {isShuttingDown} from "../../utils/shutdown"
 import {idleLeaseFilter} from "../sync/task-activity"
 import {resolveEntitlement} from "./entitlement"
 
@@ -87,4 +90,42 @@ export async function applyTaskEntitlement(user: Pick<UserDocument, "_id" | "ema
         )
         logger.info("Billing.applyTaskEntitlement", `User ${user._id.toHexString()}`, `Restored free-tier task ${retainedTask._id?.toHexString()}`)
     }
+}
+
+/**
+ * Reverts accounts whose only PRO access was the complimentary promotion back to Free once that window has ended,
+ * by applying the Free-tier task locks without waiting for their next login or due sync.
+ * @param options.stopping Returns true when the process should stop before the next account. Defaults to process shutdown.
+ * @param options.now Instant to compare against the configured cutoff.
+ * @returns Accounts reverted, and whether the pass stopped early.
+ */
+export async function revertExpiredPromotionalAccess(options: {stopping?: () => boolean; now?: Date} = {}): Promise<{users: number; stopped: boolean}> {
+    const now = options.now ?? new Date()
+    // Without a configured cutoff there was no promotion, and an unexpired one still grants effective PRO.
+    const requiredAt = parseSubscriptionRequiredAt(getServerConfig().proSubscriptionRequiredAt)
+    if (!requiredAt || now < requiredAt) {
+        return {users: 0, stopped: false}
+    }
+    const stopping = options.stopping ?? isShuttingDown
+    const db = await collections()
+    // Paid accounts keep tier "pro" in the database; every "free" account's PRO access came from the promotion.
+    const candidates = await db.users.find({tier: "free"}).toArray()
+    let users = 0
+    let failed = 0
+    let stopped = false
+    for (const user of candidates) {
+        if (stopping()) {
+            stopped = true
+            break
+        }
+        try {
+            await applyTaskEntitlement(user)
+            users++
+        } catch (error) {
+            failed++
+            logger.error("Billing.revertPromotionalAccess", error, `User ${user._id?.toHexString()}`)
+        }
+    }
+    logger.info("Billing.revertPromotionalAccess", `Accounts ${users}`, stopped ? "Stopped early" : "Finished")
+    return {users, stopped}
 }

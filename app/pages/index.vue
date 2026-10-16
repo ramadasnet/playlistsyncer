@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import {ArrowRight, Check, RefreshCw} from "lucide-vue-next"
 import {formatProviderNames} from "~~/shared/types/domain"
+import {complimentaryTrialEndsAt, formatTrialDate} from "~/utils/plan"
 
+const config = useRuntimeConfig()
 const {enabledProviders} = await useEnabledProviders()
 const {everyLabel} = useProSyncCadence()
+const {data: trial} = await useFetch<{proSubscriptionRequiredAt?: string}>("/api/trial")
+const trialEndsAt = computed(() => complimentaryTrialEndsAt(trial.value?.proSubscriptionRequiredAt || String(config.public.proSubscriptionRequiredAt || "")))
 
 useSeoMeta({
     title: () => {
@@ -41,7 +45,11 @@ const auth = useAuthStore()
             <div class="section-intro">
                 <p class="eyebrow">As simple as it sounds</p>
                 <h2>How it works</h2>
-                <p>Start for free with a single playlist from one provider to another. Upgrade to PRO to unlock unlimited and improved syncing.</p>
+                <p>
+                    Start for free with a single playlist from one provider to another.<template v-if="trialEndsAt">
+                        During our temporary promotion, getting a PRO account is free of charge until {{ formatTrialDate(trialEndsAt) }} — a subscription is only needed to keep PRO after that date.</template
+                    ><template v-else> Upgrade to PRO to unlock unlimited and improved syncing.</template>
+                </p>
             </div>
             <ol class="workflow-steps">
                 <li>

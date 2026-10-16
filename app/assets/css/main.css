@@ -525,6 +525,11 @@ main {
     font-size: 0.85rem;
     font-weight: 500;
 }
+.plan-panel.featured .price span {
+    display: block;
+    margin-top: 6px;
+    color: rgba(255, 255, 255, 0.82);
+}
 .plan-panel .button {
     margin-top: 24px;
 }
