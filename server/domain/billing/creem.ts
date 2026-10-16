@@ -24,7 +24,15 @@ export function getCreem(): Creem {
     return creemClient
 }
 
-type CreemSubscription = Pick<SubscriptionEntity, "id" | "customer" | "status"> & Partial<Pick<SubscriptionEntity, "lastTransactionDate" | "nextTransactionDate" | "currentPeriodStartDate" | "currentPeriodEndDate" | "canceledAt">>
+type CreemSubscription = Pick<SubscriptionEntity, "id" | "customer" | "status"> & Partial<Pick<SubscriptionEntity, "updatedAt" | "lastTransactionDate" | "nextTransactionDate" | "currentPeriodStartDate" | "currentPeriodEndDate" | "canceledAt">>
+type ApplySubscriptionOptions = {
+    userId?: ObjectId
+    replaceDates?: boolean
+    // Skip the write when the account already stores a Creem update newer than this snapshot.
+    ifNotNewerThan?: Date
+    // Skip the write when the account no longer has this subscription id and Creem update time.
+    onlyIfUnchanged?: {subscriptionId: string; subscriptionUpdatedAt?: Date}
+}
 const paidStatuses = new Set(["active", "trialing", "scheduled_cancel"])
 const subscriptionDateFields = [
     ["lastTransactionDate", "creemLastTransactionDate"],
@@ -57,13 +65,24 @@ function dateUpdate(subscription: CreemSubscription, key: (typeof subscriptionDa
     return undefined
 }
 
+function keepsNewerSubscription(user: UserDocument, snapshotUpdatedAt: Date | undefined): boolean {
+    return snapshotUpdatedAt instanceof Date && user.creemSubscriptionUpdatedAt instanceof Date && user.creemSubscriptionUpdatedAt.getTime() > snapshotUpdatedAt.getTime()
+}
+
+function subscriptionUnchanged(user: UserDocument, expected: {subscriptionId: string; subscriptionUpdatedAt?: Date}): boolean {
+    return user.creemSubscriptionId === expected.subscriptionId && sameInstant(user.creemSubscriptionUpdatedAt, expected.subscriptionUpdatedAt ?? null)
+}
+
 /**
  * Persist subscription status and payment dates, then reconcile task entitlement.
  * Dates included on the subscription replace the stored ones. A full Creem read can also clear dates the payload omits.
+ * A snapshot older than the stored Creem update time is left unused, so a payment webhook is not overwritten.
  * @param options.userId Account to update when it is not yet linked by Creem customer id.
  * @param options.replaceDates Clear stored dates that this subscription does not include.
+ * @param options.ifNotNewerThan Creem update time of the snapshot. A newer stored update wins.
+ * @param options.onlyIfUnchanged Subscription id and Creem update time that must still be stored.
  */
-export async function applySubscription(subscription: CreemSubscription, status: string = subscription.status, options?: {userId?: ObjectId; replaceDates?: boolean}): Promise<"updated" | "unchanged" | "missing"> {
+export async function applySubscription(subscription: CreemSubscription, status: string = subscription.status, options?: ApplySubscriptionOptions): Promise<"updated" | "unchanged" | "missing" | "skipped"> {
     const isPaid = hasPaidEntitlement(status)
     const db = await collections()
     const customer = customerId(subscription.customer)
@@ -71,6 +90,14 @@ export async function applySubscription(subscription: CreemSubscription, status:
     if (!user?._id) {
         logger.warn("Creem.applySubscription", `Customer ${customer}`, "User not found")
         return "missing"
+    }
+    if (keepsNewerSubscription(user, options?.ifNotNewerThan)) {
+        logger.info("Creem.applySubscription", `User ${user._id.toHexString()}`, `Subscription ${subscription.id}`, "Kept a newer subscription update")
+        return "skipped"
+    }
+    if (options?.onlyIfUnchanged && !subscriptionUnchanged(user, options.onlyIfUnchanged)) {
+        logger.info("Creem.applySubscription", `User ${user._id.toHexString()}`, `Subscription ${subscription.id}`, "Kept a subscription change made after the missing check")
+        return "skipped"
     }
 
     const set: Partial<UserDocument> = {
@@ -80,10 +107,13 @@ export async function applySubscription(subscription: CreemSubscription, status:
     }
     if (customer) set.creemCustomerId = customer
     if (!isPaid) set.weeklySyncSummaryEnabled = false
+    if (subscription.updatedAt instanceof Date) set.creemSubscriptionUpdatedAt = subscription.updatedAt
 
     let changed = false
     for (const [key, value] of Object.entries(set) as [keyof UserDocument, unknown][]) {
-        if (user[key] !== value) changed = true
+        if (value instanceof Date) {
+            if (!sameInstant(user[key], value)) changed = true
+        } else if (user[key] !== value) changed = true
     }
     const unset: {[key: string]: ""} = {}
     for (const [sourceKey, storedKey] of subscriptionDateFields) {
@@ -100,7 +130,24 @@ export async function applySubscription(subscription: CreemSubscription, status:
 
     if (changed) {
         set.updatedAt = new Date()
-        await db.users.updateOne({_id: user._id}, Object.keys(unset).length ? {$set: set, $unset: unset} : {$set: set})
+        const writeFilter: {
+            _id: ObjectId
+            creemSubscriptionId?: string
+            creemSubscriptionUpdatedAt?: Date | {$exists: false}
+            $or?: Array<{creemSubscriptionUpdatedAt: {$exists: false} | {$lte: Date}}>
+        } = {_id: user._id}
+        if (options?.ifNotNewerThan instanceof Date) {
+            writeFilter.$or = [{creemSubscriptionUpdatedAt: {$exists: false}}, {creemSubscriptionUpdatedAt: {$lte: options.ifNotNewerThan}}]
+        }
+        if (options?.onlyIfUnchanged) {
+            writeFilter.creemSubscriptionId = options.onlyIfUnchanged.subscriptionId
+            writeFilter.creemSubscriptionUpdatedAt = options.onlyIfUnchanged.subscriptionUpdatedAt instanceof Date ? options.onlyIfUnchanged.subscriptionUpdatedAt : {$exists: false}
+        }
+        const written = await db.users.updateOne(writeFilter, Object.keys(unset).length ? {$set: set, $unset: unset} : {$set: set})
+        if (!written.matchedCount) {
+            logger.info("Creem.applySubscription", `User ${user._id.toHexString()}`, `Subscription ${subscription.id}`, "Kept a newer subscription update")
+            return "skipped"
+        }
         logger.info("Creem.applySubscription", `User ${user._id.toHexString()}`, `Subscription ${subscription.id}`, `Status ${status}`, `Tier ${isPaid ? "pro" : "free"}`)
     }
     // Run even when the subscription row already matches, so a retry can finish task changes the previous attempt missed.

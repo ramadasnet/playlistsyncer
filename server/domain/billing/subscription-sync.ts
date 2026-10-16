@@ -130,7 +130,7 @@ export async function syncCreemSubscriptions(input: {source: CreemSubscriptionSo
     }
 
     const db = await collections()
-    const missingUsers: UserDocument[] = []
+    const missingUsers: {userId: ObjectId; subscriptionId: string; customerId?: string; subscriptionUpdatedAt?: Date}[] = []
     const local = await db.users.find({creemSubscriptionId: {$type: "string", $nin: [...seen]}}).toArray()
     for (const user of local) {
         if (stopping()) {
@@ -146,8 +146,8 @@ export async function syncCreemSubscriptions(input: {source: CreemSubscriptionSo
             const customer = customerId(subscription.customer)
             chosen.set(customer, preferSubscription(chosen.get(customer), subscription))
         } catch (error) {
-            if (isMissingSubscription(error)) {
-                missingUsers.push(user)
+            if (isMissingSubscription(error) && user._id && user.creemSubscriptionId) {
+                missingUsers.push({userId: user._id, subscriptionId: user.creemSubscriptionId, customerId: user.creemCustomerId, subscriptionUpdatedAt: user.creemSubscriptionUpdatedAt})
                 continue
             }
             result.failed++
@@ -178,7 +178,11 @@ export async function syncCreemSubscriptions(input: {source: CreemSubscriptionSo
     const appliedUserIds = new Set<string>()
     for (const {user, subscription} of byUser.values()) {
         try {
-            const outcome = await applySubscription(subscription, subscription.status, {userId: user._id, replaceDates: true})
+            const outcome = await applySubscription(subscription, subscription.status, {userId: user._id, replaceDates: true, ifNotNewerThan: subscription.updatedAt})
+            if (outcome === "skipped") {
+                result.unchanged++
+                continue
+            }
             if (outcome === "missing") {
                 result.unmatched++
                 continue
@@ -196,16 +200,24 @@ export async function syncCreemSubscriptions(input: {source: CreemSubscriptionSo
             result.stopped = true
             break
         }
-        if (!user._id || !user.creemSubscriptionId || appliedUserIds.has(user._id.toHexString())) continue
-        result.missing++
+        if (appliedUserIds.has(user.userId.toHexString())) continue
         try {
-            logger.warn("Billing.subscriptionSync", `User ${user._id.toHexString()}`, `Subscription ${user.creemSubscriptionId}`, "Creem has no subscription; marking it canceled")
-            const outcome = await applySubscription({id: user.creemSubscriptionId, customer: user.creemCustomerId ?? "", status: "canceled"}, "canceled", {userId: user._id, replaceDates: true})
+            const outcome = await applySubscription({id: user.subscriptionId, customer: user.customerId ?? "", status: "canceled"}, "canceled", {
+                userId: user.userId,
+                replaceDates: true,
+                onlyIfUnchanged: {subscriptionId: user.subscriptionId, subscriptionUpdatedAt: user.subscriptionUpdatedAt}
+            })
+            if (outcome === "skipped") {
+                result.unchanged++
+                continue
+            }
+            result.missing++
+            logger.warn("Billing.subscriptionSync", `User ${user.userId.toHexString()}`, `Subscription ${user.subscriptionId}`, "Creem has no subscription; marking it canceled")
             if (outcome === "missing") result.unmatched++
             else result[outcome]++
         } catch (error) {
             result.failed++
-            logger.error("Billing.subscriptionSync", `User ${user._id.toHexString()}`, `Subscription ${user.creemSubscriptionId}`, error)
+            logger.error("Billing.subscriptionSync", `User ${user.userId.toHexString()}`, `Subscription ${user.subscriptionId}`, error)
         }
     }
     return result

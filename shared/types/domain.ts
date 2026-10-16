@@ -101,6 +101,8 @@ export interface UserDocument {
     creemCustomerId?: string
     creemSubscriptionId?: string
     creemSubscriptionStatus?: string
+    // Creem's updatedAt for the subscription last stored. A sync will not overwrite a newer one.
+    creemSubscriptionUpdatedAt?: Date
     // Payment dates copied from Creem. Absent when that subscription has no such date.
     creemLastTransactionDate?: Date
     creemNextTransactionDate?: Date

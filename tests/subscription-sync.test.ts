@@ -9,10 +9,15 @@ import {syncCreemSubscriptions, type CreemSubscriptionSource} from "../server/do
 
 const users: UserDocument[] = []
 const productId = "prod_pro"
+let beforeNextUserRead: (() => void) | undefined
 
 const db = {
     users: {
-        findOne: async (filter: Filter<UserDocument>) => users.find((user) => matches(user, filter)),
+        findOne: async (filter: Filter<UserDocument>) => {
+            beforeNextUserRead?.()
+            beforeNextUserRead = undefined
+            return users.find((user) => matches(user, filter))
+        },
         find: (filter: Filter<UserDocument>) => ({
             limit(count: number) {
                 return {toArray: async () => users.filter((user) => matches(user, filter)).slice(0, count)}
@@ -43,17 +48,32 @@ function matches(user: UserDocument, filter: Filter<UserDocument>): boolean {
         _id?: ObjectId
         creemCustomerId?: string
         email?: string
-        creemSubscriptionId?: {$type?: string; $nin?: string[]}
+        creemSubscriptionId?: string | {$type?: string; $nin?: string[]}
+        creemSubscriptionUpdatedAt?: Date | {$exists?: boolean; $lte?: Date}
+        $or?: Filter<UserDocument>[]
+    }
+    if (query.$or) {
+        const {$or, ...rest} = query
+        return matches(user, rest) && $or.some((clause) => matches(user, clause))
     }
     if (query._id && !user._id?.equals(query._id)) return false
     if (query.creemCustomerId !== undefined && user.creemCustomerId !== query.creemCustomerId) return false
     if (query.email !== undefined && user.email !== query.email) return false
     const subscription = query.creemSubscriptionId
+    if (typeof subscription === "string" && user.creemSubscriptionId !== subscription) return false
     if (subscription && typeof subscription === "object") {
         if (subscription.$type === "string" && typeof user.creemSubscriptionId !== "string") return false
         if (subscription.$nin?.includes(user.creemSubscriptionId ?? "")) return false
     }
+    if ("creemSubscriptionUpdatedAt" in query && !matchesUpdatedAt(user.creemSubscriptionUpdatedAt, query.creemSubscriptionUpdatedAt)) return false
     return true
+}
+
+function matchesUpdatedAt(value: Date | undefined, expected: Date | {$exists?: boolean; $lte?: Date} | undefined): boolean {
+    if (expected instanceof Date) return value instanceof Date && value.getTime() === expected.getTime()
+    if (expected && typeof expected === "object" && "$exists" in expected) return expected.$exists === value instanceof Date
+    if (expected && typeof expected === "object" && expected.$lte instanceof Date) return value instanceof Date && value.getTime() <= expected.$lte.getTime()
+    return !(value instanceof Date)
 }
 
 function addUser(fields: Partial<UserDocument> = {}): UserDocument {
@@ -93,7 +113,10 @@ function notFound(): CreemError {
 }
 
 describe("subscription sync", () => {
-    beforeEach(() => users.splice(0))
+    beforeEach(() => {
+        users.splice(0)
+        beforeNextUserRead = undefined
+    })
 
     test("writes status and payment dates, then leaves an unchanged account alone", async () => {
         const user = addUser({email: "listener@example.com", creemCustomerId: "cus-1", creemSubscriptionStatus: "canceled", tier: "free", creemNextTransactionDate: new Date("2026-02-01T00:00:00.000Z")})
@@ -125,6 +148,7 @@ describe("subscription sync", () => {
         expect(user.creemLastTransactionDate).toEqual(lastPaid)
         expect(user.creemCurrentPeriodEndDate).toEqual(periodEnd)
         expect(user.creemNextTransactionDate).toBeUndefined()
+        expect(user.creemSubscriptionUpdatedAt).toEqual(new Date("2026-06-01T00:00:00.000Z"))
 
         const updatedAt = user.updatedAt
         const second = await syncCreemSubscriptions({source, productId})
@@ -219,6 +243,47 @@ describe("subscription sync", () => {
         expect(user.weeklySyncSummaryEnabled).toBe(false)
         expect(user.creemNextTransactionDate).toBeUndefined()
         expect(user.creemSubscriptionId).toBe("sub-gone")
+    })
+
+    test("keeps a payment that arrived after the Creem snapshot was read", async () => {
+        const paidAt = new Date("2026-10-01T00:00:00.000Z")
+        const user = addUser({creemCustomerId: "cus-1", creemSubscriptionId: "sub-1", creemSubscriptionStatus: "active", creemSubscriptionUpdatedAt: paidAt, tier: "pro"})
+        const source: CreemSubscriptionSource = {
+            search: async () => page([subscription({status: "canceled", updatedAt: new Date("2026-09-01T00:00:00.000Z")})], null),
+            get: async () => {
+                throw new Error("the stored subscription was listed")
+            }
+        }
+
+        const result = await syncCreemSubscriptions({source, productId})
+        expect(result).toMatchObject({updated: 0, unchanged: 1})
+        expect(user.tier).toBe("pro")
+        expect(user.creemSubscriptionStatus).toBe("active")
+        expect(user.creemSubscriptionUpdatedAt).toEqual(paidAt)
+    })
+
+    test("does not cancel a subscription that changed after Creem reported it missing", async () => {
+        const seenAt = new Date("2026-08-01T00:00:00.000Z")
+        const paidAt = new Date("2026-10-01T00:00:00.000Z")
+        const user = addUser({creemCustomerId: "cus-1", creemSubscriptionId: "sub-gone", creemSubscriptionStatus: "active", creemSubscriptionUpdatedAt: seenAt, tier: "pro"})
+        const source: CreemSubscriptionSource = {
+            search: async () => page([], null),
+            get: async () => {
+                beforeNextUserRead = () => {
+                    user.creemSubscriptionId = "sub-paid"
+                    user.creemSubscriptionStatus = "active"
+                    user.creemSubscriptionUpdatedAt = paidAt
+                    user.tier = "pro"
+                }
+                throw notFound()
+            }
+        }
+
+        const result = await syncCreemSubscriptions({source, productId})
+        expect(result).toMatchObject({missing: 0, updated: 0, unchanged: 1})
+        expect(user.creemSubscriptionId).toBe("sub-paid")
+        expect(user.creemSubscriptionStatus).toBe("active")
+        expect(user.tier).toBe("pro")
     })
 
     test("does not cancel stored subscriptions when the Creem list stops early", async () => {
