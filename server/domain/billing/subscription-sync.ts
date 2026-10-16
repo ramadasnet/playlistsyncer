@@ -156,8 +156,16 @@ export async function syncCreemSubscriptions(input: {source: CreemSubscriptionSo
     }
 
     // The list is complete, so a later page cannot overturn a status written here. Downgrades still wait until every stored id is checked.
+    if (result.stopped || stopping()) {
+        result.stopped = true
+        return result
+    }
     const byUser = new Map<string, {user: UserDocument; subscription: SubscriptionEntity}>()
     for (const subscription of chosen.values()) {
+        if (stopping()) {
+            result.stopped = true
+            break
+        }
         const customer = customerId(subscription.customer)
         try {
             const user = await findSubscriptionUser(subscription)
@@ -174,9 +182,14 @@ export async function syncCreemSubscriptions(input: {source: CreemSubscriptionSo
             logger.error("Billing.subscriptionSync", `Subscription ${subscription.id}`, `Customer ${customer}`, error)
         }
     }
+    if (result.stopped) return result
 
     const appliedUserIds = new Set<string>()
     for (const {user, subscription} of byUser.values()) {
+        if (stopping()) {
+            result.stopped = true
+            break
+        }
         try {
             const outcome = await applySubscription(subscription, subscription.status, {userId: user._id, replaceDates: true, ifNotNewerThan: subscription.updatedAt})
             if (outcome === "skipped") {

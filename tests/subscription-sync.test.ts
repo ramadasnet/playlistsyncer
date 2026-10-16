@@ -286,6 +286,52 @@ describe("subscription sync", () => {
         expect(user.tier).toBe("pro")
     })
 
+    test("does not update accounts after shutdown has started", async () => {
+        const user = addUser({creemCustomerId: "cus-1", creemSubscriptionId: "sub-1", creemSubscriptionStatus: "active", tier: "pro"})
+        let listed = false
+        const source: CreemSubscriptionSource = {
+            search: async () => {
+                listed = true
+                return page([subscription({status: "canceled"})], null)
+            },
+            get: async () => {
+                throw new Error("the stored subscription was listed")
+            }
+        }
+
+        const result = await syncCreemSubscriptions({source, productId, stopping: () => listed})
+        expect(result.stopped).toBe(true)
+        expect(result.updated).toBe(0)
+        expect(user.tier).toBe("pro")
+        expect(user.creemSubscriptionStatus).toBe("active")
+    })
+
+    test("stops before the next account when shutdown starts during updates", async () => {
+        const first = addUser({creemCustomerId: "cus-1", creemSubscriptionStatus: "canceled", tier: "free"})
+        const second = addUser({creemCustomerId: "cus-2", creemSubscriptionStatus: "canceled", tier: "free"})
+        let stop = false
+        const previous = db.users.updateOne
+        db.users.updateOne = async (filter, update) => {
+            const written = await previous(filter, update)
+            stop = true
+            return written
+        }
+        try {
+            const source: CreemSubscriptionSource = {
+                search: async () => page([subscription({id: "sub-1", customer: "cus-1", status: "active"}), subscription({id: "sub-2", customer: "cus-2", status: "active"})], null),
+                get: async () => {
+                    throw new Error("both subscriptions were listed")
+                }
+            }
+            const result = await syncCreemSubscriptions({source, productId, stopping: () => stop})
+            expect(result.stopped).toBe(true)
+            expect(result.updated).toBe(1)
+            expect([first.tier, second.tier].sort()).toEqual(["free", "pro"])
+        } finally {
+            db.users.updateOne = previous
+        }
+    })
+
     test("does not cancel stored subscriptions when the Creem list stops early", async () => {
         const user = addUser({creemCustomerId: "cus-1", creemSubscriptionId: "sub-local", creemSubscriptionStatus: "active", tier: "pro"})
         let pages = 0
