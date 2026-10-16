@@ -60,7 +60,7 @@ Indexes enforce unique users, provider identities, sessions, OAuth states, snaps
 - PRO: unlimited playlist-pair and whole-account tasks, scheduled every 720 minutes (12 hours) by default, with no manual-run cooldown. Every account can open the latest run's added, removed, and unmatched tracks. Browsing past runs is a PRO feature. An optional weekly email lists playlists and tracks added or removed, and is sent only when there were changes.
 - Complimentary trial: set `PLS_PRO_SUBSCRIPTION_REQUIRED_AT` to an ISO 8601 instant. Until that moment, every account has effective PRO access without a subscription and can still start checkout to keep PRO afterward.
 
-Creem webhook events are the source of truth for paid entitlement. The `subscription-sync` job re-reads Creem on the 1st and 15th and repairs a status or payment date that a missed webhook left behind. Downgrades and the end of the complimentary trial retain tasks and history. Extra playlist-pair tasks and every whole-account task are paused with an entitlement lock: they cannot run or be edited, and the UI explains that a PRO subscription is needed. The earliest playlist-pair task stays enabled on Free. In local development, `PLS_DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
+Creem webhook events are the source of truth for paid entitlement. The `subscription-sync` job re-reads Creem on the 1st and 15th, repairs a status or payment date that a missed webhook left behind, and reverts expired promotional PRO access: once `PLS_PRO_SUBSCRIPTION_REQUIRED_AT` has passed, every account without a paid subscription gets the Free-tier task locks without waiting for its next login, and a paid subscription the same Creem read finds resumes those tasks. Downgrades and the end of the complimentary trial retain tasks and history. Extra playlist-pair tasks and every whole-account task are paused with an entitlement lock: they cannot run or be edited, and the UI explains that a PRO subscription is needed. The earliest playlist-pair task stays enabled on Free. In local development, `PLS_DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
 
 ## Authentication and security
 
@@ -357,13 +357,15 @@ Scheduled work runs inside the jobs process (`bun run jobs`), not in the website
 | `weekly-sync-summary` | Weekly PRO playlist summaries for up to `limit` accounts (default 25, maximum 100) | `limit`                                |
 | `sync-task`           | One synchronization task                                                           | `id` (required): the task's MongoDB id |
 | `sync-cleanup`        | Deletes expired documents, old sync runs, and inactive users without tasks         | See below                              |
-| `subscription-sync`   | Reconciles Creem subscription status and payment dates onto each account           | None                                   |
+| `subscription-sync`   | Reconciles Creem subscriptions and reverts expired promotional PRO access          | None                                   |
 
 `schedule` is a 5-field cron expression (`minute hour day month weekday`) evaluated in UTC, or one of `@hourly`, `@daily`, `@weekly`, and `@monthly`. When both day-of-month and weekday are restricted, the job runs if either matches. A job that is still running when its next tick arrives is skipped until it finishes. The committed file runs `sync-due` at the top of every hour, `weekly-sync-summary` at 15 minutes past every hour, `sync-cleanup` every Sunday and Wednesday at 05:00 UTC, and `subscription-sync` at 06:00 UTC on the 1st and 15th.
 
 `PLS_TASKSYNC_INTERVAL` still sets how long after a successful PRO sync that task becomes due again. The cron expression only decides how often the jobs process looks for due work. Hourly is enough for the default 720-minute interval. Weekly summaries can run hourly too: each opted-in PRO account is due only every seven days, and a call with no changes does not send mail.
 
 `subscription-sync` lists subscriptions from Creem and writes the current status, billing period, and payment dates onto the matching account. A paid status (`active`, `trialing`, or `scheduled_cancel`) keeps PRO. Any other status returns the account to Free. Accounts are matched by Creem customer id, then by the `userId` saved at checkout, then by email when exactly one account has that address. A stored subscription that Creem no longer has is marked canceled. Subscriptions for a product other than `PLS_CREEM_PRO_PRODUCT_ID` are left untouched. When several subscriptions belong to one account, the one that still grants PRO wins.
+
+The run first reverts expired promotional PRO access: once `PLS_PRO_SUBSCRIPTION_REQUIRED_AT` has passed, every account still on the Free tier (whose PRO access came only from the promotion) has its extra sync tasks entitlement-locked, so the downgrade is enforced even for accounts that never log in again. A paid subscription the same Creem read finds resumes those tasks within the run.
 
 If `jobs.json` is missing, the process still serves the HTTP endpoints and does not run jobs on its own. An invalid file stops startup.
 
@@ -410,7 +412,7 @@ Jobs process (`PLS_JOBS_PORT`):
 - `POST /api/jobs/sync-task/:id`: authenticated run of one task
 - `POST /api/jobs/weekly-sync-summary`: authenticated weekly PRO sync summary emails
 - `POST /api/jobs/sync-cleanup`: authenticated cleanup of old sync runs, other expired documents, and inactive users, with the default parameters
-- `POST /api/jobs/subscription-sync`: authenticated Creem subscription reconciliation
+- `POST /api/jobs/subscription-sync`: authenticated Creem subscription reconciliation and expired-promotion revert
 
 ## Deployment notes
 
