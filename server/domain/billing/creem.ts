@@ -2,6 +2,7 @@
 import {Creem, HTTPClient} from "creem"
 import type {SubscriptionEntity, WebhookEventEntity} from "creem/models/components"
 import {ObjectId} from "mongodb"
+import type {UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import {getServerConfig, requireConfig} from "../../utils/config"
 import {fetchWithRetry} from "../../utils/fetch-retry"
@@ -23,8 +24,15 @@ export function getCreem(): Creem {
     return creemClient
 }
 
-type CreemSubscription = Pick<SubscriptionEntity, "id" | "customer" | "status">
+type CreemSubscription = Pick<SubscriptionEntity, "id" | "customer" | "status"> & Partial<Pick<SubscriptionEntity, "lastTransactionDate" | "nextTransactionDate" | "currentPeriodStartDate" | "currentPeriodEndDate" | "canceledAt">>
 const paidStatuses = new Set(["active", "trialing", "scheduled_cancel"])
+const subscriptionDateFields = [
+    ["lastTransactionDate", "creemLastTransactionDate"],
+    ["nextTransactionDate", "creemNextTransactionDate"],
+    ["currentPeriodStartDate", "creemCurrentPeriodStartDate"],
+    ["currentPeriodEndDate", "creemCurrentPeriodEndDate"],
+    ["canceledAt", "creemCanceledAt"]
+] as const
 
 // Identify subscription states that grant PRO access.
 export function hasPaidEntitlement(status: string): boolean {
@@ -35,29 +43,69 @@ function customerId(customer: CreemSubscription["customer"]): string {
     return typeof customer === "string" ? customer : customer.id
 }
 
-// Persist subscription status and reconcile the user's task entitlement.
-export async function applySubscription(subscription: CreemSubscription, status: string = subscription.status): Promise<void> {
+function sameInstant(left: unknown, right: Date | null): boolean {
+    const leftTime = left instanceof Date ? left.getTime() : undefined
+    const rightTime = right instanceof Date ? right.getTime() : undefined
+    return leftTime === rightTime
+}
+
+// A Date is stored, null clears the stored date, and undefined leaves it alone.
+function dateUpdate(subscription: CreemSubscription, key: (typeof subscriptionDateFields)[number][0], replaceMissing: boolean): Date | null | undefined {
+    const value = subscription[key]
+    if (value instanceof Date) return value
+    if (value === null || replaceMissing) return null
+    return undefined
+}
+
+/**
+ * Persist subscription status and payment dates, then reconcile task entitlement.
+ * Dates included on the subscription replace the stored ones. A full Creem read can also clear dates the payload omits.
+ * @param options.userId Account to update when it is not yet linked by Creem customer id.
+ * @param options.replaceDates Clear stored dates that this subscription does not include.
+ */
+export async function applySubscription(subscription: CreemSubscription, status: string = subscription.status, options?: {userId?: ObjectId; replaceDates?: boolean}): Promise<"updated" | "unchanged" | "missing"> {
     const isPaid = hasPaidEntitlement(status)
     const db = await collections()
-    const user = await db.users.findOneAndUpdate(
-        {creemCustomerId: customerId(subscription.customer)},
-        {
-            $set: {
-                creemSubscriptionId: subscription.id,
-                creemSubscriptionStatus: status,
-                tier: isPaid ? "pro" : "free",
-                ...(isPaid ? {} : {weeklySyncSummaryEnabled: false}),
-                updatedAt: new Date()
-            }
-        },
-        {returnDocument: "after"}
-    )
-    if (!user) {
-        logger.warn("Creem.applySubscription", `Customer ${customerId(subscription.customer)}`, "User not found")
-        return
+    const customer = customerId(subscription.customer)
+    const user = await db.users.findOne(options?.userId ? {_id: options.userId} : {creemCustomerId: customer})
+    if (!user?._id) {
+        logger.warn("Creem.applySubscription", `Customer ${customer}`, "User not found")
+        return "missing"
     }
-    logger.info("Creem.applySubscription", `User ${user._id!.toHexString()}`, `Subscription ${subscription.id}`, `Status ${status}`, `Tier ${isPaid ? "pro" : "free"}`)
-    await applyTaskEntitlement(user)
+
+    const set: Partial<UserDocument> = {
+        creemSubscriptionId: subscription.id,
+        creemSubscriptionStatus: status,
+        tier: isPaid ? "pro" : "free"
+    }
+    if (customer) set.creemCustomerId = customer
+    if (!isPaid) set.weeklySyncSummaryEnabled = false
+
+    let changed = false
+    for (const [key, value] of Object.entries(set) as [keyof UserDocument, unknown][]) {
+        if (user[key] !== value) changed = true
+    }
+    const unset: {[key: string]: ""} = {}
+    for (const [sourceKey, storedKey] of subscriptionDateFields) {
+        const value = dateUpdate(subscription, sourceKey, options?.replaceDates ?? false)
+        if (value === undefined) continue
+        if (value instanceof Date) {
+            set[storedKey] = value
+            if (!sameInstant(user[storedKey], value)) changed = true
+        } else {
+            unset[storedKey] = ""
+            if (user[storedKey] instanceof Date) changed = true
+        }
+    }
+
+    if (changed) {
+        set.updatedAt = new Date()
+        await db.users.updateOne({_id: user._id}, Object.keys(unset).length ? {$set: set, $unset: unset} : {$set: set})
+        logger.info("Creem.applySubscription", `User ${user._id.toHexString()}`, `Subscription ${subscription.id}`, `Status ${status}`, `Tier ${isPaid ? "pro" : "free"}`)
+    }
+    // Run even when the subscription row already matches, so a retry can finish task changes the previous attempt missed.
+    await applyTaskEntitlement({...user, ...set})
+    return changed ? "updated" : "unchanged"
 }
 
 // Deduplicate and process one verified Creem webhook event.

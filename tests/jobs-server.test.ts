@@ -50,6 +50,8 @@ describe("jobs server", () => {
     test("rejects scheduled calls that do not carry the scheduler secret", async () => {
         const missing = await fetch(`http://127.0.0.1:${port}/api/jobs/sync-due`, {method: "POST"})
         expect(missing.status).toBe(401)
+        const subscriptionSync = await fetch(`http://127.0.0.1:${port}/api/jobs/subscription-sync`, {method: "POST"})
+        expect(subscriptionSync.status).toBe(401)
         const wrong = await fetch(`http://127.0.0.1:${port}/api/jobs/sync-due`, {
             method: "POST",
             headers: {authorization: "Bearer wrong-secret"}

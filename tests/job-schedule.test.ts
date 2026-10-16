@@ -76,7 +76,8 @@ describe("jobs.json", () => {
         expect(jobs.map((job) => [job.name, job.schedule])).toEqual([
             ["sync-due", "0 * * * *"],
             ["weekly-sync-summary", "15 * * * *"],
-            ["sync-cleanup", "0 5 * * SUN,WED"]
+            ["sync-cleanup", "0 5 * * SUN,WED"],
+            ["subscription-sync", "0 6 1,15 * *"]
         ])
         expect(jobs[0]?.parameters).toEqual({limit: 10})
         expect(jobs[1]?.parameters).toEqual({limit: 25})
@@ -86,6 +87,11 @@ describe("jobs.json", () => {
         expect(cronMatches(cleanup, new Date("2026-10-14T05:00:00.000Z"))).toBe(true)
         expect(cronMatches(cleanup, new Date("2026-10-12T05:00:00.000Z"))).toBe(false)
         expect(cronMatches(cleanup, new Date("2026-10-11T06:00:00.000Z"))).toBe(false)
+        const subscriptionSync = jobs[3]!.cron
+        expect(cronMatches(subscriptionSync, new Date("2026-10-01T06:00:00.000Z"))).toBe(true)
+        expect(cronMatches(subscriptionSync, new Date("2026-10-15T06:00:00.000Z"))).toBe(true)
+        expect(cronMatches(subscriptionSync, new Date("2026-10-02T06:00:00.000Z"))).toBe(false)
+        expect(cronMatches(subscriptionSync, new Date("2026-10-15T05:00:00.000Z"))).toBe(false)
     })
 
     test("returns no jobs when the file is missing", async () => {
@@ -104,6 +110,7 @@ describe("jobs.json", () => {
         await withJobsFile(`[{"name":"sync-due","schedule":"nope"}]`, (path) => expect(() => loadJobSchedule(path)).toThrow("sync-due schedule"))
         await withJobsFile(`[{"name":"sync-due","schedule":"@hourly","parameters":{"limit":0}}]`, (path) => expect(() => loadJobSchedule(path)).toThrow("sync-due parameters"))
         await withJobsFile(`[{"name":"sync-task","schedule":"@daily"}]`, (path) => expect(() => loadJobSchedule(path)).toThrow("sync-task parameters"))
+        await withJobsFile(`[{"name":"subscription-sync","schedule":"0 6 1,15 * *","parameters":{"limit":1}}]`, (path) => expect(() => loadJobSchedule(path)).toThrow("subscription-sync parameters"))
         const id = new ObjectId().toHexString()
         await withJobsFile(`[{"name":"sync-task","schedule":"@daily","parameters":{"id":"${id}"}}]`, (path) => {
             expect(loadJobSchedule(path)[0]?.parameters).toEqual({id})

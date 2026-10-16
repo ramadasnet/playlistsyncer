@@ -101,6 +101,12 @@ export interface UserDocument {
     creemCustomerId?: string
     creemSubscriptionId?: string
     creemSubscriptionStatus?: string
+    // Payment dates copied from Creem. Absent when that subscription has no such date.
+    creemLastTransactionDate?: Date
+    creemNextTransactionDate?: Date
+    creemCurrentPeriodStartDate?: Date
+    creemCurrentPeriodEndDate?: Date
+    creemCanceledAt?: Date
     lastLoginAt?: Date
     // Set when the inactive account warning was sent; cleared on the next login.
     inactivityWarningSentAt?: Date
