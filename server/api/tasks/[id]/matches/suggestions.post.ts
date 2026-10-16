@@ -9,7 +9,8 @@ const suggestionSchema = z.object({
     runId: z.string().min(1).optional(),
     playlistId: z.string().min(1),
     providerTrackId: z.string().min(1),
-    providerItemId: z.string().min(1).optional()
+    providerItemId: z.string().min(1).optional(),
+    query: z.string().trim().min(1).max(200).optional()
 })
 
 export default defineEventHandler(async (event) => {

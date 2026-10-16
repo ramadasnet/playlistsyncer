@@ -1123,6 +1123,9 @@ main {
     min-width: 0;
     flex: 1;
 }
+.similar-track-copy > span {
+    overflow-wrap: anywhere;
+}
 .similar-track .button {
     flex: 0 0 auto;
     gap: 6px;
@@ -1131,9 +1134,54 @@ main {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    min-width: 0;
 }
 .match-dialog .notice {
     margin: 0;
+}
+.match-search {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+.match-search-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+.match-search-field > span {
+    font-family: "DM Mono", monospace;
+    font-size: 0.69rem;
+    text-transform: uppercase;
+}
+.match-search-field input {
+    width: 100%;
+    height: 44px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font: inherit;
+    background: var(--white);
+}
+.match-search .button {
+    width: 100%;
+    height: 44px;
+    min-height: 44px;
+}
+@media (min-width: 720px) {
+    .match-search {
+        flex-direction: row;
+        align-items: flex-end;
+    }
+    .match-search-field {
+        flex: 1;
+    }
+    .match-search .button {
+        width: auto;
+    }
 }
 .match-alert {
     position: fixed;

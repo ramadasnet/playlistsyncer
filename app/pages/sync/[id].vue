@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
 import {ArrowLeft, ArrowLeftRight, ArrowRight, ExternalLink, LoaderCircle, Search, Undo2} from "lucide-vue-next"
+import {catalogSearchLabel} from "~~/shared/catalog-search"
 import {formatDuration} from "~~/shared/format-duration"
 import {formatSyncProgressMessage} from "~~/shared/sync-progress"
 import {formatRunPlaylistLabel, groupRunPlaylists, trackInRunPlaylist} from "~~/shared/sync-run-playlists"
@@ -25,6 +26,7 @@ const restoreMessage = ref("")
 let keepRestoreMessage = false
 let restoreRunId = ""
 const selectedPlaylistKey = ref(allPlaylistsKey)
+const suggestionLimit = 5
 const suggestionState = ref<
     Record<
         string,
@@ -35,6 +37,8 @@ const suggestionState = ref<
             targetProvider?: Provider
             targetPlaylistName?: string
             suggestions?: SimilarTrackSuggestion[]
+            searchText?: string
+            submittedQuery?: string
         }
     >
 >({})
@@ -206,9 +210,14 @@ function targetProviderFor(track: SyncRunTrack): Provider {
 const showMatchDialog = ref(false)
 const matchTarget = ref<{track: SyncRunTrack; index: number} | null>(null)
 const matchAlert = ref<{tone: "success" | "error"; message: string} | null>(null)
+const matchQuery = ref("")
+const matchQueryEdited = ref(false)
 const matchKey = computed(() => (matchTarget.value ? unmatchedKey(matchTarget.value.track, matchTarget.value.index) : ""))
 const matchState = computed(() => suggestionState.value[matchKey.value])
+const visibleSuggestions = computed(() => matchState.value?.suggestions?.slice(0, suggestionLimit))
+const canSubmitMatchQuery = computed(() => Boolean(matchQuery.value.trim()) && !matchState.value?.loading && !matchState.value?.matchingId && !taskIsRunning.value)
 let matchAlertTimer: ReturnType<typeof setTimeout> | undefined
+const suggestionRequests = new Map<string, number>()
 
 function showMatchAlert(tone: "success" | "error", message: string) {
     matchAlert.value = {tone, message}
@@ -218,43 +227,68 @@ function showMatchAlert(tone: "success" | "error", message: string) {
     }, 4500)
 }
 
+function defaultMatchQuery(track: SyncRunTrack) {
+    return catalogSearchLabel(targetProviderFor(track), track)
+}
+
 function openMatchDialog(track: SyncRunTrack, index: number) {
     if (taskIsRunning.value) return
-    matchTarget.value = {track, index}
-    showMatchDialog.value = true
     const state = suggestionState.value[unmatchedKey(track, index)]
+    matchTarget.value = {track, index}
+    matchQuery.value = state?.submittedQuery || state?.searchText || defaultMatchQuery(track)
+    matchQueryEdited.value = Boolean(state?.submittedQuery)
+    showMatchDialog.value = true
     if (!state?.suggestions && !state?.loading) loadSuggestions(track, index)
+}
+
+function onMatchQueryInput() {
+    matchQueryEdited.value = true
+}
+
+function submitMatchSearch() {
+    if (!matchTarget.value || !canSubmitMatchQuery.value) return
+    const query = matchQuery.value.trim()
+    matchQuery.value = query
+    matchQueryEdited.value = true
+    loadSuggestions(matchTarget.value.track, matchTarget.value.index, query)
 }
 
 watch(showMatchDialog, (open) => {
     if (!open) matchTarget.value = null
 })
 
-async function loadSuggestions(track: SyncRunTrack, index: number) {
+async function loadSuggestions(track: SyncRunTrack, index: number, submittedQuery?: string) {
     if (!task.value || !canSuggest(track) || taskIsRunning.value) return
     const key = unmatchedKey(track, index)
+    const query = submittedQuery?.trim()
+    const requestId = (suggestionRequests.get(key) || 0) + 1
+    suggestionRequests.set(key, requestId)
     suggestionState.value = {
         ...suggestionState.value,
-        [key]: {loading: true, error: "", suggestions: suggestionState.value[key]?.suggestions}
+        [key]: {loading: true, error: "", searchText: query || suggestionState.value[key]?.searchText, submittedQuery: query}
     }
     try {
-        const result = await api<{targetProvider: Provider; targetPlaylistName: string; suggestions: SimilarTrackSuggestion[]}>(`/api/tasks/${task.value.id}/matches/suggestions`, {
+        const result = await api<{targetProvider: Provider; targetPlaylistName: string; query: string; suggestions: SimilarTrackSuggestion[]}>(`/api/tasks/${task.value.id}/matches/suggestions`, {
             method: "POST",
             body: {
                 runId: selectedRunId.value || undefined,
                 playlistId: track.playlistId,
                 providerTrackId: track.providerTrackId,
-                providerItemId: track.providerItemId
+                providerItemId: track.providerItemId,
+                ...(query ? {query} : {})
             }
         })
+        if (suggestionRequests.get(key) !== requestId) return
         suggestionState.value = {
             ...suggestionState.value,
-            [key]: {loading: false, error: "", targetProvider: result.targetProvider, targetPlaylistName: result.targetPlaylistName, suggestions: result.suggestions}
+            [key]: {loading: false, error: "", targetProvider: result.targetProvider, targetPlaylistName: result.targetPlaylistName, suggestions: result.suggestions.slice(0, suggestionLimit), searchText: result.query, submittedQuery: query}
         }
+        if (matchKey.value === key && !matchQueryEdited.value) matchQuery.value = result.query
     } catch (caught) {
+        if (suggestionRequests.get(key) !== requestId) return
         suggestionState.value = {
             ...suggestionState.value,
-            [key]: {loading: false, error: statusMessage(caught, "Similar tracks could not be loaded"), suggestions: []}
+            [key]: {loading: false, error: statusMessage(caught, "Similar tracks could not be loaded"), suggestions: [], searchText: query || track.title, submittedQuery: query}
         }
     }
 }
@@ -273,7 +307,8 @@ async function chooseSuggestion(track: SyncRunTrack, index: number, suggestion: 
                 playlistId: track.playlistId,
                 providerTrackId: track.providerTrackId,
                 providerItemId: track.providerItemId,
-                candidateTrackId: suggestion.trackId
+                candidateTrackId: suggestion.trackId,
+                ...(current?.submittedQuery ? {query: current.submittedQuery} : {})
             }
         })
         matched = true
@@ -478,11 +513,21 @@ onUnmounted(() => {
                 <div v-if="matchTarget" class="match-dialog">
                     <div v-if="matchAlert?.tone === 'error'" class="notice notice-error" role="alert">{{ matchAlert.message }}</div>
                     <p class="run-track-note">Search for a close match and add it yourself. PlaylistSyncer will keep that pair linked so later syncs do not remove it.</p>
-                    <p v-if="matchState?.loading" class="run-detail-loading"><LoaderCircle class="spin" :size="18" />Looking for similar tracks</p>
+                    <form class="match-search" @submit.prevent="submitMatchSearch">
+                        <label class="match-search-field">
+                            <span>Search</span>
+                            <input v-model="matchQuery" type="text" name="track-title" maxlength="200" autocomplete="off" enterkeyhint="search" :disabled="taskIsRunning || Boolean(matchState?.matchingId)" @input="onMatchQueryInput" />
+                        </label>
+                        <button class="button button-secondary" type="submit" :disabled="!canSubmitMatchQuery">
+                            <Search :size="16" />
+                            Search
+                        </button>
+                    </form>
+                    <p v-if="matchState?.loading" class="run-detail-loading" role="status"><LoaderCircle class="spin" :size="18" />Looking for similar tracks</p>
                     <p v-else-if="matchState?.error" class="dialog-error" role="alert">{{ matchState.error }}</p>
-                    <p v-else-if="matchState?.suggestions && !matchState.suggestions.length" class="run-track-empty">No similar tracks were found on {{ providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)] }}.</p>
-                    <ul v-else-if="matchState?.suggestions" class="similar-track-list">
-                        <li v-for="suggestion in matchState.suggestions" :key="suggestion.trackId" class="similar-track">
+                    <p v-else-if="visibleSuggestions && !visibleSuggestions.length" class="run-track-empty">No similar tracks were found on {{ providerDisplayNames[matchState?.targetProvider || targetProviderFor(matchTarget.track)] }}.</p>
+                    <ul v-else-if="visibleSuggestions" class="similar-track-list">
+                        <li v-for="suggestion in visibleSuggestions" :key="suggestion.trackId" class="similar-track">
                             <img v-if="suggestion.imageUrl" class="similar-track-art" :src="suggestion.imageUrl" :alt="suggestion.title" />
                             <div class="similar-track-copy">
                                 <span>{{ formatTrack(suggestion) }}</span>
@@ -494,20 +539,17 @@ onUnmounted(() => {
                                 :href="suggestion.url"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                :title="`Listen on ${providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)]}`"
-                                :aria-label="`Listen to ${suggestion.title} on ${providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)]} (opens in a new window)`"
+                                :title="`Listen on ${providerDisplayNames[matchState?.targetProvider || targetProviderFor(matchTarget.track)]}`"
+                                :aria-label="`Listen to ${suggestion.title} on ${providerDisplayNames[matchState?.targetProvider || targetProviderFor(matchTarget.track)]} (opens in a new window)`"
                             >
                                 <ExternalLink :size="14" />
                             </a>
-                            <button class="button button-small button-primary" type="button" :disabled="Boolean(matchState.matchingId) || taskIsRunning" @click="chooseSuggestion(matchTarget.track, matchTarget.index, suggestion)">
-                                <LoaderCircle v-if="matchState.matchingId === suggestion.trackId" class="spin" :size="14" />
-                                Add to {{ providerDisplayNames[matchState.targetProvider || targetProviderFor(matchTarget.track)] }}
+                            <button class="button button-small button-primary" type="button" :disabled="Boolean(matchState?.matchingId) || taskIsRunning" @click="chooseSuggestion(matchTarget.track, matchTarget.index, suggestion)">
+                                <LoaderCircle v-if="matchState?.matchingId === suggestion.trackId" class="spin" :size="14" />
+                                Add to {{ providerDisplayNames[matchState?.targetProvider || targetProviderFor(matchTarget.track)] }}
                             </button>
                         </li>
                     </ul>
-                    <button v-if="matchState?.suggestions" class="button button-small button-secondary" type="button" :disabled="matchState.loading || taskIsRunning" @click="loadSuggestions(matchTarget.track, matchTarget.index)">
-                        <Search :size="14" /> Search again
-                    </button>
                 </div>
             </OverlayDialog>
         </template>
