@@ -1,4 +1,5 @@
 import {describe, expect, test} from "bun:test"
+import {complimentaryTrialEndsAt, planBadgeClass, planBadgeLabel} from "../app/utils/plan"
 import {canStartCheckout, resolveEntitlement} from "../server/domain/billing/entitlement"
 
 const freeUser = {email: "developer@example.com", tier: "free" as const}
@@ -76,5 +77,13 @@ describe("effective entitlement", () => {
         expect(canStartCheckout({tier: "pro", developmentOverride: false, trialAccess: true})).toBe(true)
         expect(canStartCheckout({tier: "pro", developmentOverride: false, trialAccess: false})).toBe(false)
         expect(canStartCheckout({tier: "pro", developmentOverride: true, trialAccess: false})).toBe(false)
+    })
+
+    test("labels promotional PRO access in plan badges", () => {
+        expect(planBadgeClass({tier: "pro", developmentProOverride: false, trialAccess: true})).toBe("plan-trial")
+        expect(planBadgeLabel({tier: "pro", developmentProOverride: false, trialAccess: true})).toBe("PRO / PROMOTION")
+        expect(planBadgeLabel({tier: "pro", developmentProOverride: false, trialAccess: true}, true)).toBe("PRO / PROMO")
+        expect(complimentaryTrialEndsAt("2027-01-01T00:00:00.000Z", new Date("2026-09-12T00:00:00.000Z"))?.toISOString()).toBe("2027-01-01T00:00:00.000Z")
+        expect(complimentaryTrialEndsAt("2027-01-01T00:00:00.000Z", new Date("2027-01-01T00:00:00.000Z"))).toBeUndefined()
     })
 })

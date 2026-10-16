@@ -13,7 +13,17 @@ import {requireScheduler} from "../../utils/scheduler-auth"
 export async function runSyncCleanup(options: Partial<SyncCleanupOptions> = {}) {
     const result = await cleanup({options, send: sendMail, appUrl: getServerConfig().appUrl})
     const log = result.failed ? logger.warn : logger.info
-    log("Jobs.syncCleanup", `Runs deleted ${result.runsDeleted}`, `Users deleted ${result.usersDeleted}`, `Users warned ${result.usersWarned}`, `Failed ${result.failed}`)
+    log(
+        "Jobs.syncCleanup",
+        `Runs deleted ${result.runsDeleted}`,
+        `Sessions deleted ${result.sessionsDeleted}`,
+        `OAuth transactions deleted ${result.oauthTransactionsDeleted}`,
+        `Search misses deleted ${result.searchMissesDeleted}`,
+        `Webhook events deleted ${result.webhookEventsDeleted}`,
+        `Users deleted ${result.usersDeleted}`,
+        `Users warned ${result.usersWarned}`,
+        `Failed ${result.failed}`
+    )
     return result
 }
 

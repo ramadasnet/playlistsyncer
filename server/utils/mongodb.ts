@@ -26,6 +26,15 @@ export function firestoreMongoOptions(uri: string): {retryWrites: false; tls: tr
     return {retryWrites: false, tls: true}
 }
 
+// Some MongoDB-compatible servers create TTL indexes as a background job and reject the call without that privilege.
+export function isTtlJobPrivilegeError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false
+    const candidate = error as {code?: unknown; message?: unknown; errmsg?: unknown}
+    if (candidate.code !== 67) return false
+    const message = `${typeof candidate.message === "string" ? candidate.message : ""} ${typeof candidate.errmsg === "string" ? candidate.errmsg : ""}`
+    return message.includes("CREATE JOB")
+}
+
 // Recognize a unique-index conflict from MongoDB and from a driver error that uses the DuplicateKey name.
 export function isDuplicateKeyError(error: unknown): boolean {
     if (!error || typeof error !== "object") return false

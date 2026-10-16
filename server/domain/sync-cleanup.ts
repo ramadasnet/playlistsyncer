@@ -1,7 +1,7 @@
-// Delete old sync runs and inactive users without sync tasks, warning those users by email first.
+// Delete old sync runs, expired documents, and inactive users without sync tasks, warning those users by email first.
 import type {Filter} from "mongodb"
 import type {UserDocument} from "~~/shared/types/domain"
-import {collections} from "../data/collections"
+import {collections, syncRunRetentionSeconds, webhookEventRetentionSeconds} from "../data/collections"
 import logger from "../utils/logger"
 import {isShuttingDown} from "../utils/shutdown"
 import {deleteUserAccount, renewingSubscriptionStatuses} from "./accounts"
@@ -43,6 +43,18 @@ export function addMonths(date: Date, months: number): Date {
 }
 
 /**
+ * Instant before which a sync run is deleted.
+ * The configured retention and the 180-day cap both apply, so the more recent cutoff wins.
+ * @param now When the cleanup runs.
+ * @param runRetentionMonths Months of sync runs to keep, before the 180-day cap.
+ */
+export function syncRunDeletionCutoff(now: Date, runRetentionMonths: number): Date {
+    const retentionCutoff = addMonths(now, -runRetentionMonths)
+    const ttlCutoff = new Date(now.getTime() - syncRunRetentionSeconds * 1000)
+    return retentionCutoff > ttlCutoff ? retentionCutoff : ttlCutoff
+}
+
+/**
  * Earliest date the cleanup can delete a user who was warned now.
  * @param lastLoginAt The user's last login.
  * @param now When the warning is sent.
@@ -65,18 +77,29 @@ export function buildInactiveAccountEmail(input: {to: string; displayName?: stri
 }
 
 /**
- * Deletes old sync runs, deletes inactive users without tasks, then warns the users who will be deleted next.
+ * Deletes old sync runs and other expired documents, deletes inactive users without tasks, then warns the users who will be deleted next.
  * Users with a renewing subscription are never warned or deleted.
+ * Expired sessions, OAuth transactions, and search misses are deleted here as well as by TTL indexes, so a database that cannot create those indexes still drops them.
  * @param input.send Delivers one email, and returns false when mail is not configured.
  */
 export async function runSyncCleanup(input: {options?: Partial<SyncCleanupOptions>; now?: Date; send: (message: OutboundEmail) => Promise<boolean>; appUrl?: string}) {
     const options = {...syncCleanupDefaults, ...input.options}
     const now = input.now ?? new Date()
     const db = await collections()
-    const result = {runsDeleted: 0, usersDeleted: 0, usersWarned: 0, failed: 0}
+    const result = {runsDeleted: 0, sessionsDeleted: 0, oauthTransactionsDeleted: 0, searchMissesDeleted: 0, webhookEventsDeleted: 0, usersDeleted: 0, usersWarned: 0, failed: 0}
 
-    const runs = await db.syncRuns.deleteMany({startedAt: {$lt: addMonths(now, -options.runRetentionMonths)}})
+    const [runs, sessions, oauthTransactions, searchMisses, webhookEvents] = await Promise.all([
+        db.syncRuns.deleteMany({startedAt: {$lt: syncRunDeletionCutoff(now, options.runRetentionMonths)}}),
+        db.sessions.deleteMany({expiresAt: {$lt: now}}),
+        db.oauthTransactions.deleteMany({expiresAt: {$lt: now}}),
+        db.searchMisses.deleteMany({expiresAt: {$lt: now}}),
+        db.webhookEvents.deleteMany({processedAt: {$lt: new Date(now.getTime() - webhookEventRetentionSeconds * 1000)}})
+    ])
     result.runsDeleted = runs.deletedCount
+    result.sessionsDeleted = sessions.deletedCount
+    result.oauthTransactionsDeleted = oauthTransactions.deletedCount
+    result.searchMissesDeleted = searchMisses.deletedCount
+    result.webhookEventsDeleted = webhookEvents.deletedCount
 
     const notRenewing = {creemSubscriptionStatus: {$nin: [...renewingSubscriptionStatuses]}}
     const hasTasks = async (user: UserDocument) => Boolean(await db.syncTasks.countDocuments({userId: user._id!}, {limit: 1}))
