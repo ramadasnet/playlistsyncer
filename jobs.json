@@ -20,5 +20,9 @@
             "runRetentionMonths": 3,
             "warnAfterMonths": 12
         }
+    },
+    {
+        "name": "subscription-sync",
+        "schedule": "0 6 1,15 * *"
     }
 ]
