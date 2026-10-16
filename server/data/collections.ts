@@ -2,6 +2,12 @@
 import type {Collection} from "mongodb"
 import type {OAuthTransactionDocument, ProviderAccountDocument, SearchMissDocument, SessionDocument, SyncRunDocument, SyncSnapshotDocument, SyncTaskDocument, UserDocument, WebhookEventDocument} from "~~/shared/types/domain"
 import {getDatabase} from "../utils/database"
+import logger from "../utils/logger"
+import {isTtlJobPrivilegeError} from "../utils/mongodb"
+
+// TTL indexes remove sync runs and webhook events after these ages. sync-cleanup uses the same limits.
+export const syncRunRetentionSeconds = 60 * 60 * 24 * 180
+export const webhookEventRetentionSeconds = 60 * 60 * 24 * 90
 
 const collectionNames = {
     users: "users",
@@ -53,9 +59,7 @@ export async function ensureIndexes(): Promise<void> {
         db.providerAccounts.createIndex({provider: 1, externalAccountId: 1}, {unique: true}),
         db.providerAccounts.createIndex({userId: 1, provider: 1}),
         db.sessions.createIndex({tokenHash: 1}, {unique: true}),
-        db.sessions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.oauthTransactions.createIndex({stateHash: 1}, {unique: true}),
-        db.oauthTransactions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.syncTasks.createIndex({userId: 1, status: 1}),
         db.syncTasks.createIndex({nextRunAt: 1, status: 1}),
         // One full sync per user and provider pair. Playlist tasks omit the key, so a single-field sparse index skips them.
@@ -66,10 +70,25 @@ export async function ensureIndexes(): Promise<void> {
         // One playlist snapshot per task, and several numbered batches for a full sync.
         db.syncSnapshots.createIndex({taskId: 1, batch: 1}, {unique: true}),
         db.syncRuns.createIndex({taskId: 1, startedAt: -1}),
-        db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: 60 * 60 * 24 * 180}),
         db.searchMisses.createIndex({providerAccountId: 1, key: 1}, {unique: true}),
-        db.searchMisses.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
-        db.webhookEvents.createIndex({eventId: 1}, {unique: true}),
-        db.webhookEvents.createIndex({processedAt: 1}, {expireAfterSeconds: 60 * 60 * 24 * 90})
+        db.webhookEvents.createIndex({eventId: 1}, {unique: true})
     ])
+    // expireAfterSeconds: 0 deletes a document when its indexed date is reached.
+    await ensureTtlIndexes([
+        db.sessions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
+        db.oauthTransactions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
+        db.searchMisses.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
+        db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: syncRunRetentionSeconds}),
+        db.webhookEvents.createIndex({processedAt: 1}, {expireAfterSeconds: webhookEventRetentionSeconds})
+    ])
+}
+
+// Continue startup when every TTL index failed because the database user cannot create jobs.
+export async function ensureTtlIndexes(creates: Array<Promise<unknown>>): Promise<void> {
+    const settled = await Promise.allSettled(creates)
+    const rejected = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    if (!rejected.length) return
+    const unexpected = rejected.find((result) => !isTtlJobPrivilegeError(result.reason))
+    if (unexpected) throw unexpected.reason
+    logger.warn("Database.indexes", "TTL indexes were not created because the database user lacks the CREATE JOB privilege. sync-cleanup deletes expired documents instead.")
 }

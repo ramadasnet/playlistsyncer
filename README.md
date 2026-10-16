@@ -28,9 +28,7 @@ MongoDB collections hold:
 - playlist baselines and synchronization run history
 - idempotently processed Creem webhook event IDs
 
-Indexes enforce unique users, provider identities, sessions, OAuth states, snapshots, and webhook events. Sessions and OAuth transactions expire automatically.
-
-Sync runs are retained for 180 days and webhook event records for 90 days. The `sync-cleanup` job deletes sync runs sooner (after 3 months by default) and removes inactive accounts without sync tasks, see [Scheduled jobs](#scheduled-jobs).
+Indexes enforce unique users, provider identities, sessions, OAuth states, snapshots, and webhook events. TTL indexes remove sessions, OAuth transactions, and search misses when `expiresAt` passes, sync runs after 180 days, and webhook events after 90 days. The `sync-cleanup` job deletes sync runs sooner (after 3 months by default), deletes those same expired documents on its schedule, and removes inactive accounts without sync tasks, see [Scheduled jobs](#scheduled-jobs). When the database user cannot create TTL indexes, that job is what removes the expired documents.
 
 ## Synchronization Steps
 
@@ -358,7 +356,7 @@ Scheduled work runs inside the jobs process (`bun run jobs`), not in the website
 | `sync-due`            | Up to `limit` sync tasks whose `nextRunAt` is due (default 10, maximum 100)        | `limit`                                |
 | `weekly-sync-summary` | Weekly PRO playlist summaries for up to `limit` accounts (default 25, maximum 100) | `limit`                                |
 | `sync-task`           | One synchronization task                                                           | `id` (required): the task's MongoDB id |
-| `sync-cleanup`        | Deletes old sync runs, warns and then deletes inactive users without sync tasks    | See below                              |
+| `sync-cleanup`        | Deletes expired documents, old sync runs, and inactive users without tasks         | See below                              |
 | `subscription-sync`   | Reconciles Creem subscription status and payment dates onto each account           | None                                   |
 
 `schedule` is a 5-field cron expression (`minute hour day month weekday`) evaluated in UTC, or one of `@hourly`, `@daily`, `@weekly`, and `@monthly`. When both day-of-month and weekday are restricted, the job runs if either matches. A job that is still running when its next tick arrives is skipped until it finishes. The committed file runs `sync-due` at the top of every hour, `weekly-sync-summary` at 15 minutes past every hour, `sync-cleanup` every Sunday and Wednesday at 05:00 UTC, and `subscription-sync` at 06:00 UTC on the 1st and 15th.
@@ -369,11 +367,11 @@ Scheduled work runs inside the jobs process (`bun run jobs`), not in the website
 
 If `jobs.json` is missing, the process still serves the HTTP endpoints and does not run jobs on its own. An invalid file stops startup.
 
-`sync-cleanup` only touches users who have no sync tasks and no renewing PRO subscription. A login updates the user's `lastLoginAt` and cancels a pending deletion. Parameters:
+`sync-cleanup` deletes expired sessions, OAuth transactions, and search misses, webhook events older than 90 days, and sync runs older than 180 days even when `runRetentionMonths` is longer. It only warns or deletes users who have no sync tasks and no renewing PRO subscription. A login updates the user's `lastLoginAt` and cancels a pending deletion. Parameters:
 
 | Parameter            | Default | What it does                                                                                   |
 | -------------------- | ------- | ---------------------------------------------------------------------------------------------- |
-| `runRetentionMonths` | 3       | Deletes sync runs that started more than this many months ago                                  |
+| `runRetentionMonths` | 3       | Deletes sync runs older than this many months, never past 180 days                             |
 | `warnAfterMonths`    | 12      | Emails users who have not logged in for this many months that their account will be deleted    |
 | `deleteAfterMonths`  | 12      | Deletes users who have not logged in for this many months                                      |
 | `deletionGraceDays`  | 30      | Minimum days between the warning email and the deletion. Users without an email are not warned |
@@ -411,7 +409,7 @@ Jobs process (`PLS_JOBS_PORT`):
 - `POST /api/jobs/sync-due`: authenticated scheduled batch
 - `POST /api/jobs/sync-task/:id`: authenticated run of one task
 - `POST /api/jobs/weekly-sync-summary`: authenticated weekly PRO sync summary emails
-- `POST /api/jobs/sync-cleanup`: authenticated cleanup of old sync runs and inactive users, with the default parameters
+- `POST /api/jobs/sync-cleanup`: authenticated cleanup of old sync runs, other expired documents, and inactive users, with the default parameters
 - `POST /api/jobs/subscription-sync`: authenticated Creem subscription reconciliation
 
 ## Deployment notes
