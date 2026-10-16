@@ -80,8 +80,6 @@ Provider API requests retry rate limits up to 5 times and honor cooldowns up to 
 
 Development logging output is timestamped and includes `INFO`, `WARN`, or `ERROR` plus a component name / reference such as `OAuth.finish`, `Sync.run`, or `Creem.processEvent`.
 
-Production processes set `PLS_JSON_LOGGING=true` (via `ecosystem.config.cjs`) and emit one JSON object per line with GCP-compatible severity names, for example `{"severity":"INFO","message":"..."}`. Set `PLS_JSON_LOGGING=false` to retain human-readable output in a production process.
-
 Secrets will be masked automatically, except for `DEBUG` which might contain the full response or request trail.
 
 ## Environment variables
@@ -101,7 +99,7 @@ Application settings use the `PLS_` prefix.
 | `PLS_DEVTOOLS`                           | Enable Nuxt DevTools only when set to `true`.                                                                                                | `false`                                                                             |
 | `PLS_SUPPORT_EMAIL`                      | Public support address and fallback SMTP sender address.                                                                                     | Unset                                                                               |
 | `PLS_CHATBASE_HELP_URL`                  | Public help-chat URL.                                                                                                                        | Unset                                                                               |
-| `PLS_JSON_LOGGING`                       | Emit JSON severity logs when `true` in production.                                                                                           | `false`; PM2 sets `true` for the website                                            |
+| `PLS_JSON_LOGGING`                       | Emit JSON severity logs instead of plain text                                                                                           | `false`; PM2 sets `true` for the website                                            |
 | `PLS_SHUTDOWN_TIMEOUT_SECONDS`           | Seconds a stopping process waits for its in-flight sync runs before marking them failed; keep it below PM2's kill grace period.              | `8`                                                                                 |
 | `PLS_SAFE_MODE`                          | Block writes to music providers and log the intended changes.                                                                                | `false`                                                                             |
 | `PLS_SESSION_SECRET`                     | Secret used for server-side session and email-confirmation tokens.                                                                           | Unset; required for sessions and for a production website start                     |
@@ -271,7 +269,7 @@ Prerequisites: Bun 1.4+ on the host, and a managed MongoDB (or MongoDB-compatibl
 
 **Image file: `ghcr.io/ramadasnet/playlistsyncer:latest`**
 
-The `Dockerfile` builds one image for both processes. It sets `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=3007`, `PLS_JSON_LOGGING=true` and `NITRO_BUN_IDLE_TIMEOUT=255`. The default command starts the website and the jobs process in one container with `pm2-runtime` and `ecosystem.config.cjs`; PM2 restarts either process if it crashes. To run them in separate containers instead, override the command with `bun run start` (website) or `bun run jobs` (jobs).
+The `Dockerfile` builds one image for both processes. It sets `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=3007` and `NITRO_BUN_IDLE_TIMEOUT=255`. The default command starts the website and the jobs process in one container with `pm2-runtime` and `ecosystem.config.cjs`; PM2 restarts either process if it crashes. To run them in separate containers instead, override the command with `bun run start` (website) or `bun run jobs` (jobs).
 
 On the server, copy `.env.example` to `.env` and fill in production values (`PLS_APP_URL` must be a public `https` origin). Docker reads `.env` literally, so do not put quotes around values.
 

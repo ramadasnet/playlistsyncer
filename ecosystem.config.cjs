@@ -17,7 +17,6 @@ const apps = [
             NODE_ENV: "production",
             HOST: "0.0.0.0",
             PORT: "3007",
-            PLS_JSON_LOGGING: "true",
             NITRO_BUN_IDLE_TIMEOUT: "255"
         },
         kill_timeout: 10000
@@ -34,8 +33,7 @@ const apps = [
         env: {
             NODE_ENV: "production",
             HOST: "0.0.0.0",
-            PLS_JOBS_PORT: "3008",
-            PLS_JSON_LOGGING: "true"
+            PLS_JOBS_PORT: "3008"
         },
         kill_timeout: 10000
     }
