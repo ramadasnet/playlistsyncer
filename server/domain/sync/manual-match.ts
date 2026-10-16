@@ -1,6 +1,7 @@
 // Suggest similar catalog tracks and persist a manual match so later syncs keep the pair.
 import {ObjectId} from "mongodb"
 import type {CanonicalTrack, ManualTrackAlias, Provider, ProviderAccountDocument, SyncRunDocument, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "~~/shared/types/domain"
+import {catalogSearchLabel, parseCatalogSearchLabel} from "~~/shared/catalog-search"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import {getProviderAdapter, type ProviderTrack} from "../providers"
@@ -18,6 +19,7 @@ export interface UnmatchedTrackIdentity {
     providerTrackId: string
     providerItemId?: string
     runId?: string
+    query?: string
 }
 
 export interface MatchTarget {
@@ -41,6 +43,7 @@ export interface MatchSuggestionsResult {
     unmatched: {title: string; artists: string[]; playlistName?: string; durationMs?: number}
     targetProvider: ProviderAccountDocument["provider"]
     targetPlaylistName: string
+    query: string
     suggestions: SimilarTrackSuggestion[]
 }
 
@@ -193,6 +196,8 @@ function liveTrackMatches(track: ProviderTrack, identity: UnmatchedTrackIdentity
     return (identity.providerItemId && track.itemId === identity.providerItemId) || track.trackId === identity.providerTrackId
 }
 
+const suggestionLimit = 5
+
 // Pull catalog candidates, retrying without ISRC so near-matches can still surface.
 async function searchSuggestionCandidates(account: ProviderAccountDocument, source: ProviderTrack) {
     const adapter = getProviderAdapter(account.provider)
@@ -202,6 +207,37 @@ async function searchSuggestionCandidates(account: ProviderAccountDocument, sour
     }
     const byTitle = await adapter.searchTrackCandidates(account, {...source, isrc: undefined})
     return [...primary, ...byTitle]
+}
+
+// Keep the first unique tracks, in the order the provider returned them.
+function firstUniqueTracks(candidates: ProviderTrack[], limit: number) {
+    const seen = new Set<string>()
+    const tracks: ProviderTrack[] = []
+    for (const track of candidates) {
+        if (seen.has(track.trackId)) continue
+        seen.add(track.trackId)
+        tracks.push(track)
+        if (tracks.length === limit) break
+    }
+    return tracks
+}
+
+// The search box value: the user's text, or "Title - Artist" from the catalog search.
+function suggestionQuery(provider: Provider, source: ProviderTrack, query?: string) {
+    const text = query?.trim()
+    return text || catalogSearchLabel(provider, source)
+}
+
+// Rank the usual near-matches, or take the top catalog hits for a replacement search phrase.
+async function tracksForSuggestions(account: ProviderAccountDocument, source: ProviderTrack, query?: string) {
+    const text = query?.trim()
+    if (!text) {
+        return rankSimilarTracks(source, await searchSuggestionCandidates(account, source), suggestionLimit).map((item) => item.track)
+    }
+    const parsed = parseCatalogSearchLabel(account.provider, text)
+    const adapter = getProviderAdapter(account.provider)
+    const candidates = await adapter.searchTrackCandidates(account, {...source, title: parsed.title, artists: parsed.artists, isrc: undefined})
+    return firstUniqueTracks(candidates, suggestionLimit)
 }
 
 async function resolveUnmatchedReference(task: SyncTaskDocument, identity: UnmatchedTrackIdentity): Promise<SyncRunTrackReference> {
@@ -272,8 +308,9 @@ export async function suggestMatchesForUnmatched(userId: ObjectId, taskId: Objec
     const placement = await locateUnmatchedPlacement(task, identity, unmatched)
     const targetAccount = await loadAccount(placement.target.targetSide === "source" ? task.source.providerAccountId : task.destination.providerAccountId, userId)
     const source = asSearchTrack(unmatched, placement.snapshotItem || (placement.live ? toCanonical(placement.live) : undefined))
-    const ranked = rankSimilarTracks(source, await searchSuggestionCandidates(targetAccount, source))
-    logger.info("Sync.suggestMatches", `Task ${taskId.toHexString()}`, `Unmatched ${source.title}`, `Suggestions ${ranked.length}`)
+    const query = suggestionQuery(targetAccount.provider, source, identity.query)
+    const tracks = await tracksForSuggestions(targetAccount, source, identity.query)
+    logger.info("Sync.suggestMatches", `Task ${taskId.toHexString()}`, `Unmatched ${source.title}`, `Query ${query}`, `Suggestions ${tracks.length}`)
     return {
         unmatched: {
             title: source.title,
@@ -283,7 +320,8 @@ export async function suggestMatchesForUnmatched(userId: ObjectId, taskId: Objec
         },
         targetProvider: targetAccount.provider,
         targetPlaylistName: placement.target.targetPlaylistName,
-        suggestions: ranked.map((item) => serializeSuggestion(targetAccount.provider, item.track))
+        query,
+        suggestions: tracks.map((track) => serializeSuggestion(targetAccount.provider, track))
     }
 }
 
@@ -375,24 +413,24 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
         const unmatchedAdapter = getProviderAdapter(placement.unmatchedAccount.provider)
         const targetAdapter = getProviderAdapter(targetAccount.provider)
         const source = asSearchTrack(unmatched, placement.snapshotItem || toCanonical(liveUnmatched))
-        const ranked = rankSimilarTracks(source, await searchSuggestionCandidates(targetAccount, source))
-        const chosen = ranked.find((item) => item.track.trackId === identity.candidateTrackId)
+        const candidates = await tracksForSuggestions(targetAccount, source, identity.query)
+        const chosen = candidates.find((track) => track.trackId === identity.candidateTrackId)
         if (!chosen) {
             throw createError({statusCode: 400, statusMessage: "That suggestion is no longer available"})
         }
         const targetItems = await targetAdapter.getPlaylistItems(targetAccount, placement.target.targetPlaylistId)
-        const existing = targetItems.find((track) => track.trackId === chosen.track.trackId)
+        const existing = targetItems.find((track) => track.trackId === chosen.trackId)
         let added = false
-        let addedIds: {providerTrackId: string; providerItemId?: string} = {providerTrackId: chosen.track.trackId, providerItemId: existing?.itemId}
+        let addedIds: {providerTrackId: string; providerItemId?: string} = {providerTrackId: chosen.trackId, providerItemId: existing?.itemId}
         if (!existing) {
             await lease.assertHeld()
-            await targetAdapter.addTracks(targetAccount, placement.target.targetPlaylistId, [chosen.track.trackId], async (tracks) => {
+            await targetAdapter.addTracks(targetAccount, placement.target.targetPlaylistId, [chosen.trackId], async (tracks) => {
                 addedIds = tracks[0] || addedIds
             })
             added = true
         }
         const [verifiedUnmatched, verifiedTarget] = await Promise.all([unmatchedAdapter.getPlaylistItems(placement.unmatchedAccount, placement.playlistId), targetAdapter.getPlaylistItems(targetAccount, placement.target.targetPlaylistId)])
-        const addedLive = verifiedTarget.find((track) => track.trackId === chosen.track.trackId) || existing
+        const addedLive = verifiedTarget.find((track) => track.trackId === chosen.trackId) || existing
         if (!addedLive) {
             throw createError({statusCode: 502, statusMessage: "The selected track could not be added"})
         }
@@ -439,11 +477,11 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
             playlistName: placement.target.targetPlaylistName,
             providerTrackId: addedTrack.trackId,
             providerItemId: addedTrack.itemId,
-            title: chosen.track.title,
-            artists: chosen.track.artists,
-            ...(chosen.track.durationMs ? {durationMs: chosen.track.durationMs} : {})
+            title: chosen.title,
+            artists: chosen.artists,
+            ...(chosen.durationMs ? {durationMs: chosen.durationMs} : {})
         })
-        logger.info("Sync.manualMatch", `Task ${taskId.toHexString()}`, added ? "Added" : "Linked existing", chosen.track.title, `Linked ${sharedKey}`)
-        return {added, linked: true, title: chosen.track.title, artists: chosen.track.artists}
+        logger.info("Sync.manualMatch", `Task ${taskId.toHexString()}`, added ? "Added" : "Linked existing", chosen.title, `Linked ${sharedKey}`)
+        return {added, linked: true, title: chosen.title, artists: chosen.artists}
     })
 }

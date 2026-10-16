@@ -1,7 +1,7 @@
 // Adapt SoundCloud playlists and tracks to the provider-neutral sync contract.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
-import {findBestTrackMatch, searchableTitle} from "./matching"
+import {catalogSearchQuery, findBestTrackMatch} from "./matching"
 import {isProviderTrackId, trackIdsForProvider} from "./track-ids"
 import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
@@ -268,7 +268,7 @@ export const soundcloudAdapter: ProviderAdapter = {
                 return byIsrc
             }
         }
-        const query = [track.artists[0], searchableTitle(track.title)].filter(Boolean).join(" ").trim()
+        const query = catalogSearchQuery("soundcloud", track)
         if (!query || query === track.isrc) {
             return []
         }

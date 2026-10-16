@@ -388,7 +388,7 @@ onUnmounted(() => {
                 </p>
                 <p v-else-if="effectiveDirection === 'one-way'" class="builder-warning">The target playlist will be fully cleared once the sync starts.</p>
                 <p v-else>The first run adds each playlist's missing tracks to the other. Later runs reconcile changes in both directions.</p>
-                <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create sync task</button>
+                <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create task</button>
             </div>
         </section>
 

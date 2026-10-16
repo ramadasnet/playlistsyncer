@@ -1,7 +1,7 @@
 // Adapt TIDAL's JSON:API resources to the provider-neutral sync contract.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
-import {findBestTrackMatch, searchableTitle} from "./matching"
+import {catalogSearchQuery, findBestTrackMatch} from "./matching"
 import {trackIdsForProvider} from "./track-ids"
 import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
@@ -188,7 +188,7 @@ export const tidalAdapter: ProviderAdapter = {
             const result = await tidalFetch<JsonApiDocument<JsonApiResource[]>>(account, `${apiBase}/tracks?${query.toString()}`)
             return (result.data || []).map((candidate) => mapTrack(candidate, result.included || [], candidate.id))
         }
-        const query = [track.artists[0], searchableTitle(track.title)].filter(Boolean).join(" ").trim()
+        const query = catalogSearchQuery("tidal", track)
         if (!query) {
             return []
         }

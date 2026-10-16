@@ -1,7 +1,7 @@
 // Adapt Spotify playlist operations to the provider-neutral sync contract.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {providerFetch} from "./http"
-import {findBestTrackMatch, searchableTitle} from "./matching"
+import {catalogSearchQuery, findBestTrackMatch} from "./matching"
 import {trackIdsForProvider} from "./track-ids"
 import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
@@ -103,7 +103,7 @@ export const spotifyAdapter: ProviderAdapter = {
         return items.flatMap((entry, index) => (entry.item ? [mapTrack(entry.item, `${entry.item.uri}:${index}`)] : []))
     },
     async searchTrackCandidates(account, track) {
-        const query = track.isrc ? `isrc:${track.isrc}` : [`track:${searchableTitle(track.title)}`, track.artists[0] ? `artist:${track.artists[0]}` : ""].filter(Boolean).join(" ")
+        const query = track.isrc ? `isrc:${track.isrc}` : catalogSearchQuery("spotify", track)
         const result = await providerFetch<{tracks: {items: SpotifyTrack[]}}>(account, `${apiBase}/search?type=track&limit=10&q=${encodeURIComponent(query)}`)
         return result.tracks.items.map((candidate) => mapTrack(candidate))
     },

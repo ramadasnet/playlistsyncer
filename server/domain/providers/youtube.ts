@@ -2,7 +2,7 @@
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {isUnavailableSyncTrack} from "~~/shared/unavailable-tracks"
 import {providerFetch} from "./http"
-import {findBestTrackMatch, parseIsoDurationMs, searchableTitle, youtubeMetadata} from "./matching"
+import {catalogSearchQuery, findBestTrackMatch, parseIsoDurationMs, youtubeMetadata} from "./matching"
 import {trackIdsForProvider} from "./track-ids"
 import type {ProviderAdapter, ProviderPlaylist, ProviderTrack} from "./types"
 
@@ -118,7 +118,7 @@ export const youtubeAdapter: ProviderAdapter = {
             type: "video",
             videoCategoryId: "10",
             maxResults: "10",
-            q: `${track.artists.join(" ")} ${searchableTitle(track.title)}`
+            q: catalogSearchQuery("youtube", track)
         }).toString()
         const result = await providerFetch<{
             items?: {

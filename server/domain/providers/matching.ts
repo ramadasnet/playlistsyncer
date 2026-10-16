@@ -1,10 +1,11 @@
 // Normalize provider metadata and choose the safest track match.
+import {searchableTitle} from "~~/shared/catalog-search"
 import type {ProviderTrack} from "./types"
+
+export {catalogSearchQuery, searchableTitle} from "~~/shared/catalog-search"
 
 // Increment when matching semantics change so existing snapshots can be rebuilt.
 
-const bracketedTitleNoise = /\s*[([][^\])]*(?:official|video|audio|lyrics?|visuali[sz]er|remaster(?:ed)?|hd|hq)[^\])]*[\])]\s*$/i
-const trailingTitleNoise = /\s*[-–—]\s*(?:(?:official\s+)?(?:music\s+)?(?:video|audio|lyrics?|visuali[sz]er)|(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?|hd|hq)\s*$/i
 const recordingQualifiers = ["live", "acoustic", "remix", "karaoke", "instrumental", "cover", "demo", "sped up", "slowed"]
 
 function normalize(value: string): string {
@@ -15,17 +16,6 @@ function normalize(value: string): string {
         .replace(/&/g, " and ")
         .replace(/[^a-z0-9]+/g, " ")
         .trim()
-}
-
-// Remove common release and video suffixes before provider searches.
-export function searchableTitle(value: string): string {
-    let title = value.trim()
-    let previous = ""
-    while (title !== previous) {
-        previous = title
-        title = title.replace(bracketedTitleNoise, "").replace(trailingTitleNoise, "").trim()
-    }
-    return title
 }
 
 function normalizedTitle(value: string): string {

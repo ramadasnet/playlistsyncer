@@ -11,7 +11,8 @@ const matchSchema = z.object({
     playlistId: z.string().min(1),
     providerTrackId: z.string().min(1),
     providerItemId: z.string().min(1).optional(),
-    candidateTrackId: z.string().min(1)
+    candidateTrackId: z.string().min(1),
+    query: z.string().trim().min(1).max(200).optional()
 })
 
 export default defineEventHandler(async (event) => {

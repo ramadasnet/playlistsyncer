@@ -1,4 +1,5 @@
 import {describe, expect, test} from "bun:test"
+import {catalogSearchLabel, catalogSearchQuery, parseCatalogSearchLabel} from "../shared/catalog-search"
 import {durationSimilarity, findBestTrackMatch, parseIsoDurationMs, rankSimilarTracks, youtubeMetadata} from "../server/domain/providers/matching"
 import type {ProviderTrack} from "../server/domain/providers"
 
@@ -67,5 +68,12 @@ describe("provider track matching", () => {
         expect(rankSimilarTracks(source, [unrelated, farther, live, closer]).map((item) => item.track)).toEqual([closer, farther, live])
         expect(durationSimilarity(210_000, 212_000)).toBeGreaterThan(durationSimilarity(210_000, 180_000))
         expect(parseIsoDurationMs("PT3M30S")).toBe(210_000)
+    })
+
+    test("shows a catalog search as title and artist", () => {
+        const track = {title: "Blackbird (Official Video)", artists: ["Sara Niemietz"]}
+        expect(catalogSearchLabel("spotify", track)).toBe("Blackbird - Sara Niemietz")
+        expect(catalogSearchQuery("spotify", track)).toBe("track:Blackbird artist:Sara Niemietz")
+        expect(parseCatalogSearchLabel("spotify", "Blackbird - Sara Niemietz")).toEqual({title: "Blackbird", artists: ["Sara Niemietz"]})
     })
 })
