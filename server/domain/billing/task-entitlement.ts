@@ -111,14 +111,20 @@ export async function revertExpiredPromotionalAccess(options: {stopping?: () => 
     // Paid accounts keep tier "pro" in the database; every "free" account's PRO access came from the promotion.
     const candidates = await db.users.find({tier: "free"}).toArray()
     let users = 0
+    let failed = 0
     let stopped = false
     for (const user of candidates) {
         if (stopping()) {
             stopped = true
             break
         }
-        await applyTaskEntitlement(user)
-        users++
+        try {
+            await applyTaskEntitlement(user)
+            users++
+        } catch (error) {
+            failed++
+            logger.error("Billing.revertPromotionalAccess", error, `User ${user._id?.toHexString()}`)
+        }
     }
     logger.info("Billing.revertPromotionalAccess", `Accounts ${users}`, stopped ? "Stopped early" : "Finished")
     return {users, stopped}
