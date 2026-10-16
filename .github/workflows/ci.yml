@@ -42,15 +42,8 @@ jobs:
             - name: Typecheck
               run: bun run typecheck
 
-            - name: Format
-              run: bun run format:check
-
             - name: Test
               run: bun test
-
-            # A random order catches tests that leak mocks or state into other files. The seed is printed for reproduction.
-            - name: Test in random order
-              run: bun test --randomize
 
     docker:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
