@@ -69,7 +69,7 @@ const serverConfigSchema = z.object({
     tidalMaxRequestsPerMinute: requestsPerMinute(60),
     soundcloudMaxRequestsPerMinute: requestsPerMinute(60),
     amazonMaxRequestsPerMinute: requestsPerMinute(60),
-    userProviderRequestsPerMinute: requestsPerMinute(30),
+    userProviderRequestsPerMinute: requestsPerMinute(40),
     creemApiKey: optionalCredential,
     creemWebhookSecret: optionalCredential,
     creemProProductId: optionalCredential,

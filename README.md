@@ -152,7 +152,7 @@ Some of the environment variables are optional, and will dictate which features 
     - `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE` (default 60)
     - `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` (default 60)
     - `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE` (default 60)
-- `PLS_USER_PROVIDER_REQUESTS_PER_MINUTE` (default 30) caps how often one user can load playlists, request match suggestions, or start syncs, so a single account cannot use up the shared provider limits. Each user can also request at most 5 confirmation emails per hour. Both caps are counted in memory on each web process, so another process keeps its own count.
+- `PLS_USER_PROVIDER_REQUESTS_PER_MINUTE` (default 40) caps how often one user can load playlists, request match suggestions, or start syncs, so a single account cannot use up the shared provider limits. Each user can also request at most 5 confirmation emails per hour. Both caps are counted in memory on each web process, so another process keeps its own count.
 
 ### Spotify
 

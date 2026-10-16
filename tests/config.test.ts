@@ -46,7 +46,7 @@ describe("server configuration", () => {
     })
 
     test("parses the per-user provider request limit with a default", () => {
-        expect(parseServerConfig({}).userProviderRequestsPerMinute).toBe(30)
+        expect(parseServerConfig({}).userProviderRequestsPerMinute).toBe(40)
         expect(parseServerConfig({userProviderRequestsPerMinute: "0"}).userProviderRequestsPerMinute).toBe(0)
         expect(() => parseServerConfig({userProviderRequestsPerMinute: "-1"})).toThrow()
     })
