@@ -62,7 +62,7 @@ Sync runs are retained for 180 days and webhook event records for 90 days. The `
 - PRO: unlimited playlist-pair and whole-account tasks, scheduled every 720 minutes (12 hours) by default, with no manual-run cooldown. Every account can open the latest run's added, removed, and unmatched tracks. Browsing past runs is a PRO feature. An optional weekly email lists playlists and tracks added or removed, and is sent only when there were changes.
 - Complimentary trial: set `PLS_PRO_SUBSCRIPTION_REQUIRED_AT` to an ISO 8601 instant. Until that moment, every account has effective PRO access without a subscription and can still start checkout to keep PRO afterward.
 
-Creem webhook events are the source of truth for paid entitlement. Downgrades and the end of the complimentary trial retain tasks and history. Extra playlist-pair tasks and every whole-account task are paused with an entitlement lock: they cannot run or be edited, and the UI explains that a PRO subscription is needed. The earliest playlist-pair task stays enabled on Free. In local development, `PLS_DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
+Creem webhook events are the source of truth for paid entitlement. The `subscription-sync` job re-reads Creem on the 1st and 15th and repairs a status or payment date that a missed webhook left behind. Downgrades and the end of the complimentary trial retain tasks and history. Extra playlist-pair tasks and every whole-account task are paused with an entitlement lock: they cannot run or be edited, and the UI explains that a PRO subscription is needed. The earliest playlist-pair task stays enabled on Free. In local development, `PLS_DEVELOPMENT_PRO_USER_EMAILS` can grant an explicitly labeled PRO override without creating a subscription.
 
 ## Authentication and security
 
@@ -361,10 +361,13 @@ Scheduled work runs inside the jobs process (`bun run jobs`), not in the website
 | `weekly-sync-summary` | Weekly PRO playlist summaries for up to `limit` accounts (default 25, maximum 100) | `limit`                                |
 | `sync-task`           | One synchronization task                                                           | `id` (required): the task's MongoDB id |
 | `sync-cleanup`        | Deletes old sync runs, warns and then deletes inactive users without sync tasks    | See below                              |
+| `subscription-sync`   | Reconciles Creem subscription status and payment dates onto each account           | None                                   |
 
-`schedule` is a 5-field cron expression (`minute hour day month weekday`) evaluated in UTC, or one of `@hourly`, `@daily`, `@weekly`, and `@monthly`. When both day-of-month and weekday are restricted, the job runs if either matches. A job that is still running when its next tick arrives is skipped until it finishes. The committed file runs `sync-due` at the top of every hour, `weekly-sync-summary` at 15 minutes past every hour, and `sync-cleanup` every Sunday and Wednesday at 05:00 UTC.
+`schedule` is a 5-field cron expression (`minute hour day month weekday`) evaluated in UTC, or one of `@hourly`, `@daily`, `@weekly`, and `@monthly`. When both day-of-month and weekday are restricted, the job runs if either matches. A job that is still running when its next tick arrives is skipped until it finishes. The committed file runs `sync-due` at the top of every hour, `weekly-sync-summary` at 15 minutes past every hour, `sync-cleanup` every Sunday and Wednesday at 05:00 UTC, and `subscription-sync` at 06:00 UTC on the 1st and 15th.
 
 `PLS_TASKSYNC_INTERVAL` still sets how long after a successful PRO sync that task becomes due again. The cron expression only decides how often the jobs process looks for due work. Hourly is enough for the default 720-minute interval. Weekly summaries can run hourly too: each opted-in PRO account is due only every seven days, and a call with no changes does not send mail.
+
+`subscription-sync` lists subscriptions from Creem and writes the current status, billing period, and payment dates onto the matching account. A paid status (`active`, `trialing`, or `scheduled_cancel`) keeps PRO. Any other status returns the account to Free. Accounts are matched by Creem customer id, then by the `userId` saved at checkout, then by email when exactly one account has that address. A stored subscription that Creem no longer has is marked canceled. Subscriptions for a product other than `PLS_CREEM_PRO_PRODUCT_ID` are left untouched. When several subscriptions belong to one account, the one that still grants PRO wins.
 
 If `jobs.json` is missing, the process still serves the HTTP endpoints and does not run jobs on its own. An invalid file stops startup.
 
@@ -390,6 +393,11 @@ curl -X POST "http://127.0.0.1:3008/api/jobs/weekly-sync-summary" \
 	-H "Authorization: Bearer $PLS_SCHEDULER_SECRET"
 ```
 
+```bash
+curl -X POST "http://127.0.0.1:3008/api/jobs/subscription-sync" \
+	-H "Authorization: Bearer $PLS_SCHEDULER_SECRET"
+```
+
 A single task can be run with `POST /api/jobs/sync-task/:id` and the same bearer token. MongoDB leases prevent concurrent runs of the same task. Keep `PLS_JOBS_PORT` (`3008` by default) off the public internet.
 
 ## Runtime endpoints
@@ -406,6 +414,7 @@ Jobs process (`PLS_JOBS_PORT`):
 - `POST /api/jobs/sync-task/:id`: authenticated run of one task
 - `POST /api/jobs/weekly-sync-summary`: authenticated weekly PRO sync summary emails
 - `POST /api/jobs/sync-cleanup`: authenticated cleanup of old sync runs and inactive users, with the default parameters
+- `POST /api/jobs/subscription-sync`: authenticated Creem subscription reconciliation
 
 ## Deployment notes
 
@@ -413,6 +422,6 @@ The website listens on `0.0.0.0:$PORT` and the jobs process on `0.0.0.0:$PLS_JOB
 
 With `NODE_ENV=production`, both processes refuse to start (exit code 1) when `PLS_MONGODB_URI` or `PLS_TOKEN_ENCRYPTION_KEY` is missing, when `PLS_APP_URL` is not a public `https` origin, or when Creem is only partially configured. The website also requires `PLS_SESSION_SECRET`, and the jobs process requires `PLS_SCHEDULER_SECRET`. A missing `PLS_SMTP_HOST` only logs a warning.
 
-On `SIGTERM` or `SIGINT`, the website answers new requests with 503. The jobs server stops accepting new connections and stops scheduling new jobs from `jobs.json`. A client opening a new connection does not receive that 503. A request that reaches the jobs app on an already open connection does. The jobs process stops starting due tasks. Each process waits up to `PLS_SHUTDOWN_TIMEOUT_SECONDS` for the sync runs it started, and the jobs process also waits for scheduled jobs and accepted non-sync requests, such as a weekly summary, before closing MongoDB. Tracked runs still going at the deadline are marked failed. A sync start that has not recorded its run ID by the deadline can remain running.
+On `SIGTERM` or `SIGINT`, the website answers new requests with 503. The jobs server stops accepting new connections and stops scheduling new jobs from `jobs.json`. A client opening a new connection does not receive that 503. A request that reaches the jobs app on an already open connection does. The jobs process stops starting due tasks. Each process waits up to `PLS_SHUTDOWN_TIMEOUT_SECONDS` for the sync runs it started, and the jobs process also waits for scheduled jobs and accepted non-sync requests, such as a weekly summary or subscription reconciliation, before closing MongoDB. Tracked runs still going at the deadline are marked failed. A sync start that has not recorded its run ID by the deadline can remain running.
 
 If using PM2 in production: PM2's `kill_timeout` in `ecosystem.config.cjs` is 10 seconds; keep `PLS_SHUTDOWN_TIMEOUT_SECONDS` below that.

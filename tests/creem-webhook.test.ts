@@ -28,14 +28,15 @@ const db = {
         }
     },
     users: {
-        findOneAndUpdate: async () => {
+        findOne: async () => {
             applyCalls += 1
             if (failNextApply) {
                 failNextApply = false
                 throw new Error("transient database failure")
             }
-            return {_id: new ObjectId(), tier: "pro"}
-        }
+            return {_id: new ObjectId(), tier: "free", email: "listener@example.com"}
+        },
+        updateOne: async () => ({acknowledged: true, matchedCount: 1, modifiedCount: 1})
     },
     syncTasks: {
         updateMany: async () => ({acknowledged: true, matchedCount: 0, modifiedCount: 0})
