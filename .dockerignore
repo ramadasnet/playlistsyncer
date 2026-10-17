@@ -32,3 +32,4 @@ id_ed25519
 *.sql
 *.log
 .DS_Store
+admin
