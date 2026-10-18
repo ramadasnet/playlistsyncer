@@ -27,11 +27,13 @@ function mailFrom(config: ServerConfig): string {
     return config.smtpFrom || `PlaylistSyncer <${process.env.PLS_SUPPORT_EMAIL}>`
 }
 
-// Metrics must never turn an accepted email into a failed send and cause a duplicate retry.
+// Metrics are best-effort. A short write limit keeps a stalled counter from blocking delivery or a duplicate retry.
+const mailMetricsTimeoutMs = 2_000
+
 async function recordMailOutcome(outcome: "accepted" | "failed"): Promise<void> {
     try {
         const database = await getDatabase()
-        await database.collection<MailMetrics>("operationalMetrics").updateOne({_id: "email"}, {$inc: {[outcome]: 1}, $setOnInsert: {startedAt: new Date()}}, {upsert: true})
+        await database.collection<MailMetrics>("operationalMetrics").updateOne({_id: "email"}, {$inc: {[outcome]: 1}, $setOnInsert: {startedAt: new Date()}}, {upsert: true, timeoutMS: mailMetricsTimeoutMs})
     } catch (error) {
         logger.error("Mail.metrics", error, "Email counter could not be persisted")
     }
