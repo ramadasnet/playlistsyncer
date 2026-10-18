@@ -1,0 +1,11 @@
+{
+    "name": "playlistsyncer-admin",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "bun --preload ../server/preload.ts ../node_modules/.bin/nuxt dev --no-fork --host 127.0.0.1 --port 3009",
+        "build": "NITRO_PRESET=bun nuxt build",
+        "start": "bun --preload ../server/preload.ts .output/server/index.mjs",
+        "typecheck": "nuxt typecheck"
+    }
+}

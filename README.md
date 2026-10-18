@@ -64,6 +64,44 @@ Creem webhook events are the source of truth for paid entitlement. The `subscrip
 
 ## Authentication and security
 
+### Independent admin website
+
+The `admin/` directory is a separate Nuxt application with its own routes, Google authentication, build output and container. It is not a page or layer of the consumer website. The consumer Nuxt configuration ignores it and the consumer Docker build context excludes it. No admin service is added to the consumer PM2 or Compose deployment.
+
+After the normal root dependency installation, run `bun run admin:dev` to serve it at `http://localhost:3009`. Run `bun run admin:typecheck` and `bun run admin:build` independently of consumer checks/builds. `HOST=127.0.0.1 PORT=3009 bun run admin:start` serves the compiled admin. The root commands use the existing Bun/Infisical preload and root environment settings.
+
+Admin settings are server-only:
+
+| Variable                         | Description                                                                         | Default                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `PLS_ADMIN_URL`                  | Exact external origin; HTTPS is required in production                              | `https://admin.playlistsyncer.com` in production, `http://localhost:3009` otherwise |
+| `PLS_ADMIN_GOOGLE_CLIENT_ID`     | Google OAuth web client ID for staff login                                          | Unset                                                                               |
+| `PLS_ADMIN_GOOGLE_CLIENT_SECRET` | Corresponding Google client secret                                                  | Unset                                                                               |
+| `PLS_ADMIN_ALLOWED_EMAILS`       | Comma-separated verified Google email addresses permitted to administer the service | Empty; nobody allowed                                                               |
+| `PLS_ADMIN_SESSION_HOURS`        | Absolute session lifetime, from 1 to 24 hours                                       | `8`                                                                                 |
+
+Set `PLS_ADMIN_ALLOWED_EMAILS=igor@ramadas.net` in production. Create a Google OAuth **Web application** client, enable the `openid email profile` scopes, and register these exact authorized redirect URIs for the relevant environments:
+
+- `https://admin.playlistsyncer.com/api/auth/callback`
+- `http://localhost:3009/api/auth/callback`
+
+Staff login is independent from consumer music-provider accounts. Admin sessions are opaque database-backed, host-only HTTP-only cookies; production cookies use the `__Host-` prefix. Every protected request rechecks the configured email allowlist. Mutation requests must carry the exact configured admin origin. Keep Google MFA enabled on staff accounts; an identity-aware proxy can add another access boundary.
+
+Build a **separate** image from the repository root with `docker build -f admin/Dockerfile -t playlistsyncer-admin .`. Its Dockerfile-specific ignore file includes admin sources while excluding local credentials and generated files. The independent Admin CI workflow validates the admin and publishes `ghcr.io/<owner>/<repository>-admin` on relevant master pushes. Admin-only source changes do not trigger the consumer CI/image workflow; shared server/domain changes trigger both. Supply the shared MongoDB settings, admin settings, and Creem settings to this service. The existing consumer billing service requires `PLS_CREEM_API_KEY`, `PLS_CREEM_PRO_PRODUCT_ID`, and `PLS_CREEM_SERVER` for billing actions. Supply any promotion/entitlement settings consistently across admin, website and jobs. An Infisical machine identity can supply these settings just as it does for the consumer service.
+
+Route only `admin.playlistsyncer.com` to the admin service's port 3009 behind an HTTPS reverse proxy. Preserve the external origin and the `Origin` header; do not route admin APIs through the consumer hostname. The image does not run the consumer site or scheduler. Admin code/configuration changes should trigger the admin build pipeline; shared server/domain changes should validate both apps. Deploying this app, configuring DNS, and creating Google credentials remain explicit operational steps.
+
+Capabilities and semantics:
+
+- User edits cover display name, confirmed email and weekly-summary preference. Changing confirmed email is a privileged verification override: pending confirmation tokens are cleared and existing consumer sessions are revoked. Tier and billing fields cannot be edited directly.
+- Subscription changes call Creem (pause, resume, cancel at period end, or cancel immediately), then read Creem again and reuse the existing subscription/entitlement reconciliation. **Discover & reconcile** also finds subscriptions not yet linked locally. Reconcile before retrying any ambiguous billing failure; a provider write may already have succeeded.
+- Task edits cover status, direction and next-run time. Running tasks cannot be changed. Cancellation pauses future runs, retains configuration/history and can later be reversed by activating the task. It does not abort an in-flight provider write. Playlist identities cannot be replaced in place. Direction edits maintain playlist writer claims; activations respect the owner's plan.
+- Statistics distinguish stored PRO, effective promotional PRO, and paid/trialing subscription access. Provider totals count distinct connected users. Playlist totals count distinct account/playlist pairs referenced by tasks and full-sync mappings, not all playlists in users' libraries. Run health uses retained run history from the last 24 hours.
+- Email counters begin with the first instrumented send and count SMTP-accepted messages and failed attempts, not guaranteed inbox delivery. Historical sends cannot be reconstructed. Metrics storage failures are logged and do not cause a successfully sent email to be retried.
+- The `adminAudit` collection records the staff actor, target, intent and completion status of mutations. A failed or pending record may require reconciliation after a provider or database interruption. Protect this collection and the admin database credentials as privileged operational data.
+
+### Consumer authentication
+
 The service has no manual registration process. Instead, users are registered as soon as they login with an account from any of the available music providers. If the provider does not share a verified email, the user is signed in and sent to the account page to enter (and then confirm) an email address.
 
 An already authenticated user may explicitly link another provider account, but only one account per provider. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies.
