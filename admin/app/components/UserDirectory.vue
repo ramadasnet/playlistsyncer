@@ -181,7 +181,7 @@ async function discover() {
             <p v-if="failure" role="alert" class="notice error">{{ failure }}</p>
             <p v-if="notice" role="status" class="notice">{{ notice }}</p>
             <form class="edit-form" @submit.prevent="save">
-                <label>Display name<input v-model="form.displayName" required maxlength="30" /></label><label>Confirmed email<input v-model="form.email" type="email" required /></label
+                <label>Display name<input v-model="form.displayName" required maxlength="30" /></label><label>Confirmed email<input v-model="form.email" type="email" :required="Boolean(detail.user.email)" /></label
                 ><label class="checkbox-label"><input v-model="form.weeklySyncSummaryEnabled" type="checkbox" :disabled="detail.user.effectiveTier !== 'pro'" />Weekly sync summary</label
                 ><button class="primary" :disabled="saving"><Save :size="16" />Save user</button>
             </form>

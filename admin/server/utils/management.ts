@@ -125,7 +125,11 @@ export async function audited<T>(event: H3Event, action: string, target: string,
 const userUpdateSchema = z
     .object({
         displayName: z.string().transform(normalizeDisplayName).pipe(z.string().min(1).max(maxDisplayNameLength)),
-        email: z.email().transform((value) => value.toLowerCase()),
+        email: z
+            .string()
+            .trim()
+            .toLowerCase()
+            .pipe(z.union([z.literal(""), z.email()])),
         weeklySyncSummaryEnabled: z.boolean()
     })
     .strict()
@@ -136,11 +140,16 @@ export async function updateUser(event: H3Event, id: string, input: unknown) {
     const db = await collections()
     const user = await db.users.findOne({_id: adminObjectId(id)})
     if (!user) throw createError({statusCode: 404, statusMessage: "User not found"})
-    if (body.weeklySyncSummaryEnabled && resolveEntitlement({...user, email: body.email}).tier !== "pro") throw createError({statusCode: 409, statusMessage: "Weekly summaries require PRO access"})
-    if (await db.users.findOne({_id: {$ne: user._id!}, $or: [{email: body.email}, {tempEmail: body.email}]})) throw createError({statusCode: 409, statusMessage: "Email is already used by another account"})
-    return audited(event, "user.update", id, {before: {displayName: user.displayName, email: user.email, weeklySyncSummaryEnabled: user.weeklySyncSummaryEnabled}, after: body}, async () => {
-        await db.users.updateOne({_id: user._id}, {$set: {...body, updatedAt: new Date()}, ...(body.email !== user.email ? {$unset: {tempEmail: "", emailVerificationTokenHash: "", emailVerificationExpiresAt: "", emailConfirmationSentAt: ""}} : {})})
-        if (body.email !== user.email) await db.sessions.deleteMany({userId: user._id!})
+    // Keep a missing confirmed email unset. An empty string would occupy the sparse unique index.
+    const email = body.email || undefined
+    if (!email && user.email) throw createError({statusCode: 400, statusMessage: "Confirmed email is required"})
+    if (body.weeklySyncSummaryEnabled && resolveEntitlement({...user, email: email ?? user.email}).tier !== "pro") throw createError({statusCode: 409, statusMessage: "Weekly summaries require PRO access"})
+    if (email && (await db.users.findOne({_id: {$ne: user._id!}, $or: [{email}, {tempEmail: email}]}))) throw createError({statusCode: 409, statusMessage: "Email is already used by another account"})
+    const changes = {displayName: body.displayName, weeklySyncSummaryEnabled: body.weeklySyncSummaryEnabled, ...(email ? {email} : {})}
+    const emailChanged = email !== undefined && email !== user.email
+    return audited(event, "user.update", id, {before: {displayName: user.displayName, email: user.email, weeklySyncSummaryEnabled: user.weeklySyncSummaryEnabled}, after: changes}, async () => {
+        await db.users.updateOne({_id: user._id}, {$set: {...changes, updatedAt: new Date()}, ...(emailChanged ? {$unset: {tempEmail: "", emailVerificationTokenHash: "", emailVerificationExpiresAt: "", emailConfirmationSentAt: ""}} : {})})
+        if (emailChanged) await db.sessions.deleteMany({userId: user._id!})
         return getUser(id)
     })
 }
