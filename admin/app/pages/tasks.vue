@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {ArrowLeft, ArrowRight, ExternalLink, RefreshCw, Save, Search, X} from "lucide-vue-next"
 import type {TaskDetail, TaskList} from "../../shared/contracts"
-import {dateLabel, errorLabel} from "../utils/format"
+import {errorLabel} from "../utils/format"
 const route = useRoute()
 const userId = computed(() => (typeof route.query.userId === "string" ? route.query.userId : ""))
 const filter = ref(typeof route.query.status === "string" ? route.query.status : "")
@@ -110,7 +110,7 @@ async function update(cancel = false) {
                         <span class="badge" :class="task.status">{{ task.busy ? "Running" : task.status }}</span
                         ><span v-if="task.pauseReason" class="cell-secondary">{{ task.pauseReason }} pause</span>
                     </td>
-                    <td>{{ dateLabel(task.nextRunAt) }}</td>
+                    <td><DateLabel :value="task.nextRunAt" /></td>
                     <td>
                         <button :disabled="!!loading" @click="open(task.id)">{{ loading === task.id ? "Loading..." : "Manage" }}<ExternalLink :size="14" /></button>
                     </td>
@@ -163,9 +163,9 @@ async function update(cancel = false) {
                 <h3>Activity</h3>
                 <dl class="details">
                     <dt>Last run</dt>
-                    <dd>{{ dateLabel(detail.task.lastRunAt) }}</dd>
+                    <dd><DateLabel :value="detail.task.lastRunAt" /></dd>
                     <dt>Last successful run</dt>
-                    <dd>{{ dateLabel(detail.task.lastSuccessAt) }}</dd>
+                    <dd><DateLabel :value="detail.task.lastSuccessAt" /></dd>
                     <dt>Consecutive failures</dt>
                     <dd>{{ detail.task.consecutiveFailures }}</dd>
                     <dt>Last error</dt>
@@ -186,7 +186,7 @@ async function update(cancel = false) {
                         <tbody>
                             <tr v-for="run in detail.runs" :key="run.id">
                                 <td>
-                                    {{ dateLabel(run.startedAt) }}<span v-if="run.error" class="cell-secondary danger">{{ run.error }}</span>
+                                    <DateLabel :value="run.startedAt" /><span v-if="run.error" class="cell-secondary danger">{{ run.error }}</span>
                                 </td>
                                 <td>{{ run.status }}</td>
                                 <td>{{ run.additions }}</td>

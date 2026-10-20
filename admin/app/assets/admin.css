@@ -90,6 +90,13 @@ select {
     font-size: 14px;
     min-width: 0;
 }
+select {
+    appearance: none;
+    padding-right: 36px;
+    background: #fff
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235f6f65' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+        no-repeat right 12px center;
+}
 input[type="checkbox"] {
     width: 18px;
     height: 18px;
@@ -143,8 +150,8 @@ p {
     justify-content: space-between;
     gap: 16px;
     padding: 16px 20px;
-    background: #fff;
-    border-bottom: 1px solid var(--line);
+    background: var(--ink);
+    color: #fff;
 }
 .brand {
     display: flex;
@@ -158,7 +165,7 @@ p {
     font:
         10px "DM Mono",
         monospace;
-    color: var(--green);
+    color: #8fd3ad;
     margin-top: 3px;
 }
 .identity {
@@ -169,6 +176,16 @@ p {
 }
 .identity > span {
     display: none;
+    color: #c9d6cd;
+}
+.identity .icon-button {
+    background: transparent;
+    border-color: #4a5d52;
+    color: #fff;
+}
+.identity .icon-button:hover {
+    background: #2a3d32;
+    border-color: #6f8577;
 }
 .primary-nav {
     display: flex;
@@ -455,6 +472,12 @@ tbody tr:last-child td {
     font-size: 13px;
     overflow-wrap: anywhere;
 }
+.notice.warning {
+    border-color: #c79a1c;
+    background: #fff1cb;
+    color: #71550b;
+    margin-bottom: 16px;
+}
 .notice.error {
     border-color: var(--red);
     background: #fbece9;
@@ -529,6 +552,9 @@ body:has(dialog[open]) {
 .billing-controls label {
     flex: 1;
     min-width: 180px;
+}
+.billing-controls button {
+    min-height: 42px;
 }
 .text-link {
     display: inline-flex;
