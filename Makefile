@@ -62,4 +62,4 @@ update:
 	npm pkg set version=$(shell date '+%y.%-V%u.1%H%M')
 	bun run check
 
-.PHONY: clean install build check test format db dev run jobs admin pm2-deploy pm2-start pm2-stop pm2-logs update
+.PHONY: clean install build check test format db dev jobs admin pm2-deploy pm2-start pm2-stop pm2-logs update

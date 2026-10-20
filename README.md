@@ -341,7 +341,7 @@ Instead of putting every secret in `.env`, the processes can load them from Infi
 | `PLS_INFISICAL_SECRET_PATH`   | Infisical folder path that holds the secrets.                                                   | `/`                                            |
 | `PLS_INFISICAL_SITE_URL`      | Infisical instance URL, for the EU cloud or a self-hosted instance.                             | `https://app.infisical.com`                    |
 
-The website and the jobs process preload `server/preload.ts` before reading configuration. Development (`make run`), `bun run start`, `bun run jobs`, and PM2 (also used by the default Docker command) pass that preload explicitly. Builds, typechecks, and tests do not contact Infisical. Variables that already have a value in the environment are kept, so values in `.env` or `compose.yaml` win over Infisical. If Infisical cannot be reached, the process exits and the restart policy tries again. Secrets are never written to disk or baked into the image; rotate a secret in Infisical and restart the processes to apply it.
+The website and the jobs process preload `server/preload.ts` before reading configuration. Development (`make dev`), `bun run start`, `bun run jobs`, and PM2 (also used by the default Docker command) pass that preload explicitly. Builds, typechecks, and tests do not contact Infisical. Variables that already have a value in the environment are kept, so values in `.env` or `compose.yaml` win over Infisical. If Infisical cannot be reached, the process exits and the restart policy tries again. Secrets are never written to disk or baked into the image; rotate a secret in Infisical and restart the processes to apply it.
 
 ### Docker Compose
 
