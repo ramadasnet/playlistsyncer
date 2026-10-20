@@ -4,6 +4,10 @@
     "type": "module",
     "private": true,
     "scripts": {
+        "admin:dev": "bun --preload ./server/preload.ts ./node_modules/.bin/nuxt dev admin --no-fork --host 127.0.0.1 --port 3009",
+        "admin:build": "NITRO_PRESET=bun nuxt build admin",
+        "admin:typecheck": "nuxt typecheck admin",
+        "admin:start": "bun --preload ./server/preload.ts admin/.output/server/index.mjs",
         "build": "NITRO_PRESET=bun nuxt build",
         "check": "bun run typecheck && bun test",
         "dev": "bun --preload ./server/preload.ts ./node_modules/.bin/nuxt dev --no-fork --host 0.0.0.0 --port 3007",

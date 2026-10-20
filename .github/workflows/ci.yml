@@ -3,7 +3,9 @@ name: CI
 on:
     push:
         branches: [master]
+        paths-ignore: ["admin/**", "tests/admin.test.ts", ".github/workflows/admin.yml"]
     pull_request:
+        paths-ignore: ["admin/**", "tests/admin.test.ts", ".github/workflows/admin.yml"]
 
 concurrency:
     group: ci-${{ github.ref }}
