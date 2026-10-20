@@ -68,7 +68,7 @@ Creem webhook events are the source of truth for paid entitlement. The `subscrip
 
 The `admin/` directory is a separate Nuxt application with its own routes, Google authentication, build output and container. It is not a page or layer of the consumer website. The consumer Nuxt configuration ignores it and the consumer Docker build context excludes it. No admin service is added to the consumer PM2 or Compose deployment.
 
-After the normal root dependency installation, run `bun run admin:dev` to serve it at `http://localhost:3009`. Run `bun run admin:typecheck` and `bun run admin:build` independently of consumer checks/builds. `HOST=127.0.0.1 PORT=3009 bun run admin:start` serves the compiled admin. The root commands use the existing Bun/Infisical preload and root environment settings.
+After the normal root dependency installation, run `bun run admin:dev` to serve only the admin at `http://localhost:3009`, or `make admin` to also start Cloudflare Tunnel. For the user website at `http://localhost:3007`, `bun run dev` starts only the website, while `make dev` also starts Cloudflare Tunnel. The Make targets stop both processes when either exits or you press Ctrl+C. Run `bun run admin:typecheck` and `bun run admin:build` independently of consumer checks/builds. `HOST=127.0.0.1 PORT=3009 bun run admin:start` serves the compiled admin. The root commands use the existing Bun/Infisical preload and root environment settings.
 
 Admin settings are server-only:
 
