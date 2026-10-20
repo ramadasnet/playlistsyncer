@@ -102,7 +102,7 @@ main {
     position: relative;
     z-index: 20;
     border-bottom: 1px solid var(--line);
-    background: rgba(247, 247, 242, 0.96);
+    background: #ffffff;
 }
 .header-inner {
     min-height: 70px;
@@ -1653,8 +1653,8 @@ select {
     display: flex;
     flex-direction: column;
 }
-.support-page .page-heading {
-    margin-bottom: 18px;
+.page-shell.support-page {
+    padding-top: 32px;
 }
 .support-email {
     margin: 0 0 28px;
@@ -1668,8 +1668,7 @@ select {
     width: 100%;
     min-height: 640px;
     height: calc(100vh - 280px);
-    border: 1px solid var(--line);
-    background: var(--white);
+    border: 0;
 }
 .legal-stack {
     max-width: 860px;
