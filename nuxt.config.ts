@@ -41,7 +41,7 @@ export default defineNuxtConfig({
             // Fallback display price. Startup replaces this with the configured Creem PRO product price when billing is configured.
             proPrice: "9.99 EUR",
             supportEmail: process.env.PLS_SUPPORT_EMAIL,
-            chatbaseHelpUrl: process.env.PLS_CHATBASE_HELP_URL,
+            chatlabHelpUrl: process.env.PLS_CHATLAB_HELP_URL,
             siteUrl: appUrl,
             proSubscriptionRequiredAt: process.env.PLS_PRO_SUBSCRIPTION_REQUIRED_AT || "",
             proSyncIntervalMinutes: Number.isInteger(proSyncIntervalMinutes) && proSyncIntervalMinutes > 0 ? proSyncIntervalMinutes : defaultProSyncIntervalMinutes,

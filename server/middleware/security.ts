@@ -17,8 +17,8 @@ export function contentSecurityPolicy(): string {
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https://fonts.gstatic.com",
         process.env.NODE_ENV === "production" ? "connect-src 'self'" : "connect-src 'self' ws:",
-        // The support page embeds the Chatbase assistant in an iframe, which falls back to default-src without this allowlist.
-        "frame-src 'self' https://www.chatbase.co",
+        // The support page embeds the ChatLab assistant in an iframe, which falls back to default-src without this allowlist.
+        "frame-src 'self' https://api.chatlab.com",
         "object-src 'none'",
         "base-uri 'self'",
         "form-action 'self'",

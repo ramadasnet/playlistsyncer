@@ -11,7 +11,7 @@ describe("content security policy", () => {
             .split("; ")
             .find((directive) => directive.startsWith("frame-src "))
 
-        expect(frameSrc).toContain("https://www.chatbase.co")
+        expect(frameSrc).toContain("https://api.chatlab.com")
     })
 
     test("still forbids framing the app itself", () => {
