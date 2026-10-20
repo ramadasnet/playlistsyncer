@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {ArrowLeft, ArrowRight, ExternalLink, RefreshCw, Save, Search, X} from "lucide-vue-next"
 import type {UserDetail, UserList} from "../../shared/contracts"
-import {dateLabel, errorLabel} from "../utils/format"
+import {errorLabel} from "../utils/format"
 
 const props = defineProps<{subscriptions?: boolean}>()
 const route = useRoute()
@@ -151,7 +151,7 @@ async function discover() {
                     <td>
                         <span class="badge" :class="user.effectiveTier">{{ user.effectiveTier.toUpperCase() }}</span>
                     </td>
-                    <td>{{ dateLabel(subscriptions ? user.nextPaymentAt : user.lastLoginAt) }}</td>
+                    <td><DateLabel :value="subscriptions ? user.nextPaymentAt : user.lastLoginAt" /></td>
                     <td>
                         <button :disabled="!!loading" @click="open(user.id)">{{ loading === user.id ? "Loading..." : "Manage" }}<ExternalLink :size="14" /></button>
                     </td>
@@ -189,9 +189,9 @@ async function discover() {
                 <h3>Account details</h3>
                 <dl class="details">
                     <dt>Created</dt>
-                    <dd>{{ dateLabel(detail.user.createdAt) }}</dd>
+                    <dd><DateLabel :value="detail.user.createdAt" /></dd>
                     <dt>Last login</dt>
-                    <dd>{{ dateLabel(detail.user.lastLoginAt) }}</dd>
+                    <dd><DateLabel :value="detail.user.lastLoginAt" /></dd>
                     <dt>Pending email</dt>
                     <dd>{{ detail.user.pendingEmail || "None" }}</dd>
                     <dt>Connected accounts</dt>
@@ -214,17 +214,17 @@ async function discover() {
                     <dt>Customer ID</dt>
                     <dd class="mono">{{ detail.user.customerId || "None" }}</dd>
                     <dt>Last payment</dt>
-                    <dd>{{ dateLabel(detail.user.lastPaymentAt) }}</dd>
+                    <dd><DateLabel :value="detail.user.lastPaymentAt" /></dd>
                     <dt>Next payment</dt>
-                    <dd>{{ dateLabel(detail.user.nextPaymentAt) }}</dd>
+                    <dd><DateLabel :value="detail.user.nextPaymentAt" /></dd>
                     <dt>Period start</dt>
-                    <dd>{{ dateLabel(detail.user.periodStart) }}</dd>
+                    <dd><DateLabel :value="detail.user.periodStart" /></dd>
                     <dt>Period end</dt>
-                    <dd>{{ dateLabel(detail.user.periodEnd) }}</dd>
+                    <dd><DateLabel :value="detail.user.periodEnd" /></dd>
                     <dt>Canceled</dt>
-                    <dd>{{ dateLabel(detail.user.canceledAt) }}</dd>
+                    <dd><DateLabel :value="detail.user.canceledAt" /></dd>
                     <dt>Creem updated</dt>
-                    <dd>{{ dateLabel(detail.user.subscriptionUpdatedAt) }}</dd>
+                    <dd><DateLabel :value="detail.user.subscriptionUpdatedAt" /></dd>
                 </dl>
                 <form v-if="detail.user.subscriptionId" class="billing-controls" @submit.prevent="billing">
                     <label

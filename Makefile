@@ -28,13 +28,17 @@ format:
 db:
 	docker compose up -d mongodb
 
-# Run the app locally (dev server with hot reload)
-run:
-	bun --bun run dev
-
 # Run the scheduled jobs process locally
 jobs:
 	bun run jobs
+
+# Run the user website and Cloudflare Tunnel locally
+dev:
+	bun run ./scripts/dev.mjs
+
+# Run the admin site and Cloudflare Tunnel locally
+admin:
+	bun run ./scripts/dev.mjs --admin
 
 # Build and reload both production processes under PM2
 pm2-deploy: install build
@@ -58,4 +62,4 @@ update:
 	npm pkg set version=$(shell date '+%y.%-V%u.1%H%M')
 	bun run check
 
-.PHONY: clean install build check test format db run jobs pm2-deploy pm2-start pm2-stop pm2-logs update
+.PHONY: clean install build check test format db dev jobs admin pm2-deploy pm2-start pm2-stop pm2-logs update

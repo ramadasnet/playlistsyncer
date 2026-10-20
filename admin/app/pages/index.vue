@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {RefreshCw} from "lucide-vue-next"
 import type {Statistics} from "../../shared/contracts"
-import {dateLabel, errorLabel} from "../utils/format"
+import {errorLabel} from "../utils/format"
 const {data, status, error, refresh} = await useFetch<Statistics>("/api/stats")
 const metrics = computed(() =>
     data.value
@@ -10,7 +10,7 @@ const metrics = computed(() =>
               {label: "Effective PRO users", value: data.value.effectivePro, note: `${data.value.paidSubscriptions} paid / trialing subscriptions`},
               {label: "Sync tasks", value: data.value.tasks, note: `${data.value.activeTasks} active / ${data.value.pausedTasks} paused`},
               {label: "Tracked playlists", value: data.value.trackedPlaylists, note: "Distinct known account / playlist pairs"},
-              {label: "Emails accepted by SMTP", value: data.value.email?.accepted ?? "Not recorded", note: data.value.email ? `Since ${dateLabel(data.value.email.since)}` : "Counting starts with the next send"},
+              {label: "Emails accepted by SMTP", value: data.value.email?.accepted ?? "Not recorded", note: data.value.email ? "Since " : "Counting starts with the next send", since: data.value.email?.since},
               {label: "Weekly summary subscribers", value: data.value.summaryUsers, note: `${data.value.email?.failed || 0} SMTP failures recorded`}
           ]
         : []
@@ -22,7 +22,9 @@ const metrics = computed(() =>
         <div>
             <p class="eyebrow">OPERATIONS</p>
             <h1>Overview</h1>
-            <p class="muted">{{ data ? `Updated ${dateLabel(data.measuredAt)}` : "Current service activity" }}</p>
+            <p class="muted">
+                <template v-if="data">Updated <DateLabel :value="data.measuredAt" /></template><template v-else>Current service activity</template>
+            </p>
         </div>
         <button class="icon-button" title="Refresh statistics" aria-label="Refresh statistics" :disabled="status === 'pending'" @click="refresh()"><RefreshCw :size="20" /></button>
     </div>
@@ -33,7 +35,7 @@ const metrics = computed(() =>
             <div v-for="metric in metrics" :key="metric.label" class="metric">
                 <dt>{{ metric.label }}</dt>
                 <dd>{{ typeof metric.value === "number" ? metric.value.toLocaleString() : metric.value }}</dd>
-                <p>{{ metric.note }}</p>
+                <p>{{ metric.note }}<DateLabel v-if="metric.since" :value="metric.since" /></p>
             </div>
         </dl>
         <section class="section-band">
@@ -92,7 +94,7 @@ const metrics = computed(() =>
                     </thead>
                     <tbody>
                         <tr v-for="entry in data.audit" :key="entry.id">
-                            <td>{{ dateLabel(entry.createdAt) }}</td>
+                            <td><DateLabel :value="entry.createdAt" /></td>
                             <td>{{ entry.actor }}</td>
                             <td>{{ entry.action }}</td>
                             <td class="mono">{{ entry.target }}</td>

@@ -38,6 +38,7 @@ async function logout() {
             <NuxtLink to="/tasks"><Activity :size="18" />Sync tasks</NuxtLink>
         </nav>
         <main class="workspace">
+            <p v-if="session?.creemServer && session.creemServer !== 'prod'" class="notice warning">Creem is in test mode. Subscriptions and billing data shown here are sandbox data, not live payments.</p>
             <p v-if="logoutError" role="alert" class="notice error">{{ logoutError }}</p>
             <slot />
         </main>
