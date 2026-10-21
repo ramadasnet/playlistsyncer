@@ -18,9 +18,17 @@ describe("server configuration", () => {
         expect(config.tokenEncryptionKey).toBeUndefined()
         expect(config.mongodbDatabase).toBe("playlistsyncer")
         expect(config.creemServer).toBe("test")
-        expect(config.smtpHost).toBeUndefined()
-        expect(config.smtpPort).toBe(587)
+        expect(config.smtpHost).toBe("smtp.mx.cloudflare.net")
+        expect(config.smtpUser).toBe("api_token")
+        expect(config.smtpPort).toBe(465)
         expect(config.proSyncIntervalMinutes).toBe(720)
+    })
+
+    test("defaults SMTP to Cloudflare and preserves explicit overrides", () => {
+        const config = parseServerConfig({smtpHost: "smtp.example.com", smtpUser: "custom-user"})
+
+        expect(config.smtpHost).toBe("smtp.example.com")
+        expect(config.smtpUser).toBe("custom-user")
     })
 
     test("defaults an unspecified or blank MongoDB database and preserves custom names", () => {
@@ -144,14 +152,14 @@ describe("server configuration", () => {
         }
     })
 
-    test("accepts a complete production configuration and warns when SMTP is missing", () => {
+    test("accepts production configuration with default SMTP settings", () => {
         const website = checkStartupConfig(parseServerConfig(productionValues), "website", true)
         const jobs = checkStartupConfig(parseServerConfig(productionValues), "jobs", true)
 
         expect(website.errors).toEqual([])
         expect(jobs.errors).toEqual([])
-        expect(website.warnings).toEqual([expect.stringContaining("SoundCloud users")])
-        expect(jobs.warnings).toEqual([expect.stringContaining("weekly sync summaries")])
+        expect(website.warnings).toEqual([])
+        expect(jobs.warnings).toEqual([])
         expect(checkStartupConfig(parseServerConfig({...productionValues, smtpHost: "smtp.example.com"}), "website", true).warnings).toEqual([])
     })
 

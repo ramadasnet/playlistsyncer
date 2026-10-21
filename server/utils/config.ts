@@ -20,7 +20,7 @@ const emailList = z.preprocess(
             : value,
     z.array(z.email().transform((email) => email.toLowerCase())).default([])
 )
-const optionalPort = z.preprocess((value) => (value === "" || value === undefined || value === null ? 587 : value), z.coerce.number().int().min(1).max(65535))
+const optionalPort = z.preprocess((value) => (value === "" || value === undefined || value === null ? 465 : value), z.coerce.number().int().min(1).max(65535))
 const optionalInstant = z.preprocess((value) => {
     if (value === "" || value === undefined || value === null) {
         return undefined
@@ -77,9 +77,9 @@ const serverConfigSchema = z.object({
     developmentProUserEmails: emailList,
     proSubscriptionRequiredAt: optionalInstant,
     proSyncIntervalMinutes: z.coerce.number().int().min(1).default(defaultProSyncIntervalMinutes),
-    smtpHost: optionalCredential,
+    smtpHost: optionalCredential.default("smtp.mx.cloudflare.net"),
     smtpPort: optionalPort,
-    smtpUser: optionalCredential,
+    smtpUser: optionalCredential.default("api_token"),
     smtpPassword: optionalCredential,
     smtpFrom: optionalCredential,
     safeMode: booleanFlag,
