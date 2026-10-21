@@ -1665,10 +1665,16 @@ select {
     border-bottom: 1px solid currentColor;
 }
 .support-frame {
-    width: 100%;
+    /* ChatLab insets its chat 35px inside the frame; bleed into the page gutter to compensate. */
+    --support-frame-bleed: min(35px, (100vw - 100%) / 2);
+    width: calc(100% + 2 * var(--support-frame-bleed));
+    margin-inline: calc(-1 * var(--support-frame-bleed));
     min-height: 640px;
     height: calc(100vh - 280px);
     border: 0;
+}
+.app-frame:has(.support-frame) {
+    overflow-x: clip;
 }
 .legal-stack {
     max-width: 860px;
