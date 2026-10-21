@@ -5,6 +5,8 @@ const spotifyTrackId = /^(?:spotify:track:)?[A-Za-z0-9]{22}$/
 const youtubeVideoId = /^[A-Za-z0-9_-]{11}$/
 const tidalTrackId = /^\d+$/
 const soundCloudTrackId = /^soundcloud:tracks:\d+$/
+// Apple catalog songs and library-only songs, such as uploads, keep their resource type in the ID.
+const appleTrackId = /^apple:(?:song|library-song):[A-Za-z0-9.]+$/
 
 // True when a stored identifier belongs to this provider's catalog.
 export function isProviderTrackId(provider: Provider, trackId: string): boolean {
@@ -13,6 +15,7 @@ export function isProviderTrackId(provider: Provider, trackId: string): boolean 
     if (provider === "youtube") return youtubeVideoId.test(trackId)
     if (provider === "tidal") return tidalTrackId.test(trackId)
     if (provider === "soundcloud") return soundCloudTrackId.test(trackId)
+    if (provider === "apple") return appleTrackId.test(trackId)
     return false
 }
 
@@ -28,5 +31,6 @@ export function providerTrackUrl(provider: Provider, track: {trackId: string; ur
     if (provider === "spotify") return `https://open.spotify.com/track/${track.trackId.replace("spotify:track:", "")}`
     if (provider === "youtube") return `https://music.youtube.com/watch?v=${track.trackId}`
     if (provider === "tidal") return `https://tidal.com/browse/track/${track.trackId}`
+    if (provider === "apple" && track.trackId.startsWith("apple:song:")) return `https://music.apple.com/song/${track.trackId.slice("apple:song:".length)}`
     return undefined
 }
