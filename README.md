@@ -1,7 +1,5 @@
 # PlaylistSyncer (BETA)
 
-**This app is not in production yet!!! No migrations are necessary!**
-
 An open-source service that allows users to sync their playlists among multiple music providers.
 
 - Two-way sync: changes made to a playlist on one service will also update the playlist on the other service.
@@ -13,7 +11,7 @@ An open-source service that allows users to sync their playlists among multiple 
 ## Stack
 
 - TypeScript + Nuxt 4 running on Bun
-- MongoDB database, also compatible with Google Firestore and Amazon DocumentDB
+- MongoDB-compatible database
 - Platform agnostic, should run anywhere using Docker or PM2
 - Creem is used for billing and payments
 
