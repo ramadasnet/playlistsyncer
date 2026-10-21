@@ -225,7 +225,7 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 id: claims.sub,
                 email: claims.email,
                 emailVerified: claims.emailVerified,
-                // A private relay address is no display name, so only the name Apple posted on the first login is used.
+                // A private relay address is no display name. This fallback is only for a first connection; a later login keeps the stored name when Apple posts none.
                 displayName: profileDisplayName("Apple Music user", context.displayNameHint)
             }
         }

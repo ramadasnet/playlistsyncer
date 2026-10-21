@@ -268,6 +268,8 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
             logger.warn("OAuth.finish", provider, `User ${user._id!.toHexString()}`, "User was deleted before the account was saved")
             throw createError({statusCode: 401, statusMessage: "This account is no longer available"})
         }
+        // Apple posts the person's name only on the first authorization. A later login has no new name, so the generic fallback must not replace the saved one.
+        const displayName = provider === "apple" && !normalizeDisplayName(transaction.displayNameHint || "") && conflictingAccount?.displayName ? conflictingAccount.displayName : profile.displayName
         // Updating the stored account by _id re-keys an account stored under a previous provider id.
         await db.providerAccounts.updateOne(
             conflictingAccount ? {_id: conflictingAccount._id} : {provider, externalAccountId: profile.id},
@@ -278,7 +280,7 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
                     userId: user._id!,
                     email: profile.email?.trim().toLowerCase(),
                     emailVerified: profile.emailVerified,
-                    displayName: profile.displayName,
+                    displayName,
                     accessToken,
                     ...(refreshToken ? {refreshToken} : {}),
                     tokenExpiresAt: keepsProviderSession && token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
