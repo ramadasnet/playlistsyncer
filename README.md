@@ -6,7 +6,7 @@ An open-source service that allows users to sync their playlists among multiple 
 - One-way sync: one provider acts as the master, and the playlist on the other provider is a mirror of the master.
 - Full sync: all playlists from one provider are synced to the other provider.
 - Automatic sync: background jobs will sync the playlists automatically every few hours / days, depending on settings.
-  Supported providers: Spotify, YouTube Music, TIDAL, and SoundCloud.
+  Supported providers: Spotify, YouTube Music, TIDAL, SoundCloud, and Apple Music.
 
 ## Stack
 
@@ -157,6 +157,12 @@ Application settings use the `PLS_` prefix.
 | `PLS_TIDAL_CLIENT_SECRET`                | TIDAL OAuth client secret.                                                                                                                   | Unset                                                                               |
 | `PLS_SOUNDCLOUD_CLIENT_ID`               | SoundCloud OAuth client ID.                                                                                                                  | Unset                                                                               |
 | `PLS_SOUNDCLOUD_CLIENT_SECRET`           | SoundCloud OAuth client secret.                                                                                                              | Unset                                                                               |
+| `PLS_APPLE_TEAM_ID`                      | Apple Developer Team ID that issues the Sign in with Apple and MusicKit tokens.                                                              | Unset                                                                               |
+| `PLS_APPLE_CLIENT_ID`                    | Sign in with Apple Services ID.                                                                                                              | Unset                                                                               |
+| `PLS_APPLE_SIGNIN_KEY_ID`                | Key ID of the private key with Sign in with Apple enabled.                                                                                   | Unset                                                                               |
+| `PLS_APPLE_SIGNIN_PRIVATE_KEY`           | Contents of that `.p8` private key; newlines may be written as `\n`.                                                                         | Unset                                                                               |
+| `PLS_APPLE_MUSIC_KEY_ID`                 | Key ID of the private key with MusicKit enabled.                                                                                             | Unset                                                                               |
+| `PLS_APPLE_MUSIC_PRIVATE_KEY`            | Contents of that `.p8` private key; newlines may be written as `\n`.                                                                         | Unset                                                                               |
 | `PLS_AMAZON_CLIENT_ID`                   | Login with Amazon client ID.                                                                                                                 | Unset                                                                               |
 | `PLS_AMAZON_CLIENT_SECRET`               | Login with Amazon client secret.                                                                                                             | Unset                                                                               |
 | `PLS_AMAZON_MUSIC_API_BASE_URL`          | Reserved endpoint for an approved Amazon Music partner API.                                                                                  | Unset                                                                               |
@@ -164,6 +170,7 @@ Application settings use the `PLS_` prefix.
 | `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE`    | Shared YouTube request pacing; `0` disables pacing.                                                                                          | `300`                                                                               |
 | `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE`      | Shared TIDAL request pacing; `0` disables pacing.                                                                                            | `60`                                                                                |
 | `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` | Shared SoundCloud request pacing; `0` disables pacing.                                                                                       | `60`                                                                                |
+| `PLS_APPLE_MAX_REQUESTS_PER_MINUTE`      | Shared Apple Music request pacing; `0` disables pacing.                                                                                      | `120`                                                                               |
 | `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE`     | Shared Amazon request pacing; `0` disables pacing.                                                                                           | `60`                                                                                |
 | `PLS_USER_PROVIDER_REQUESTS_PER_MINUTE`  | Requests one user can make per minute, counted separately on each web process, to routes that call music providers; `0` disables the limit.  | `30`                                                                                |
 | `PLS_CREEM_API_KEY`                      | Creem API credential for checkout and price lookup.                                                                                          | Unset                                                                               |
@@ -185,6 +192,7 @@ Some of the environment variables are optional, and will dictate which features 
     - `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE` (default 300)
     - `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE` (default 60)
     - `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` (default 60)
+    - `PLS_APPLE_MAX_REQUESTS_PER_MINUTE` (default 120)
     - `PLS_AMAZON_MAX_REQUESTS_PER_MINUTE` (default 60)
 - `PLS_USER_PROVIDER_REQUESTS_PER_MINUTE` (default 40) caps how often one user can load playlists, request match suggestions, or start syncs, so a single account cannot use up the shared provider limits. Each user can also request at most 5 confirmation emails per hour. Both caps are counted in memory on each web process, so another process keeps its own count.
 
@@ -237,6 +245,35 @@ ${PLS_APP_URL}/api/auth/soundcloud/callback
 SoundCloud's authorization-code flow does not use OAuth scopes. The app sends PKCE (`S256`) and exchanges the code with the client id, client secret, and code verifier. `/me` does not include an email address, so a first login continues on the account page until an email is added and confirmed.
 
 Created playlists are private. SoundCloud updates playlist membership by replacing the full track list (track URNs), not by adding or removing individual items. Replacements of one playlist run one at a time in this process. A queued removal still deletes the track from the earlier read after another write changes its position, and only as many copies as that read asked to remove. A replacement is refused when an entry has no track URN so that entry is not deleted. Tracks that SoundCloud rejects with `422` cannot be added. SoundCloud does not publish an aggregate request cap for these playlist calls; `PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE` still paces this app (default 60). Their published limit applies to play streams, which PlaylistSyncer does not request.
+
+### Apple Music
+
+Apple Music needs an Apple Developer Program membership. Login uses Sign in with Apple, and playlist access uses a MusicKit user token that the browser obtains with MusicKit JS. In the Apple Developer portal:
+
+1. Create an App ID with **Sign in with Apple** enabled, then a **Services ID** for the website. Its identifier is `PLS_APPLE_CLIENT_ID`.
+2. Configure the Services ID for Sign in with Apple: add the domain of `PLS_APP_URL` and register this return URL exactly:
+
+```text
+${PLS_APP_URL}/api/auth/apple/callback
+```
+
+3. Create a **Media ID** with **MusicKit** enabled.
+4. Create a private key with **Sign in with Apple** (linked to the App ID) and a private key with **MusicKit** (linked to the Media ID). One key can serve both when Apple allows it; set the same values twice in that case.
+5. Supply `PLS_APPLE_TEAM_ID`, `PLS_APPLE_CLIENT_ID`, `PLS_APPLE_SIGNIN_KEY_ID`, `PLS_APPLE_SIGNIN_PRIVATE_KEY`, `PLS_APPLE_MUSIC_KEY_ID`, and `PLS_APPLE_MUSIC_PRIVATE_KEY`. Apple Music stays hidden until all six are set.
+
+Sign in with Apple requests the `name` and `email` scopes with `response_mode=form_post`, so Apple posts the callback. That POST only forwards the code to the same URL as a GET, where the usual OAuth checks run. Apple documents no PKCE for websites, so the PKCE challenge is sent as the OpenID `nonce` and checked in the returned ID token. Apple sends the user's name only on the first authorization; later logins keep the stored name.
+
+After the first login, the account page asks the user to **Authorize** Apple Music. MusicKit JS opens Apple's consent popup and returns a music user token, which is stored encrypted together with the account's storefront. The browser receives a developer token restricted to the `PLS_APP_URL` origin. Apple music user tokens cannot be refreshed by the server; when Apple rejects one, the account page asks for authorization again. Reading a library requires an active Apple Music subscription.
+
+Limitations of the Apple Music API:
+
+- Apps can create playlists and add songs, but cannot remove songs, rename playlists, or delete playlists.
+- A one-way sync to Apple Music does not clear the target playlist. Existing songs are paired with the master, and songs removed from the master stay in Apple Music.
+- In a two-way sync, songs removed on the other side stay in Apple Music. They are stored on both sides of the snapshot, so they are not copied back on the next run. Removals made in Apple Music are synchronized to the other side as usual.
+- Created playlists are private. Only songs are synchronized; music videos in a playlist are ignored.
+- Library playlists report no track count, so the playlist pickers omit it.
+
+Apple does not publish a request cap; `PLS_APPLE_MAX_REQUESTS_PER_MINUTE` paces this app (default 120).
 
 ### Amazon
 
