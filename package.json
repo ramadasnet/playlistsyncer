@@ -1,6 +1,6 @@
 {
     "name": "playlistsyncer",
-    "version": "26.432.11718",
+    "version": "26.433.11121",
     "type": "module",
     "private": true,
     "scripts": {
@@ -31,7 +31,7 @@
         "nuxt": "^4.6.2",
         "oauth4webapi": "^3.8.8",
         "pinia": "^4.1.0",
-        "pm2": "^7.0.4",
+        "pm2": "^7.1.0",
         "vue": "^3.5.44",
         "vue-router": "^5.4.0",
         "zod": "^4.6.7"
