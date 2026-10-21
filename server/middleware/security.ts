@@ -4,7 +4,8 @@ import type {H3Event} from "h3"
 import {getServerConfig} from "../utils/config"
 
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
-const externalRoutes = ["/api/webhooks/"]
+// Sign in with Apple posts its callback from appleid.apple.com; the handler only redirects to the GET callback.
+const externalRoutes = ["/api/webhooks/", "/api/auth/apple/callback"]
 const csrfCookie = "ps_csrf"
 const csrfHeader = "x-csrf-token"
 
@@ -12,13 +13,14 @@ const csrfHeader = "x-csrf-token"
 export function contentSecurityPolicy(): string {
     return [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline'",
+        // MusicKit JS asks the browser for Apple Music access; its authorization runs in an Apple popup.
+        "script-src 'self' 'unsafe-inline' https://js-cdn.music.apple.com",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https://fonts.gstatic.com",
-        process.env.NODE_ENV === "production" ? "connect-src 'self'" : "connect-src 'self' ws:",
+        process.env.NODE_ENV === "production" ? "connect-src 'self' https://api.music.apple.com" : "connect-src 'self' ws: https://api.music.apple.com",
         // The support page embeds the ChatLab assistant in an iframe, which falls back to default-src without this allowlist.
-        "frame-src 'self' https://api.chatlab.com",
+        "frame-src 'self' https://api.chatlab.com https://authorize.music.apple.com",
         "object-src 'none'",
         "base-uri 'self'",
         "form-action 'self'",

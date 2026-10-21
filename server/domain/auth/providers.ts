@@ -4,6 +4,7 @@ import {getServerConfig, requireConfig, type ServerConfig} from "../../utils/con
 import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
 import {getProviderRateLimiter, maxQueueWaitMs} from "../providers/rate-limit"
+import {appleClientSecret, readAppleIdToken} from "./apple"
 
 interface OAuthProfile {
     id: string
@@ -15,14 +16,28 @@ interface OAuthProfile {
     avatarUrl?: string
 }
 
+interface OAuthProfileContext {
+    idToken?: string
+    // Nonce sent with the authorization request, which the ID token must repeat.
+    nonce?: string
+    displayNameHint?: string
+}
+
 interface OAuthProvider {
     authorizeUrl: string
     tokenUrl: string
     scopes: string[]
     clientIdKey: keyof ServerConfig
     clientSecretKey: keyof ServerConfig
+    // Other settings the provider needs before it can be offered.
+    extraConfigKeys?: (keyof ServerConfig)[]
+    // Signs a client secret per request when the provider does not issue a static one.
+    createClientSecret?: () => string
     tokenAuth: "basic" | "body"
-    fetchProfile(accessToken: string): Promise<OAuthProfile>
+    // Bind the ID token with an OpenID nonce instead of PKCE, which the provider does not document.
+    idTokenNonce?: boolean
+    responseMode?: "form_post"
+    fetchProfile(accessToken: string, context?: OAuthProfileContext): Promise<OAuthProfile>
 }
 
 // Fetch a provider profile with a bearer token and normalized error handling.
@@ -187,24 +202,50 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
                 displayName
             }
         }
+    },
+    apple: {
+        authorizeUrl: "https://appleid.apple.com/auth/authorize",
+        tokenUrl: "https://appleid.apple.com/auth/token",
+        scopes: ["name", "email"],
+        clientIdKey: "appleClientId",
+        clientSecretKey: "appleSigninPrivateKey",
+        // Sign in with Apple identifies the user. Playlist access needs the MusicKit key too.
+        extraConfigKeys: ["appleTeamId", "appleSigninKeyId", "appleMusicKeyId", "appleMusicPrivateKey"],
+        createClientSecret: () => appleClientSecret(),
+        tokenAuth: "body",
+        idTokenNonce: true,
+        // Apple requires form_post whenever the name or email scope is requested.
+        responseMode: "form_post",
+        async fetchProfile(_accessToken, context) {
+            if (!context?.idToken) {
+                throw createError({statusCode: 502, statusMessage: "Apple did not return an ID token"})
+            }
+            const claims = readAppleIdToken(context.idToken, {clientId: requireConfig("appleClientId"), nonce: context.nonce})
+            return {
+                id: claims.sub,
+                email: claims.email,
+                emailVerified: claims.emailVerified,
+                // A private relay address is no display name, so only the name Apple posted on the first login is used.
+                displayName: profileDisplayName("Apple Music user", context.displayNameHint)
+            }
+        }
     }
 }
 
 // Resolve an OAuth definition with its configured client credentials.
 export function getOAuthProvider(provider: Provider): OAuthProvider & {clientId: string; clientSecret: string} {
     const definition = oauthProviders[provider]
-    const config = getServerConfig()
     return {
         ...definition,
         clientId: requireConfig(definition.clientIdKey) as string,
-        clientSecret: requireConfig(definition.clientSecretKey) as string
+        clientSecret: definition.createClientSecret ? definition.createClientSecret() : (requireConfig(definition.clientSecretKey) as string)
     }
 }
 
-// Check whether both OAuth credentials exist for a provider.
+// Check whether every credential a provider needs exists.
 export function hasOAuthCredentials(provider: Provider, config: ServerConfig = getServerConfig()): boolean {
     const definition = oauthProviders[provider]
-    return Boolean(config[definition.clientIdKey] && config[definition.clientSecretKey])
+    return [definition.clientIdKey, definition.clientSecretKey, ...(definition.extraConfigKeys || [])].every((key) => Boolean(config[key]))
 }
 
-export type {OAuthProfile, OAuthProvider}
+export type {OAuthProfile, OAuthProfileContext, OAuthProvider}
