@@ -2,6 +2,7 @@
 import {RefreshCw} from "lucide-vue-next"
 import type {Statistics} from "../../shared/contracts"
 import {errorLabel} from "../utils/format"
+const providerNames: Record<string, string> = {spotify: "Spotify", tidal: "TIDAL", youtube: "YouTube Music", soundcloud: "SoundCloud", apple: "Apple Music", amazon: "Amazon Music"}
 const {data, status, error, refresh} = await useFetch<Statistics>("/api/stats")
 const metrics = computed(() =>
     data.value
@@ -73,8 +74,7 @@ const metrics = computed(() =>
             </div>
             <div class="provider-grid">
                 <NuxtLink v-for="provider in data.providerUsers" :key="provider.provider" :to="`/users?provider=${provider.provider}`" class="provider-count"
-                    ><span class="provider-dot" :class="provider.provider"></span
-                    ><span>{{ provider.provider === "youtube" ? "YouTube Music" : provider.provider === "tidal" ? "TIDAL" : provider.provider === "soundcloud" ? "SoundCloud" : provider.provider === "spotify" ? "Spotify" : "Amazon Music" }}</span
+                    ><span class="provider-dot" :class="provider.provider"></span><span>{{ providerNames[provider.provider] || provider.provider }}</span
                     ><strong>{{ provider.users }}</strong></NuxtLink
                 >
             </div>

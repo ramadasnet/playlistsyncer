@@ -288,6 +288,9 @@ main {
 .provider-soundcloud {
     color: #c4470a;
 }
+.provider-apple {
+    color: #c4162f;
+}
 
 .hero {
     position: relative;
