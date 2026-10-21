@@ -2,6 +2,7 @@ import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from "bun:tes
 import {generateKeyPairSync, verify} from "node:crypto"
 import type {ProviderAccountDocument} from "../shared/types/domain"
 import * as appleAuth from "../server/domain/auth/apple"
+import * as collectionsModule from "../server/data/collections"
 import * as http from "../server/domain/providers/http"
 import {appleAdapter} from "../server/domain/providers/apple"
 import {fetchRetryDefaults} from "../server/utils/fetch-retry"
@@ -243,5 +244,29 @@ describe("Apple Music requests", () => {
 
         await expect(http.providerFetch(account, `${api}/me/library/playlists`)).rejects.toMatchObject({statusCode: 409, statusMessage: appleAuth.appleMusicAuthorizationMessage})
         expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    test("clears a rejected MusicKit token only when it is still the stored one", async () => {
+        const rejected = {version: 2, iv: "iv", ciphertext: "rejected"}
+        const updates: {filter: unknown; update: {$unset: {musicUserToken: string}; $set: {updatedAt: Date}}}[] = []
+        const collectionsSpy = spyOn(collectionsModule, "collections").mockResolvedValue({
+            providerAccounts: {
+                updateOne: async (filter: unknown, update: {$unset: {musicUserToken: string}; $set: {updatedAt: Date}}) => {
+                    updates.push({filter, update})
+                    return {matchedCount: 1}
+                }
+            }
+        } as never)
+        try {
+            fetchMock.mockResolvedValue(new Response("", {status: 403}))
+            const revoked = {...account, _id: "account", musicUserToken: rejected} as ProviderAccountDocument
+            await expect(http.providerFetch(revoked, `${api}/me/library/playlists`)).rejects.toMatchObject({statusCode: 409, statusMessage: appleAuth.appleMusicAuthorizationMessage})
+            expect(updates).toHaveLength(1)
+            expect(updates[0]!.filter).toEqual({_id: "account", musicUserToken: rejected})
+            expect(updates[0]!.update.$unset).toEqual({musicUserToken: ""})
+            expect(updates[0]!.update.$set.updatedAt).toBeInstanceOf(Date)
+        } finally {
+            collectionsSpy.mockRestore()
+        }
     })
 })

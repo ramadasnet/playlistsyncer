@@ -95,9 +95,10 @@ export async function providerFetch<T>(account: ProviderAccountDocument, url: st
         if (account.provider === "apple" && response.status === 403) {
             logger.warn("Provider.request", ...logParts, "Apple Music authorization rejected")
             // Library requests are the ones that use the user token, so only their rejection asks the user to authorize again.
-            if (account._id && requestUrl.pathname.startsWith("/v1/me/")) {
+            // Clear that token only while it is still the rejected one. A reauthorization may already have saved a replacement, and a rejected replacement is checked before it is saved.
+            if (account._id && account.musicUserToken && requestUrl.pathname.startsWith("/v1/me/")) {
                 const db = await collections()
-                await db.providerAccounts.updateOne({_id: account._id}, {$unset: {musicUserToken: ""}, $set: {updatedAt: new Date()}})
+                await db.providerAccounts.updateOne({_id: account._id, musicUserToken: account.musicUserToken}, {$unset: {musicUserToken: ""}, $set: {updatedAt: new Date()}})
             }
             throw createError({statusCode: 409, statusMessage: appleMusicAuthorizationMessage})
         }
