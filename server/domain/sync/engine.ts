@@ -283,6 +283,8 @@ async function applyDesired(
     skipped: number
     aliases: {trackId: string; canonicalKey: string}[]
     unmatched: ProviderTrack[]
+    // Tracks an append-only provider had to keep although the desired state drops them.
+    retained: ProviderTrack[]
 }> {
     const adapter = getProviderAdapter(account.provider)
     const safeMode = isSafeModeEnabled()
@@ -364,9 +366,15 @@ async function applyDesired(
         await Promise.allSettled([flush(), safeMode ? undefined : saveSearchMisses(account, newMisses)])
     }
     const skipped = unmatched.length
-    const removals = removedTracks.map((track) => track.itemId)
+    // Apple Music cannot remove playlist tracks, so they stay and are not counted as removals.
+    const retained = adapter.appendOnly ? removedTracks : []
+    const removable = adapter.appendOnly ? [] : removedTracks
+    const removals = removable.map((track) => track.itemId)
     if (additions.length || removals.length || skipped) {
         logger.info("Sync.applyDesired", account.provider, `Playlist ${playlistId}`, playlistName, `Additions ${additions.length}`, `Removals ${removals.length}`, `Unmatched ${skipped}`)
+    }
+    if (retained.length) {
+        logger.info("Sync.applyDesired", account.provider, `Playlist ${playlistId}`, playlistName, `Kept ${retained.length} tracks the provider cannot remove`)
     }
     // PLS_SAFE_MODE logs the planned membership and leaves music providers untouched.
     if (safeMode) {
@@ -374,7 +382,7 @@ async function applyDesired(
             provider: account.provider,
             playlistId,
             playlistName,
-            removals: removedTracks,
+            removals: removable,
             additions,
             unmatched,
             finalTracks: playlistAfterChanges(
@@ -383,7 +391,7 @@ async function applyDesired(
                 additions.map((item) => ({itemId: item.trackId, trackId: item.trackId, title: item.title, artists: item.artists}))
             )
         })
-        return {additions: additions.length, removals: removals.length, skipped, aliases: additions, unmatched}
+        return {additions: additions.length, removals: removals.length, skipped, aliases: additions, unmatched, retained}
     }
     // Removals run after additions, so a failed addition never leaves a track deleted.
     if (removals.length) {
@@ -405,7 +413,7 @@ async function applyDesired(
             unmatchedTracks: trackReferences(unmatchedOrigin.account, unmatchedOrigin.playlistId, unmatched, unmatchedOrigin.playlistName)
         })
     }
-    return {additions: additions.length, removals: removals.length, skipped, aliases: additions, unmatched}
+    return {additions: additions.length, removals: removals.length, skipped, aliases: additions, unmatched, retained}
 }
 
 // Keep destination tracks that a reverse restore could not copy, so the next mirror does not delete them.
@@ -522,7 +530,14 @@ interface SyncResult {
 
 type ApplyResult = Awaited<ReturnType<typeof applyDesired>>
 
-const emptyApplyResult = (): ApplyResult => ({additions: 0, removals: 0, skipped: 0, aliases: [], unmatched: []})
+const emptyApplyResult = (): ApplyResult => ({additions: 0, removals: 0, skipped: 0, aliases: [], unmatched: [], retained: []})
+
+// Verified tracks an append-only side kept after the other side removed them.
+// Storing them on both snapshot sides puts them in the next baseline, so they read as removed instead of as new tracks to copy back.
+function keptAfterRemoval(verified: ProviderTrack[], retained: ProviderTrack[]): ProviderTrack[] {
+    const itemIds = new Set(retained.map((track) => track.itemId))
+    return verified.filter((track) => itemIds.has(track.itemId))
+}
 
 // Reconcile one playlist pair and refresh its matching snapshot.
 async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrackChanges, reportProgress: ReportProgress): Promise<SyncResult> {
@@ -561,6 +576,12 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
             conflicts = reconciliation.conflicts
             destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, pairedDestination, reconciliation.desired, recordChanges, task.destination.name, toDestination)
             sourceResult = await applyDesired(sourceAccount, task.source.playlistId, source, reconciliation.desired, recordChanges, task.source.name, toSource)
+        } else if (destinationAdapter.appendOnly) {
+            // The target cannot be cleared, so its tracks are paired with the source and only the missing ones are added.
+            const [source, destination] = alignRecordingKeys(withoutUnknownUnavailable(sourceItems), withoutUnknownUnavailable(destinationItems))
+            identitySource = source
+            pairedDestination = pairMatchingTracks(source, destination)
+            destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, pairedDestination, reconcileOneWay(source).desired, recordChanges, task.destination.name, toDestination)
         } else {
             identitySource = withoutUnknownUnavailable(sourceItems)
             const desired = reconcileOneWay(identitySource).desired
@@ -639,12 +660,16 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
                     canonicalKey: identityAliases.get(item.itemId) || identityAliases.get(item.trackId) || desiredAliases.get(item.itemId) || desiredAliases.get(item.trackId) || (item.unavailable ? undefined : normalizedAliases.get(trackKey(item)))
                 }))
             )
+        const canonicalSource = canonicalize(verifiedSource)
+        const canonicalDestination = canonicalize(verifiedDestination)
+        const keptOnSource = oneWay ? [] : keptAfterRemoval(canonicalSource, sourceResult.retained)
+        const keptOnDestination = oneWay ? [] : keptAfterRemoval(canonicalDestination, destinationResult.retained)
         await db.syncSnapshots.updateOne(
             {taskId: task._id!},
             {
                 $set: {
-                    sourceItems: canonicalize(verifiedSource).map(toCanonical),
-                    destinationItems: canonicalize(verifiedDestination).map(toCanonical),
+                    sourceItems: [...canonicalSource, ...keptOnDestination].map(toCanonical),
+                    destinationItems: [...canonicalDestination, ...keptOnSource].map(toCanonical),
                     createdAt: new Date()
                 }
             },

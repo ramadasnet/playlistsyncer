@@ -173,6 +173,7 @@ function missingPlaylist(provider: string) {
 function adapterFor(provider: Provider): ProviderAdapter {
     return {
         provider,
+        ...(provider === "apple" ? {appendOnly: true} : {}),
         listPlaylists: async (account, options) =>
             [...playlists.entries()]
                 .filter(([key, playlist]) => key.startsWith(`${account._id!.toHexString()}:`) && (!options?.writableOnly || playlist.owned !== false))
@@ -754,6 +755,97 @@ describe("restore and unavailable tracks", () => {
         expect(calls.searches).toEqual([])
         expect(playlistTitles("spotify", "src")).toEqual(["Song"])
         expect(playlistTitles("tidal", "dst")).toHaveLength(2)
+    })
+})
+
+describe("two-way removals", () => {
+    test("a two-way removal of a track matched by ISRC reaches the other side", async () => {
+        const kept = track("spotify", "1", "Kept", "Artist", "US0000000001")
+        const dropped = track("spotify", "2", "Dropped", "Artist", "US0000000002")
+        setPlaylist("spotify", "src", "Mix", [kept, dropped])
+        setPlaylist("tidal", "dst", "Mix", [track("tidal", "1", "Kept", "Artist", "US0000000001"), track("tidal", "2", "Dropped", "Artist", "US0000000002")])
+        catalogs.spotify = [kept, dropped]
+        const taskId = await insertTask({direction: "two-way", source: side("spotify", "src"), destination: side("tidal", "dst")})
+        await runSyncTask(taskId, "created")
+
+        setPlaylist("spotify", "src", "Mix", [kept])
+        const removal = await runSyncTask(taskId, "scheduled")
+        const next = await runSyncTask(taskId, "scheduled")
+
+        expect(removal).toMatchObject({additions: 0, removals: 1})
+        expect(next).toMatchObject({additions: 0, removals: 0})
+        expect(playlistTitles("spotify", "src")).toEqual(["Kept"])
+        expect(playlistTitles("tidal", "dst")).toEqual(["Kept"])
+    })
+})
+
+describe("append-only Apple Music playlists", () => {
+    test("a two-way removal of an ISRC track is kept in Apple Music without copying it back", async () => {
+        const kept = track("spotify", "1", "Kept", "Artist", "US0000000001")
+        const dropped = track("spotify", "2", "Dropped", "Artist", "US0000000002")
+        setPlaylist("spotify", "src", "Mix", [kept, dropped])
+        setPlaylist("apple", "dst", "Mix", [track("apple", "1", "Kept", "Artist", "US0000000001"), track("apple", "2", "Dropped", "Artist", "US0000000002")])
+        catalogs.spotify = [kept, dropped]
+        const taskId = await insertTask({direction: "two-way", source: side("spotify", "src"), destination: side("apple", "dst")})
+        await runSyncTask(taskId, "created")
+
+        setPlaylist("spotify", "src", "Mix", [kept])
+        await runSyncTask(taskId, "scheduled")
+        const next = await runSyncTask(taskId, "scheduled")
+
+        expect(next).toMatchObject({additions: 0, removals: 0})
+        expect(calls.added).toEqual([])
+        expect(playlistTitles("spotify", "src")).toEqual(["Kept"])
+        expect(playlistTitles("apple", "dst")).toEqual(["Kept", "Dropped"])
+    })
+    test("a two-way removal is kept in Apple Music without copying the track back", async () => {
+        const kept = track("spotify", "1", "Kept", "Artist")
+        const dropped = track("spotify", "2", "Dropped", "Artist")
+        setPlaylist("spotify", "src", "Mix", [kept, dropped])
+        setPlaylist("apple", "dst", "Mix", [track("apple", "1", "Kept", "Artist"), track("apple", "2", "Dropped", "Artist")])
+        catalogs.spotify = [kept, dropped]
+        const taskId = await insertTask({direction: "two-way", source: side("spotify", "src"), destination: side("apple", "dst")})
+        await runSyncTask(taskId, "created")
+
+        setPlaylist("spotify", "src", "Mix", [kept])
+        const removal = await runSyncTask(taskId, "scheduled")
+        const next = await runSyncTask(taskId, "scheduled")
+
+        expect(removal).toMatchObject({additions: 0, removals: 0})
+        expect(next).toMatchObject({additions: 0, removals: 0})
+        expect(calls.removed).toEqual([])
+        expect(calls.added).toEqual([])
+        expect(playlistTitles("spotify", "src")).toEqual(["Kept"])
+        expect(playlistTitles("apple", "dst")).toEqual(["Kept", "Dropped"])
+    })
+
+    test("a removal made in Apple Music still reaches the other side", async () => {
+        const shared = track("spotify", "1", "Song", "Artist")
+        setPlaylist("spotify", "src", "Mix", [shared])
+        setPlaylist("apple", "dst", "Mix", [track("apple", "1", "Song", "Artist")])
+        const taskId = await insertTask({direction: "two-way", source: side("apple", "dst"), destination: side("spotify", "src")})
+        await runSyncTask(taskId, "created")
+
+        setPlaylist("apple", "dst", "Mix", [])
+        const result = await runSyncTask(taskId, "scheduled")
+
+        expect(result).toMatchObject({removals: 1})
+        expect(playlistTitles("spotify", "src")).toEqual([])
+    })
+
+    test("a first one-way run keeps the Apple Music target and adds only missing tracks", async () => {
+        const present = track("spotify", "1", "Present", "Artist", "US0000000001")
+        const missing = track("spotify", "2", "Missing", "Artist", "US0000000002")
+        setPlaylist("spotify", "src", "Mix", [present, missing])
+        setPlaylist("apple", "dst", "Mix", [track("apple", "1", "Present", "Artist", "US0000000001"), track("apple", "9", "Extra", "Artist")])
+        catalogs.apple = [track("apple", "2", "Missing", "Artist", "US0000000002")]
+        const taskId = await insertTask({source: side("spotify", "src"), destination: side("apple", "dst")})
+
+        const result = await runSyncTask(taskId, "created")
+
+        expect(result).toMatchObject({additions: 1, removals: 0})
+        expect(calls.removed).toEqual([])
+        expect(playlistTitles("apple", "dst")).toEqual(["Present", "Extra", "Missing"])
     })
 })
 
