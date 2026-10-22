@@ -130,6 +130,14 @@ describe("three-way playlist reconciliation", () => {
         expect(trackKey(alignedDestination![0]!)).toBe("meta:song:artist")
     })
 
+    test("keeps a one-sided saved ISRC key when the other side removed the track", () => {
+        const kept = {...track("Kept"), isrc: "GB0000000001", canonicalKey: "isrc:GB0000000001"}
+        const removed = {...track("Removed"), isrc: "GB0000000002", canonicalKey: "isrc:GB0000000002"}
+        const [alignedSource] = shareRecordingKeys([[kept, removed], [{...track("Kept", "tidal"), isrc: "GB0000000001", canonicalKey: "isrc:GB0000000001"}]])
+
+        expect(alignedSource!.map((item) => trackKey(item))).toEqual(["isrc:GB0000000001", "isrc:GB0000000002"])
+    })
+
     test("keeps unmatched source tracks outside the synchronized baseline", () => {
         const synchronized = {...track("Synchronized"), canonicalKey: "canonical:synchronized"}
         const unmatched = {...track("Unmatched"), canonicalKey: "canonical:unmatched"}

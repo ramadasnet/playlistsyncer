@@ -3,7 +3,7 @@ import type {ObjectId} from "mongodb"
 import type {ReverseSyncRequest, SyncFailureReason} from "../reverse-sync"
 
 // Providers recognized by the application and their feature flags.
-export const providers = ["spotify", "tidal", "youtube", "soundcloud", "amazon"] as const
+export const providers = ["spotify", "tidal", "youtube", "soundcloud", "apple", "amazon"] as const
 
 export type Provider = (typeof providers)[number]
 
@@ -16,6 +16,7 @@ export const providerFlags: Record<Provider, ProviderFlags> = {
     tidal: {},
     youtube: {},
     soundcloud: {},
+    apple: {},
     amazon: {disabled: true}
 }
 
@@ -24,6 +25,7 @@ export const providerDisplayNames: Record<Provider, string> = {
     tidal: "TIDAL",
     youtube: "YouTube Music",
     soundcloud: "SoundCloud",
+    apple: "Apple Music",
     amazon: "Amazon Music"
 }
 
@@ -135,6 +137,9 @@ export interface ProviderAccountDocument {
     accessToken: EncryptedValue
     refreshToken?: EncryptedValue
     tokenExpiresAt?: Date
+    // Apple Music only: the MusicKit user token authorized in the browser after Sign in with Apple, and its storefront.
+    musicUserToken?: EncryptedValue
+    storefront?: string
     scopes: string[]
     connectedAt: Date
     updatedAt: Date
@@ -158,6 +163,8 @@ export interface OAuthTransactionDocument {
     codeVerifier: EncryptedValue
     linkingUserId?: ObjectId
     redirectAfter: string
+    // Sign in with Apple posts the user's name once, to the callback, and never puts it in the ID token.
+    displayNameHint?: string
     expiresAt: Date
     createdAt: Date
 }

@@ -18,12 +18,20 @@ export async function playlistCountForAccount(account: ProviderAccountDocument):
     if (!isProviderEnabled(account.provider)) {
         return 0
     }
+    if (needsAppleMusicAuthorization(account)) {
+        return undefined
+    }
     try {
         return (await getProviderAdapter(account.provider).listPlaylists(account)).length
     } catch (error) {
         logger.warn("Accounts.playlistCount", account.provider, `Provider account ${account.externalAccountId}`, error)
         return undefined
     }
+}
+
+// Sign in with Apple connects the account, but its playlists need MusicKit access granted in the browser.
+function needsAppleMusicAuthorization(account: ProviderAccountDocument): boolean {
+    return account.provider === "apple" && !account.musicUserToken
 }
 
 export async function serializeConnectedAccounts(accounts: ProviderAccountDocument[], includePlaylistCount: boolean) {
@@ -35,7 +43,8 @@ export async function serializeConnectedAccounts(accounts: ProviderAccountDocume
             email: account.email,
             playlistCount: includePlaylistCount ? await playlistCountForAccount(account) : undefined,
             connectedAt: account.connectedAt,
-            tokenExpiresAt: account.tokenExpiresAt
+            tokenExpiresAt: account.tokenExpiresAt,
+            ...(needsAppleMusicAuthorization(account) ? {authorizationRequired: true} : {})
         }))
     )
 }

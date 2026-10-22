@@ -23,6 +23,7 @@ const providerDetails: Record<Provider, string> = {
     tidal: "Login with TIDAL",
     youtube: "Login with Google",
     soundcloud: "Login with SoundCloud",
+    apple: "Login with Apple",
     amazon: "Login with Amazon"
 }
 </script>

@@ -330,6 +330,9 @@ p {
 .provider-dot.soundcloud {
     background: #d87114;
 }
+.provider-dot.apple {
+    background: #fa2d48;
+}
 .provider-dot.amazon {
     background: #187da2;
 }

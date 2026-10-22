@@ -76,16 +76,21 @@ export function shareRecordingKeys(groups: ProviderTrack[][]): ProviderTrack[][]
             canonicalUsers.set(track.canonicalKey, (canonicalUsers.get(track.canonicalKey) || 0) + 1)
         }
     }
-    return groups.map((group) =>
+    const groupKeys = groups.map((group) => new Set(group.map((track) => trackKey(track))))
+    return groups.map((group, groupIndex) =>
         group.map((track) => {
             const isrc = recordingIsrc(track.isrc)
             const isrcKey = isrc ? `isrc:${isrc}` : undefined
             if (isrc && isrcKey && sharedIsrcs.has(isrc) && !blocked.has(isrc) && (!track.canonicalKey || track.canonicalKey === isrcKey)) {
                 return track.canonicalKey === isrcKey ? track : {...track, canonicalKey: isrcKey}
             }
-            // A saved ISRC key that the other side does not use must not hide an equal metadata key.
+            // A saved ISRC key that the other side does not use must not hide an equal metadata key there.
+            // Without one, the other side removed the track, and the saved key must still match the baseline.
             if (track.canonicalKey?.startsWith("isrc:") && (canonicalUsers.get(track.canonicalKey) || 0) < 2) {
-                return {...track, canonicalKey: metadataKey(track)}
+                const key = metadataKey(track)
+                if (groupKeys.some((keys, index) => index !== groupIndex && keys.has(key))) {
+                    return {...track, canonicalKey: key}
+                }
             }
             return track
         })

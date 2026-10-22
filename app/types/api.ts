@@ -26,6 +26,8 @@ export interface ConnectedAccount {
     playlistCount?: number
     connectedAt: string
     tokenExpiresAt?: string
+    // Apple Music is connected but MusicKit access to the library was not granted yet.
+    authorizationRequired?: boolean
 }
 
 // Provider playlist summary used by selection views.
@@ -34,7 +36,7 @@ export interface PlaylistSummary {
     name: string
     description?: string
     imageUrl?: string
-    itemCount: number
+    itemCount?: number
 }
 
 // Serialized synchronization task and its latest visible run.

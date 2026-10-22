@@ -10,6 +10,8 @@ import logger from "./logger"
 export {resolveAppUrl} from "../../shared/app-url"
 
 const optionalCredential = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional())
+// A PEM key kept on one line in .env or a secret store uses literal \n separators.
+const optionalPrivateKey = optionalCredential.transform((value) => value?.replace(/\\n/g, "\n"))
 const emailList = z.preprocess(
     (value) =>
         typeof value === "string"
@@ -64,10 +66,17 @@ const serverConfigSchema = z.object({
     tidalClientSecret: optionalCredential,
     soundcloudClientId: optionalCredential,
     soundcloudClientSecret: optionalCredential,
+    appleTeamId: optionalCredential,
+    appleClientId: optionalCredential,
+    appleSigninKeyId: optionalCredential,
+    appleSigninPrivateKey: optionalPrivateKey,
+    appleMusicKeyId: optionalCredential,
+    appleMusicPrivateKey: optionalPrivateKey,
     spotifyMaxRequestsPerMinute: requestsPerMinute(120),
     youtubeMaxRequestsPerMinute: requestsPerMinute(300),
     tidalMaxRequestsPerMinute: requestsPerMinute(60),
     soundcloudMaxRequestsPerMinute: requestsPerMinute(60),
+    appleMaxRequestsPerMinute: requestsPerMinute(120),
     amazonMaxRequestsPerMinute: requestsPerMinute(60),
     userProviderRequestsPerMinute: requestsPerMinute(40),
     creemApiKey: optionalCredential,
@@ -122,10 +131,17 @@ export function getServerConfig(): ServerConfig {
             tidalClientSecret: process.env.PLS_TIDAL_CLIENT_SECRET,
             soundcloudClientId: process.env.PLS_SOUNDCLOUD_CLIENT_ID,
             soundcloudClientSecret: process.env.PLS_SOUNDCLOUD_CLIENT_SECRET,
+            appleTeamId: process.env.PLS_APPLE_TEAM_ID,
+            appleClientId: process.env.PLS_APPLE_CLIENT_ID,
+            appleSigninKeyId: process.env.PLS_APPLE_SIGNIN_KEY_ID,
+            appleSigninPrivateKey: process.env.PLS_APPLE_SIGNIN_PRIVATE_KEY,
+            appleMusicKeyId: process.env.PLS_APPLE_MUSIC_KEY_ID,
+            appleMusicPrivateKey: process.env.PLS_APPLE_MUSIC_PRIVATE_KEY,
             spotifyMaxRequestsPerMinute: process.env.PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE,
             youtubeMaxRequestsPerMinute: process.env.PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE,
             tidalMaxRequestsPerMinute: process.env.PLS_TIDAL_MAX_REQUESTS_PER_MINUTE,
             soundcloudMaxRequestsPerMinute: process.env.PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE,
+            appleMaxRequestsPerMinute: process.env.PLS_APPLE_MAX_REQUESTS_PER_MINUTE,
             amazonMaxRequestsPerMinute: process.env.PLS_AMAZON_MAX_REQUESTS_PER_MINUTE,
             userProviderRequestsPerMinute: process.env.PLS_USER_PROVIDER_REQUESTS_PER_MINUTE,
             creemApiKey: process.env.PLS_CREEM_API_KEY,

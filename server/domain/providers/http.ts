@@ -1,7 +1,9 @@
 // Perform authenticated requests against provider APIs and normalize failures.
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
+import {collections} from "../../data/collections"
 import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
+import {appleMusicAuthorizationMessage, appleMusicDeveloperToken, appleMusicUserToken} from "../auth/apple"
 import {getProviderRateLimiter, maxQueueWaitMs} from "./rate-limit"
 import {getAccessToken} from "./token"
 
@@ -43,9 +45,15 @@ export function nextQuotaResetAt(now = new Date()): Date {
 async function authorizedFetch(account: ProviderAccountDocument, url: string, init: RequestInit, forceRefresh = false): Promise<Response> {
     const limiter = getProviderRateLimiter(account.provider)
     const headers = new Headers(init.headers)
-    // SoundCloud documents the OAuth scheme. The other providers use Bearer.
-    const accessToken = await getAccessToken(account, {force: forceRefresh})
-    headers.set("Authorization", account.provider === "soundcloud" ? `OAuth ${accessToken}` : `Bearer ${accessToken}`)
+    if (account.provider === "apple") {
+        // Apple Music signs each request with the app's developer token and the user's MusicKit token.
+        headers.set("Authorization", `Bearer ${appleMusicDeveloperToken()}`)
+        headers.set("Music-User-Token", await appleMusicUserToken(account))
+    } else {
+        // SoundCloud documents the OAuth scheme. The other providers use Bearer.
+        const accessToken = await getAccessToken(account, {force: forceRefresh})
+        headers.set("Authorization", account.provider === "soundcloud" ? `OAuth ${accessToken}` : `Bearer ${accessToken}`)
+    }
     if (init.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json")
     }
@@ -76,12 +84,24 @@ export function isMissingPlaylistError(error: unknown): boolean {
 // Add the current provider token, parse successful responses, and map errors.
 export async function providerFetch<T>(account: ProviderAccountDocument, url: string, init: RequestInit = {}): Promise<T> {
     let response = await authorizedFetch(account, url, init)
-    if (response.status === 401) {
+    // A MusicKit user token cannot be refreshed by the server.
+    if (response.status === 401 && account.provider !== "apple") {
         response = await authorizedFetch(account, url, init, true)
     }
     if (!response.ok) {
         const requestUrl = new URL(url)
         const logParts = [account.provider, init.method || "GET", requestUrl.pathname, `Status ${response.status}`, `Provider account ${account.externalAccountId}`]
+        // Apple answers 403 when the MusicKit user token was revoked or expired; 401 means the developer token is wrong.
+        if (account.provider === "apple" && response.status === 403) {
+            logger.warn("Provider.request", ...logParts, "Apple Music authorization rejected")
+            // Library requests are the ones that use the user token, so only their rejection asks the user to authorize again.
+            // Clear that token only while it is still the rejected one. A reauthorization may already have saved a replacement, and a rejected replacement is checked before it is saved.
+            if (account._id && account.musicUserToken && requestUrl.pathname.startsWith("/v1/me/")) {
+                const db = await collections()
+                await db.providerAccounts.updateOne({_id: account._id, musicUserToken: account.musicUserToken}, {$unset: {musicUserToken: ""}, $set: {updatedAt: new Date()}})
+            }
+            throw createError({statusCode: 409, statusMessage: appleMusicAuthorizationMessage})
+        }
         if (account.provider === "youtube" && (await youtubeErrorReasons(response)).some((reason) => youtubeQuotaReasons.has(reason))) {
             logger.warn("Provider.request", ...logParts, "Daily quota exceeded")
             throw createError({statusCode: 429, statusMessage: youtubeQuotaMessage, data: {quotaExceeded: true}})
