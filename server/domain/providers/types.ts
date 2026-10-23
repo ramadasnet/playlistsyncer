@@ -7,7 +7,8 @@ export interface ProviderPlaylist {
     name: string
     description?: string
     imageUrl?: string
-    itemCount: number
+    // Absent when the provider does not report a track count with the playlist.
+    itemCount?: number
 }
 
 // A provider track with both display metadata and provider identifiers.
@@ -42,6 +43,8 @@ export type TrackRemovalProgress = (itemIds: string[]) => Promise<void>
 // Operations required to synchronize one provider's playlists.
 export interface ProviderAdapter {
     provider: Provider
+    // The provider API can add tracks to a playlist but not remove them, so removals stay in place.
+    appendOnly?: boolean
     // writableOnly limits the list to playlists the account can update. Source listings omit it.
     listPlaylists(account: ProviderAccountDocument, options?: {writableOnly?: boolean}): Promise<ProviderPlaylist[]>
     createPlaylist(account: ProviderAccountDocument, name: string, description?: string): Promise<ProviderPlaylist>

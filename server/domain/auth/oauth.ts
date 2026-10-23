@@ -2,7 +2,7 @@
 import {createHash, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
-import {truncateDisplayName} from "../../../shared/display-name"
+import {normalizeDisplayName, truncateDisplayName} from "../../../shared/display-name"
 import {normalizeRedirect} from "../../../shared/redirect"
 import type {Provider, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
@@ -24,6 +24,11 @@ function oauthBrowserCookie(state: string): string {
     return `ps_oauth_${hashOpaqueToken(state)}`
 }
 
+// The PKCE challenge, also sent as the OpenID nonce to providers that bind the ID token instead.
+function codeChallenge(codeVerifier: string): string {
+    return createHash("sha256").update(codeVerifier).digest("base64url")
+}
+
 // Build the callback URL registered for a provider.
 function callbackUrl(provider: Provider): string {
     return `${getServerConfig().appUrl}/api/auth/${provider}/callback`
@@ -42,7 +47,7 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
     const definition = getOAuthProvider(provider)
     const state = randomBytes(32).toString("base64url")
     const codeVerifier = randomBytes(48).toString("base64url")
-    const challenge = createHash("sha256").update(codeVerifier).digest("base64url")
+    const challenge = codeChallenge(codeVerifier)
     // The callback must arrive in the browser that started the flow, so a leaked authorize URL or callback URL is useless elsewhere.
     // A separate cookie per state lets a second tab start a flow without erasing the first one.
     const browserNonce = randomBytes(32).toString("base64url")
@@ -72,8 +77,15 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
         url.searchParams.set("scope", definition.scopes.join(" "))
     }
     url.searchParams.set("state", state)
-    url.searchParams.set("code_challenge", challenge)
-    url.searchParams.set("code_challenge_method", "S256")
+    if (definition.idTokenNonce) {
+        url.searchParams.set("nonce", challenge)
+    } else {
+        url.searchParams.set("code_challenge", challenge)
+        url.searchParams.set("code_challenge_method", "S256")
+    }
+    if (definition.responseMode) {
+        url.searchParams.set("response_mode", definition.responseMode)
+    }
     if (provider === "youtube") {
         url.searchParams.set("access_type", "offline")
         url.searchParams.set("prompt", "consent")
@@ -87,9 +99,11 @@ async function exchangeCode(provider: Provider, code: string, codeVerifier: stri
     const body = new URLSearchParams({
         grant_type: "authorization_code",
         code,
-        redirect_uri: callbackUrl(provider),
-        code_verifier: codeVerifier
+        redirect_uri: callbackUrl(provider)
     })
+    if (!definition.idTokenNonce) {
+        body.set("code_verifier", codeVerifier)
+    }
     const headers = new Headers({"Content-Type": "application/x-www-form-urlencoded"})
     if (definition.tokenAuth === "basic") {
         headers.set("Authorization", `Basic ${Buffer.from(`${definition.clientId}:${definition.clientSecret}`).toString("base64")}`)
@@ -107,6 +121,7 @@ async function exchangeCode(provider: Provider, code: string, codeVerifier: stri
         refresh_token?: string
         expires_in?: number
         scope?: string
+        id_token?: string
     }
     return {token, definition}
 }
@@ -226,7 +241,7 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
     }
     const codeVerifier = await decryptSecret(transaction.codeVerifier)
     const {token, definition} = await exchangeCode(provider, code, codeVerifier)
-    const profile = await definition.fetchProfile(token.access_token)
+    const profile = await definition.fetchProfile(token.access_token, {idToken: token.id_token, nonce: codeChallenge(codeVerifier), displayNameHint: transaction.displayNameHint})
     const accountIds = [profile.id, ...(profile.previousIds || [])]
     const storedAccounts = await db.providerAccounts.find({provider, externalAccountId: {$in: accountIds}}).toArray()
     const conflictingAccount = storedAccounts.find((account) => account.externalAccountId === profile.id) || storedAccounts[0]
@@ -242,8 +257,10 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
     }
     user = await assignVerifiedProviderEmail(user, profile)
     const now = new Date()
+    // Sign in with Apple only proves identity. Apple Music requests use the MusicKit user token, so Apple's token is never refreshed.
+    const keepsProviderSession = provider !== "apple"
     const accessToken = await encryptSecret(token.access_token)
-    const refreshToken = token.refresh_token ? await encryptSecret(token.refresh_token) : undefined
+    const refreshToken = keepsProviderSession && token.refresh_token ? await encryptSecret(token.refresh_token) : undefined
     // Share the deletion lock, then make sure the user still exists, so a finished deletion cannot be followed by a new token or session.
     await withUserLock(user._id!, async () => {
         const owner = await db.users.findOne({_id: user._id}, {projection: {_id: 1}})
@@ -251,6 +268,8 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
             logger.warn("OAuth.finish", provider, `User ${user._id!.toHexString()}`, "User was deleted before the account was saved")
             throw createError({statusCode: 401, statusMessage: "This account is no longer available"})
         }
+        // Apple posts the person's name only on the first authorization. A later login has no new name, so the generic fallback must not replace the saved one.
+        const displayName = provider === "apple" && !normalizeDisplayName(transaction.displayNameHint || "") && conflictingAccount?.displayName ? conflictingAccount.displayName : profile.displayName
         // Updating the stored account by _id re-keys an account stored under a previous provider id.
         await db.providerAccounts.updateOne(
             conflictingAccount ? {_id: conflictingAccount._id} : {provider, externalAccountId: profile.id},
@@ -261,10 +280,10 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
                     userId: user._id!,
                     email: profile.email?.trim().toLowerCase(),
                     emailVerified: profile.emailVerified,
-                    displayName: profile.displayName,
+                    displayName,
                     accessToken,
                     ...(refreshToken ? {refreshToken} : {}),
-                    tokenExpiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
+                    tokenExpiresAt: keepsProviderSession && token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
                     scopes: token.scope?.split(" ").filter(Boolean) || definition.scopes,
                     connectedAt: now,
                     updatedAt: now
@@ -275,5 +294,18 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         await createSession(event, user._id!)
     })
     logger.info("OAuth.finish", provider, `User ${user._id!.toHexString()}`, `Provider account ${profile.id}`, transaction.linkingUserId ? "Account linked" : "Login completed")
+    // Apple Music access is granted afterwards in the browser with MusicKit, from the account page.
+    if (provider === "apple" && !conflictingAccount?.musicUserToken) {
+        return "/account"
+    }
     return oauthRedirectAfterLogin(user, transaction.redirectAfter)
+}
+
+// Keep the name Sign in with Apple posts with its form_post callback, since the ID token never contains it.
+export async function saveOAuthDisplayNameHint(provider: Provider, state: string, displayName: string): Promise<void> {
+    if (!normalizeDisplayName(displayName)) {
+        return
+    }
+    const db = await collections()
+    await db.oauthTransactions.updateOne({provider, stateHash: hashOpaqueToken(state), expiresAt: {$gt: new Date()}}, {$set: {displayNameHint: truncateDisplayName(displayName)}})
 }

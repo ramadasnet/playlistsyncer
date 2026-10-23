@@ -2,6 +2,7 @@
 import type {Provider, ProviderAccountDocument} from "~~/shared/types/domain"
 import {isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModeDeletePlaylist, safeModeWriteBlockedMessage} from "../sync/safe-mode"
 import logger from "../../utils/logger"
+import {appleAdapter} from "./apple"
 import {soundcloudAdapter} from "./soundcloud"
 import {spotifyAdapter} from "./spotify"
 import {tidalAdapter} from "./tidal"
@@ -12,6 +13,7 @@ import {youtubeAdapter} from "./youtube"
 export function withoutProviderWrites(adapter: ProviderAdapter): ProviderAdapter {
     return {
         provider: adapter.provider,
+        ...(adapter.appendOnly ? {appendOnly: true} : {}),
         listPlaylists: (account, options) => adapter.listPlaylists(account, options),
         getPlaylistItems: (account, playlistId) => adapter.getPlaylistItems(account, playlistId),
         searchTrack: (account, track) => adapter.searchTrack(account, track),
@@ -44,6 +46,8 @@ export function getProviderAdapter(provider: Provider): ProviderAdapter {
         adapter = youtubeAdapter
     } else if (provider === "soundcloud") {
         adapter = soundcloudAdapter
+    } else if (provider === "apple") {
+        adapter = appleAdapter
     } else {
         throw createError({
             statusCode: 501,

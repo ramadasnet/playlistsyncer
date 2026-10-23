@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ArrowUpRight, CircleAlert, CreditCard, Link2, LoaderCircle, Mail, Plus, Sparkles, Trash2, Unlink} from "lucide-vue-next"
+import {ArrowUpRight, CircleAlert, CreditCard, KeyRound, Link2, LoaderCircle, Mail, Plus, Sparkles, Trash2, Unlink} from "lucide-vue-next"
 import type {ConnectedAccount, SessionUser} from "~/types/api"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
@@ -43,6 +43,8 @@ const disconnectError = ref("")
 const showDeleteDialog = ref(false)
 const deleteBusy = ref(false)
 const deleteError = ref("")
+const {authorizing: appleMusicAuthorizing, prepareAppleMusic, authorizeAppleMusic} = useAppleMusicAuthorization()
+const appleMusicNeedsAuthorization = computed(() => Boolean(data.value?.accounts.some((account) => account.provider === "apple" && account.authorizationRequired)))
 
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
 const pendingEmail = computed(() => Boolean(auth.user?.tempEmail))
@@ -306,6 +308,31 @@ function openDeleteDialog() {
     showDeleteDialog.value = true
 }
 
+// Apple shows its own consent popup, then the MusicKit user token is saved for syncs.
+async function authorizeApple() {
+    if (appleMusicAuthorizing.value) {
+        return
+    }
+    errorMessage.value = ""
+    successMessage.value = ""
+    try {
+        await authorizeAppleMusic()
+        await refresh()
+        successMessage.value = "Apple Music is authorized. Its playlists can now be synced."
+    } catch (error) {
+        errorMessage.value = statusMessage(error, "Apple Music could not be authorized")
+    }
+}
+
+// Load MusicKit while the page is idle, so the click can open Apple's popup right away.
+watch(appleMusicNeedsAuthorization, (needed) => {
+    if (needed && import.meta.client) {
+        prepareAppleMusic().catch(() => {
+            // The click retries and reports the error.
+        })
+    }
+})
+
 async function confirmDeleteAccount() {
     if (deleteBusy.value) {
         return
@@ -340,6 +367,11 @@ async function refreshAfterCheckout() {
 
 onMounted(() => {
     refresh()
+    if (appleMusicNeedsAuthorization.value) {
+        prepareAppleMusic().catch(() => {
+            // The click retries and reports the error.
+        })
+    }
     if (route.query.checkout !== "success") {
         return
     }
@@ -363,6 +395,7 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
         <div v-else-if="pendingEmail" class="notice" role="status">
             Confirm {{ auth.user?.tempEmail }} from the link we sent.{{ auth.user?.email ? " Your current address stays active until then." : " You can send another confirmation from Add email." }}
         </div>
+        <div v-if="appleMusicNeedsAuthorization" class="notice" role="status">Apple Music is connected, but still needs access to your music library. Choose Authorize next to Apple Music below.</div>
         <div v-if="successMessage" class="notice notice-success" role="status">
             <span>{{ successMessage }}</span>
             <a v-if="devConfirmationUrl" :href="devConfirmationUrl">Confirm email (dev)</a>
@@ -448,10 +481,21 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                         <div class="connection-copy">
                             <strong>{{ connectedAccount(provider)?.displayName }}</strong
                             ><span>{{ connectedAccount(provider)?.email || "Connected" }}</span
-                            ><span>{{ connectedAccount(provider)?.playlistCount ?? 0 }} {{ connectedAccount(provider)?.playlistCount === 1 ? "playlist" : "playlists" }}</span>
+                            ><span v-if="connectedAccount(provider)?.authorizationRequired">Music library access needed</span
+                            ><span v-else>{{ connectedAccount(provider)?.playlistCount ?? 0 }} {{ connectedAccount(provider)?.playlistCount === 1 ? "playlist" : "playlists" }}</span>
                         </div>
                         <div class="connection-actions">
-                            <span class="status-dot"><span /> Connected</span>
+                            <button
+                                v-if="connectedAccount(provider)?.authorizationRequired"
+                                class="button button-small button-primary"
+                                type="button"
+                                :disabled="appleMusicAuthorizing"
+                                :aria-label="`Authorize ${providerDisplayNames[provider]}`"
+                                @click="authorizeApple"
+                            >
+                                <LoaderCircle v-if="appleMusicAuthorizing" class="spin" :size="16" /><KeyRound v-else :size="16" /> Authorize
+                            </button>
+                            <span v-else class="status-dot"><span /> Connected</span>
                             <button class="button button-small button-secondary" type="button" aria-haspopup="dialog" :aria-label="`Disconnect ${providerDisplayNames[provider]}`" @click="openDisconnectDialog(connectedAccount(provider)!)">
                                 <Unlink :size="16" /> Disconnect
                             </button>

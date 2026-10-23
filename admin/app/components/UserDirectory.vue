@@ -121,7 +121,7 @@ async function discover() {
             <option v-for="state in ['active', 'trialing', 'scheduled_cancel', 'paused', 'canceled', 'past_due', 'unpaid', 'expired']" :key="state" :value="state">{{ state }}</option></select
         ><select v-model="provider" aria-label="Filter music provider">
             <option value="">All music providers</option>
-            <option v-for="name in ['spotify', 'tidal', 'youtube', 'soundcloud', 'amazon']" :key="name" :value="name">{{ name }}</option>
+            <option v-for="name in ['spotify', 'tidal', 'youtube', 'soundcloud', 'apple', 'amazon']" :key="name" :value="name">{{ name }}</option>
         </select>
     </form>
     <p v-if="status === 'pending'" class="muted" role="status">Loading accounts...</p>

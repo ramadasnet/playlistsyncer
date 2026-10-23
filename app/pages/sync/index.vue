@@ -69,6 +69,9 @@ const createDestinationPlaylist = computed(() => destinationPlaylistId.value ===
 const oneWayLabels = computed(() => effectiveDirection.value === "one-way")
 const selectedSourceProvider = computed(() => accountProvider(sourceAccountId.value))
 const selectedDestinationProvider = computed(() => accountProvider(destinationAccountId.value))
+// Apple Music lets apps add songs but not remove them, which changes what a sync can do on that side.
+const writesToAppleMusic = computed(() => selectedDestinationProvider.value === "apple" || (effectiveDirection.value === "two-way" && selectedSourceProvider.value === "apple"))
+const appleMusicRemovalNote = "Apple Music does not let apps remove songs, so songs removed on the other side stay in Apple Music until you remove them there."
 const conflictingFullSync = computed(() => {
     const sourceProvider = selectedSourceProvider.value
     const destinationProvider = selectedDestinationProvider.value
@@ -82,6 +85,10 @@ const canSubmit = computed(
 
 function accountProvider(accountId: string): Provider | undefined {
     return allAccounts.value.find((account) => account.id === String(accountId))?.provider
+}
+
+function playlistLabel(playlist: PlaylistSummary) {
+    return playlist.itemCount === undefined ? playlist.name : `${playlist.name} (${playlist.itemCount})`
 }
 
 function selectMatchingDestination() {
@@ -343,7 +350,7 @@ onUnmounted(() => {
                     ><select v-model="sourcePlaylistId" :disabled="!sourceAccountId || loadingPlaylists">
                         <option value="">Choose playlist</option>
                         <option :value="allPlaylistsId" :disabled="auth.user?.tier !== 'pro'">ALL Playlists{{ auth.user?.tier === "pro" ? "" : " (PRO)" }}</option>
-                        <option v-for="playlist in sourcePlaylists" :key="playlist.id" :value="playlist.id">{{ playlist.name }} ({{ playlist.itemCount }})</option>
+                        <option v-for="playlist in sourcePlaylists" :key="playlist.id" :value="playlist.id">{{ playlistLabel(playlist) }}</option>
                     </select></label
                 >
                 <div class="builder-arrow">
@@ -363,7 +370,7 @@ onUnmounted(() => {
                         <option v-if="syncAllPlaylists" value="">Auto</option>
                         <option value="">Choose playlist</option>
                         <option v-if="sourcePlaylist" :value="createPlaylistId">Create new playlist: {{ sourcePlaylist.name }}</option>
-                        <option v-for="playlist in destinationPlaylists" :key="playlist.id" :value="playlist.id">{{ playlist.name }} ({{ playlist.itemCount }})</option>
+                        <option v-for="playlist in destinationPlaylists" :key="playlist.id" :value="playlist.id">{{ playlistLabel(playlist) }}</option>
                     </select></label
                 >
             </div>
@@ -385,9 +392,14 @@ onUnmounted(() => {
             <div class="builder-footer">
                 <p v-if="syncAllPlaylists" class="builder-warning">
                     Playlists are matched by name. Missing playlists are created. Existing playlists on the target will be overwritten. Playlists deleted from the master will not be deleted from the target.
+                    <template v-if="writesToAppleMusic">{{ appleMusicRemovalNote }}</template>
                 </p>
+                <p v-else-if="effectiveDirection === 'one-way' && writesToAppleMusic" class="builder-warning">Songs already in the Apple Music playlist are kept. {{ appleMusicRemovalNote }}</p>
                 <p v-else-if="effectiveDirection === 'one-way'" class="builder-warning">The target playlist will be fully cleared once the sync starts.</p>
-                <p v-else>The first run adds each playlist's missing tracks to the other. Later runs reconcile changes in both directions.</p>
+                <p v-else>
+                    The first run adds each playlist's missing tracks to the other. Later runs reconcile changes in both directions.
+                    <template v-if="writesToAppleMusic">{{ appleMusicRemovalNote }}</template>
+                </p>
                 <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create task</button>
             </div>
         </section>
