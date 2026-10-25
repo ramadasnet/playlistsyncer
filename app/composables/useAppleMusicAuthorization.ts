@@ -29,10 +29,20 @@ function loadMusicKit(): Promise<MusicKitGlobal> {
     }
     musicKitLoading ??= new Promise<MusicKitGlobal>((resolve, reject) => {
         document.addEventListener("musickitloaded", () => resolve((window as MusicKitWindow).MusicKit!), {once: true})
+        // MusicKit reads `process.versions.node` whenever a `process` global exists. Nuxt's browser shim has no `versions`.
+        const processShim = (window as {process?: {versions?: unknown}}).process
+        const hideVersions = Boolean(processShim) && processShim!.versions === undefined
+        if (hideVersions) {
+            processShim!.versions = null
+        }
         const script = document.createElement("script")
         script.src = musicKitScriptUrl
         script.async = true
+        script.onload = () => {
+            if (hideVersions) delete processShim!.versions
+        }
         script.onerror = () => {
+            if (hideVersions) delete processShim!.versions
             musicKitLoading = undefined
             script.remove()
             reject(new Error("Apple MusicKit could not be loaded"))
