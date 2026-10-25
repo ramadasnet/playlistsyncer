@@ -30,6 +30,7 @@ export default defineNitroPlugin((nitroApp) => {
     if (getServerConfig().safeMode) {
         logger.warn("PlaylistSync.startup", "PLS_SAFE_MODE is enabled; music providers will not be written")
     }
+    logger.info("PlaylistSync.startup", `URL: ${getServerConfig().appUrl}`)
 
     nitroApp.hooks.hook("error", (error, context) => {
         const statusCode = "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : 500

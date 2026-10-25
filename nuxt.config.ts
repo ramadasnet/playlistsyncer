@@ -24,12 +24,15 @@ export default defineNuxtConfig({
     },
     vite: {
         server: {
-            allowedHosts: [appHost],
+            allowedHosts: process.env.NODE_ENV === "production" ? [appHost] : true,
             headers: {
                 "Cache-Control": "no-store, max-age=0",
                 "CDN-Cache-Control": "no-store",
                 "Cloudflare-CDN-Cache-Control": "no-store"
             }
+        },
+        preview: {
+            allowedHosts: process.env.NODE_ENV === "production" ? [appHost] : true
         }
     },
     nitro: {
