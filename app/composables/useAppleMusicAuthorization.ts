@@ -3,6 +3,7 @@ const musicKitScriptUrl = "https://js-cdn.music.apple.com/musickit/v3/musickit.j
 // MusicKit addresses its consent window by this name, so the login click can open it before Sign in with Apple returns.
 const appleMusicWindowName = "apple-music-service-view"
 const appleMusicWindowKey = "playlistsyncer.appleMusicWindow"
+const appleMusicWindowCloseKey = "playlistsyncer.appleMusicWindowClose"
 const appleMusicWindowFeatures = "width=650,height=650,menubar=no,resizable=no,scrollbars=no,status=no,toolbar=no"
 const blockedMusicWindowMessage = "Apple Music access could not be opened. Choose Authorize to allow it."
 
@@ -19,6 +20,7 @@ type MusicKitWindow = Window & {MusicKit?: MusicKitGlobal}
 let musicKitLoading: Promise<MusicKitGlobal> | undefined
 let instanceLoading: Promise<MusicKitInstance> | undefined
 let appleMusicLoginContinuation: Promise<void> | undefined
+let reservedAppleMusicWindow: Window | undefined
 
 function loadMusicKit(): Promise<MusicKitGlobal> {
     const loaded = (window as MusicKitWindow).MusicKit
@@ -90,27 +92,51 @@ export function beginAppleProviderLogin(event: MouseEvent): void {
     if (!(anchor instanceof HTMLAnchorElement)) {
         return
     }
+    try {
+        localStorage.removeItem(appleMusicWindowCloseKey)
+    } catch {
+        // A leftover close flag must not shut the new window when storage is blocked.
+    }
     const popup = window.open("/apple-music-pending.html", appleMusicWindowName, appleMusicWindowFeatures)
     if (!popup) {
         return
     }
+    reservedAppleMusicWindow = popup
     event.preventDefault()
     // Let the browser keep the popup before this tab leaves for Sign in with Apple.
     window.setTimeout(() => window.location.assign(anchor.href), 50)
 }
 
-// Close the holding window when this sign-in already has Apple Music access.
-export function closeReservedAppleMusicWindow(): void {
-    if (!readAppleMusicWindowStamp()) {
-        return
-    }
+function clearAppleMusicWindowKeys(): void {
     try {
         localStorage.removeItem(appleMusicWindowKey)
+        localStorage.removeItem(appleMusicWindowCloseKey)
     } catch {
-        // Closing the window still matters when storage is blocked.
+        // The holding page also clears its heartbeat when it closes.
     }
-    const popup = window.open("", appleMusicWindowName)
-    if (!popup) {
+}
+
+// Close the holding window when this sign-in already has Apple Music access.
+export function closeReservedAppleMusicWindow(): void {
+    const popup = reservedAppleMusicWindow
+    reservedAppleMusicWindow = undefined
+    // A stale heartbeat means the holding window is already gone. Do not open a blank replacement.
+    if (!appleMusicWindowIsWaiting()) {
+        if (readAppleMusicWindowStamp()) {
+            clearAppleMusicWindowKeys()
+        }
+        return
+    }
+    if (!popup || popup.closed) {
+        if (popup?.closed) {
+            clearAppleMusicWindowKeys()
+            return
+        }
+        try {
+            localStorage.setItem(appleMusicWindowCloseKey, "1")
+        } catch {
+            // The holding page cannot see the request when storage is blocked.
+        }
         return
     }
     try {
@@ -122,6 +148,7 @@ export function closeReservedAppleMusicWindow(): void {
         return
     }
     popup.close()
+    clearAppleMusicWindowKeys()
 }
 
 // Notice when MusicKit cannot reuse the login window, so a blocked popup does not wait forever.

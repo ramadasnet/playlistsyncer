@@ -42,13 +42,22 @@
             <p>Keep this window open. After you sign in with Apple, it asks for access to your music library.</p>
         </main>
         <script>
-            // Heartbeat shared with the login page. The key name matches appleMusicWindowKey in useAppleMusicAuthorization.
+            // Heartbeat and close flag match appleMusicWindowKey and appleMusicWindowCloseKey in useAppleMusicAuthorization.
             const appleMusicWindowKey = "playlistsyncer.appleMusicWindow"
+            const appleMusicWindowCloseKey = "playlistsyncer.appleMusicWindowClose"
+            let timer
             function beat() {
+                if (localStorage.getItem(appleMusicWindowCloseKey) === "1") {
+                    localStorage.removeItem(appleMusicWindowKey)
+                    localStorage.removeItem(appleMusicWindowCloseKey)
+                    clearInterval(timer)
+                    window.close()
+                    return
+                }
                 localStorage.setItem(appleMusicWindowKey, String(Date.now()))
             }
             beat()
-            const timer = setInterval(beat, 400)
+            timer = setInterval(beat, 400)
             window.addEventListener("pagehide", () => {
                 clearInterval(timer)
                 localStorage.removeItem(appleMusicWindowKey)
