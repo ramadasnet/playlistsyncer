@@ -585,6 +585,16 @@ main {
 .provider-support > svg {
     color: var(--green);
 }
+.provider-support.open-source {
+    margin-top: 20px;
+}
+.provider-support.open-source > svg {
+    grid-column: -1;
+}
+.provider-support.open-source a {
+    color: var(--green);
+    border-bottom: 1px solid currentColor;
+}
 
 .auth-layout {
     display: grid;
