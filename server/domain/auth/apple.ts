@@ -44,7 +44,7 @@ export function appleMusicDeveloperToken(origin?: string, now = Date.now()): str
     }
     const issuedAt = Math.floor(now / 1000)
     const expiresAt = issuedAt + developerTokenSeconds
-    const token = signAppleJwt(requireConfig("appleMusicKeyId"), requireConfig("appleMusicPrivateKey"), {
+    const token = signAppleJwt(requireConfig("appleSigninKeyId"), requireConfig("appleSigninPrivateKey"), {
         iss: requireConfig("appleTeamId"),
         iat: issuedAt,
         exp: expiresAt,

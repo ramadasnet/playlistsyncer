@@ -209,8 +209,8 @@ const oauthProviders: Record<Provider, OAuthProvider> = {
         scopes: ["name", "email"],
         clientIdKey: "appleClientId",
         clientSecretKey: "appleSigninPrivateKey",
-        // Sign in with Apple identifies the user. Playlist access needs the MusicKit key too.
-        extraConfigKeys: ["appleTeamId", "appleSigninKeyId", "appleMusicKeyId", "appleMusicPrivateKey"],
+        // Sign in with Apple identifies the user. The MusicKit developer token is signed with the same key.
+        extraConfigKeys: ["appleTeamId", "appleSigninKeyId"],
         createClientSecret: () => appleClientSecret(),
         tokenAuth: "body",
         idTokenNonce: true,

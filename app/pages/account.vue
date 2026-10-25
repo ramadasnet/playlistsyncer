@@ -4,6 +4,7 @@ import type {ConnectedAccount, SessionUser} from "~/types/api"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
 import {maxDisplayNameLength, normalizeDisplayName} from "~~/shared/display-name"
+import {normalizeRedirect} from "~~/shared/redirect"
 
 definePageMeta({middleware: "auth"})
 useSeoMeta({title: "Account"})
@@ -45,6 +46,7 @@ const deleteBusy = ref(false)
 const deleteError = ref("")
 const {authorizing: appleMusicAuthorizing, prepareAppleMusic, authorizeAppleMusic} = useAppleMusicAuthorization()
 const appleMusicNeedsAuthorization = computed(() => Boolean(data.value?.accounts.some((account) => account.provider === "apple" && account.authorizationRequired)))
+const continuingAppleMusicLogin = ref(route.query.appleMusic === "authorize")
 
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
 const pendingEmail = computed(() => Boolean(auth.user?.tempEmail))
@@ -324,6 +326,41 @@ async function authorizeApple() {
     }
 }
 
+// Drop the one-time login flag without leaving the account page.
+async function clearAppleMusicLoginQuery() {
+    if (route.query.appleMusic !== "authorize") {
+        return
+    }
+    const query = {...route.query}
+    delete query.appleMusic
+    delete query.redirect
+    await navigateTo({path: "/account", query}, {replace: true})
+}
+
+// Sign in with Apple has finished. Continue in the MusicKit window that the same click opened.
+async function continueAppleMusicLogin() {
+    const redirect = typeof route.query.redirect === "string" ? route.query.redirect : ""
+    const ready = await waitForAppleMusicWindow()
+    await clearAppleMusicLoginQuery()
+    if (!appleMusicNeedsAuthorization.value) {
+        continuingAppleMusicLogin.value = false
+        closeReservedAppleMusicWindow()
+        return
+    }
+    if (!ready) {
+        continuingAppleMusicLogin.value = false
+        return
+    }
+    await authorizeApple()
+    continuingAppleMusicLogin.value = false
+    if (!errorMessage.value && redirect) {
+        const next = normalizeRedirect(redirect, "/account")
+        if (next !== "/account") {
+            await navigateTo(next)
+        }
+    }
+}
+
 // Load MusicKit while the page is idle, so the click can open Apple's popup right away.
 watch(appleMusicNeedsAuthorization, (needed) => {
     if (needed && import.meta.client) {
@@ -372,6 +409,9 @@ onMounted(() => {
             // The click retries and reports the error.
         })
     }
+    if (route.query.appleMusic === "authorize") {
+        runAppleMusicLoginContinuation(continueAppleMusicLogin)
+    }
     if (route.query.checkout !== "success") {
         return
     }
@@ -395,7 +435,10 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
         <div v-else-if="pendingEmail" class="notice" role="status">
             Confirm {{ auth.user?.tempEmail }} from the link we sent.{{ auth.user?.email ? " Your current address stays active until then." : " You can send another confirmation from Add email." }}
         </div>
-        <div v-if="appleMusicNeedsAuthorization" class="notice" role="status">Apple Music is connected, but still needs access to your music library. Choose Authorize next to Apple Music below.</div>
+        <div v-if="appleMusicNeedsAuthorization" class="notice" role="status">
+            <template v-if="appleMusicAuthorizing || continuingAppleMusicLogin">Requesting access to your Apple Music library.</template>
+            <template v-else>Apple Music is connected, but playlist sync needs access to your music library. Choose Authorize next to Apple Music.</template>
+        </div>
         <div v-if="successMessage" class="notice notice-success" role="status">
             <span>{{ successMessage }}</span>
             <a v-if="devConfirmationUrl" :href="devConfirmationUrl">Confirm email (dev)</a>
@@ -489,11 +532,11 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                                 v-if="connectedAccount(provider)?.authorizationRequired"
                                 class="button button-small button-primary"
                                 type="button"
-                                :disabled="appleMusicAuthorizing"
+                                :disabled="appleMusicAuthorizing || continuingAppleMusicLogin"
                                 :aria-label="`Authorize ${providerDisplayNames[provider]}`"
                                 @click="authorizeApple"
                             >
-                                <LoaderCircle v-if="appleMusicAuthorizing" class="spin" :size="16" /><KeyRound v-else :size="16" /> Authorize
+                                <LoaderCircle v-if="appleMusicAuthorizing || continuingAppleMusicLogin" class="spin" :size="16" /><KeyRound v-else :size="16" /> Authorize
                             </button>
                             <span v-else class="status-dot"><span /> Connected</span>
                             <button class="button button-small button-secondary" type="button" aria-haspopup="dialog" :aria-label="`Disconnect ${providerDisplayNames[provider]}`" @click="openDisconnectDialog(connectedAccount(provider)!)">
@@ -503,7 +546,7 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                     </template>
                     <template v-else>
                         <div class="connection-copy"><strong>Not connected</strong><span>Add this provider to use it in playlist pairs.</span></div>
-                        <a class="button button-small button-secondary" :href="`/api/auth/${provider}?redirect=/account`"><Plus :size="16" /> Connect</a>
+                        <a class="button button-small button-secondary" :href="`/api/auth/${provider}?redirect=/account`" @click="provider === 'apple' && beginAppleProviderLogin($event)"><Plus :size="16" /> Connect</a>
                     </template>
                 </div>
             </div>

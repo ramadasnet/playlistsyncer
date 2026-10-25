@@ -21,4 +21,12 @@
 
 <script setup lang="ts">
 const {showImpressum} = await useShowImpressum()
+const route = useRoute()
+
+onMounted(() => {
+    if (route.query.appleMusic === "authorize") {
+        return
+    }
+    closeReservedAppleMusicWindow()
+})
 </script>
