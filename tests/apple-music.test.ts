@@ -52,18 +52,25 @@ describe("Apple tokens", () => {
         expect(appleAuth.readAppleIdToken(idToken(claims), {clientId: "id"}, now).emailVerified).toBe(false)
     })
 
-    test("is offered only when Sign in with Apple and MusicKit are both configured", () => {
-        const complete = {
+    test("accepts one key for Sign in with Apple and MusicKit, and a separate MusicKit key when set", () => {
+        const signIn = {
             appleTeamId: "TEAM",
             appleClientId: "com.example.web",
             appleSigninKeyId: "SIGNIN",
-            appleSigninPrivateKey: privateKeyPem,
-            appleMusicKeyId: "MUSIC",
-            appleMusicPrivateKey: privateKeyPem
+            appleSigninPrivateKey: privateKeyPem
         }
-        expect(isProviderEnabled("apple", parseServerConfig(complete))).toBe(true)
-        for (const key of Object.keys(complete)) {
-            expect(isProviderEnabled("apple", parseServerConfig({...complete, [key]: undefined}))).toBe(false)
+        const sameKey = parseServerConfig(signIn)
+        expect(sameKey.appleMusicKeyId).toBe("SIGNIN")
+        expect(sameKey.appleMusicPrivateKey).toBe(privateKeyPem)
+        expect(isProviderEnabled("apple", sameKey)).toBe(true)
+
+        const separate = parseServerConfig({...signIn, appleMusicKeyId: "MUSIC", appleMusicPrivateKey: privateKeyPem})
+        expect(separate.appleMusicKeyId).toBe("MUSIC")
+        expect(isProviderEnabled("apple", separate)).toBe(true)
+        expect(isProviderEnabled("apple", parseServerConfig({...signIn, appleMusicKeyId: "MUSIC"}))).toBe(false)
+        expect(isProviderEnabled("apple", parseServerConfig({...signIn, appleMusicPrivateKey: privateKeyPem}))).toBe(false)
+        for (const key of Object.keys(signIn)) {
+            expect(isProviderEnabled("apple", parseServerConfig({...signIn, [key]: undefined}))).toBe(false)
         }
         expect(parseServerConfig({appleMusicPrivateKey: "-----BEGIN-----\\nabc\\n-----END-----"}).appleMusicPrivateKey).toBe("-----BEGIN-----\nabc\n-----END-----")
     })

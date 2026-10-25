@@ -41,7 +41,7 @@ const providerDetails: Record<Provider, string> = {
                     <p>Use your existing account from any of the supported music providers to register or login. No extra fluff needed.</p>
                 </div>
                 <div class="login-list">
-                    <a v-for="provider in enabledProviders" :key="provider" class="login-option" :href="`/api/auth/${provider}?redirect=${encodeURIComponent(redirectAfter)}`">
+                    <a v-for="provider in enabledProviders" :key="provider" class="login-option" :href="`/api/auth/${provider}?redirect=${encodeURIComponent(redirectAfter)}`" @click="provider === 'apple' && beginAppleProviderLogin($event)">
                         <ProviderBadge :provider="provider" />
                         <span>{{ providerDetails[provider] }}</span>
                         <ArrowRight :size="19" />

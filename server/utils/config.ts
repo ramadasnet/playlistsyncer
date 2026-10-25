@@ -99,8 +99,16 @@ const serverConfigSchema = z.object({
 export type ServerConfig = z.infer<typeof serverConfigSchema>
 
 // Validate raw configuration values and apply documented defaults.
+// One Apple key can sign both Sign in with Apple and MusicKit when both services are enabled on it.
+function withAppleMusicKey(config: ServerConfig): ServerConfig {
+    if (config.appleMusicKeyId || config.appleMusicPrivateKey) {
+        return config
+    }
+    return {...config, appleMusicKeyId: config.appleSigninKeyId, appleMusicPrivateKey: config.appleSigninPrivateKey}
+}
+
 export function parseServerConfig(values: Record<string, unknown>): ServerConfig {
-    return serverConfigSchema.parse(values)
+    return withAppleMusicKey(serverConfigSchema.parse(values))
 }
 
 let cachedConfig: ServerConfig | undefined

@@ -29,7 +29,7 @@ export async function playlistCountForAccount(account: ProviderAccountDocument):
     }
 }
 
-// Sign in with Apple connects the account, but its playlists need MusicKit access granted in the browser.
+// Sign in with Apple connects the account. Playlist reads need a MusicKit user token from the browser.
 function needsAppleMusicAuthorization(account: ProviderAccountDocument): boolean {
     return account.provider === "apple" && !account.musicUserToken
 }
