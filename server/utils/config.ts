@@ -70,8 +70,6 @@ const serverConfigSchema = z.object({
     appleClientId: optionalCredential,
     appleSigninKeyId: optionalCredential,
     appleSigninPrivateKey: optionalPrivateKey,
-    appleMusicKeyId: optionalCredential,
-    appleMusicPrivateKey: optionalPrivateKey,
     spotifyMaxRequestsPerMinute: requestsPerMinute(120),
     youtubeMaxRequestsPerMinute: requestsPerMinute(300),
     tidalMaxRequestsPerMinute: requestsPerMinute(60),
@@ -99,16 +97,8 @@ const serverConfigSchema = z.object({
 export type ServerConfig = z.infer<typeof serverConfigSchema>
 
 // Validate raw configuration values and apply documented defaults.
-// One Apple key can sign both Sign in with Apple and MusicKit when both services are enabled on it.
-function withAppleMusicKey(config: ServerConfig): ServerConfig {
-    if (config.appleMusicKeyId || config.appleMusicPrivateKey) {
-        return config
-    }
-    return {...config, appleMusicKeyId: config.appleSigninKeyId, appleMusicPrivateKey: config.appleSigninPrivateKey}
-}
-
 export function parseServerConfig(values: Record<string, unknown>): ServerConfig {
-    return withAppleMusicKey(serverConfigSchema.parse(values))
+    return serverConfigSchema.parse(values)
 }
 
 let cachedConfig: ServerConfig | undefined
@@ -143,8 +133,6 @@ export function getServerConfig(): ServerConfig {
             appleClientId: process.env.PLS_APPLE_CLIENT_ID,
             appleSigninKeyId: process.env.PLS_APPLE_SIGNIN_KEY_ID,
             appleSigninPrivateKey: process.env.PLS_APPLE_SIGNIN_PRIVATE_KEY,
-            appleMusicKeyId: process.env.PLS_APPLE_MUSIC_KEY_ID,
-            appleMusicPrivateKey: process.env.PLS_APPLE_MUSIC_PRIVATE_KEY,
             spotifyMaxRequestsPerMinute: process.env.PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE,
             youtubeMaxRequestsPerMinute: process.env.PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE,
             tidalMaxRequestsPerMinute: process.env.PLS_TIDAL_MAX_REQUESTS_PER_MINUTE,
@@ -227,10 +215,6 @@ export function checkStartupConfig(config: ServerConfig, role: "website" | "jobs
     if (missingCreem.length && missingCreem.length < Object.keys(creem).length) {
         const problems = production ? errors : warnings
         problems.push(`Creem billing is partially configured; also set ${missingCreem.join(", ")}`)
-    }
-    // The .p8 does not say which services Apple enabled. Reusing the sign-in key is valid only when Media Services is on.
-    if (config.appleSigninKeyId && config.appleSigninPrivateKey && config.appleMusicKeyId === config.appleSigninKeyId && config.appleMusicPrivateKey === config.appleSigninPrivateKey) {
-        warnings.push("The Sign in with Apple key is also used for MusicKit. It must have Media Services enabled, or Apple rejects music authorization. Set PLS_APPLE_MUSIC_KEY_ID and PLS_APPLE_MUSIC_PRIVATE_KEY for a separate MusicKit key.")
     }
     if (!production) {
         return {errors, warnings}
