@@ -296,7 +296,7 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
     logger.info("OAuth.finish", provider, `User ${user._id!.toHexString()}`, `Provider account ${profile.id}`, transaction.linkingUserId ? "Account linked" : "Login completed")
     // Sign in with Apple returns identity only. The account page continues into MusicKit for the music user token.
     if (provider === "apple" && !conflictingAccount?.musicUserToken) {
-        const next = oauthRedirectAfterLogin(user, transaction.redirectAfter)
+        const next = oauthRedirectAfterLogin(user, normalizeRedirect(transaction.redirectAfter))
         const params = new URLSearchParams({appleMusic: "authorize"})
         if (next !== "/account") {
             params.set("redirect", next)

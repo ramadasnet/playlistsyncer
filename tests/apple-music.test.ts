@@ -1,14 +1,21 @@
 import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from "bun:test"
-import {generateKeyPairSync, verify} from "node:crypto"
+import {createHash, generateKeyPairSync, verify} from "node:crypto"
+import type {H3Event} from "h3"
+import * as h3 from "h3"
+import {ObjectId} from "mongodb"
 import type {ProviderAccountDocument} from "../shared/types/domain"
 import * as appleAuth from "../server/domain/auth/apple"
+import {finishOAuth} from "../server/domain/auth/oauth"
+import {hashOpaqueToken} from "../server/domain/auth/session"
+import * as session from "../server/domain/auth/session"
 import * as collectionsModule from "../server/data/collections"
 import * as http from "../server/domain/providers/http"
 import {appleAdapter} from "../server/domain/providers/apple"
 import {fetchRetryDefaults} from "../server/utils/fetch-retry"
 import {ProviderRateLimiter, providerRateLimiters} from "../server/domain/providers/rate-limit"
 import {isProviderEnabled} from "../server/utils/provider-availability"
-import {parseServerConfig} from "../server/utils/config"
+import {clearServerConfigCache, parseServerConfig} from "../server/utils/config"
+import {encryptSecret} from "../server/utils/secrets"
 
 ;(globalThis as {createError?: (input: {statusCode: number; statusMessage: string}) => Error}).createError = (input) => Object.assign(new Error(input.statusMessage), input)
 
@@ -74,7 +81,93 @@ describe("Apple tokens", () => {
         }
         expect(parseServerConfig({appleMusicPrivateKey: "-----BEGIN-----\\nabc\\n-----END-----"}).appleMusicPrivateKey).toBe("-----BEGIN-----\nabc\n-----END-----")
     })
+
+    test("continues Apple login into MusicKit and normalizes the return path", async () => {
+        const names = ["PLS_SESSION_SECRET", "PLS_TOKEN_ENCRYPTION_KEY", "PLS_APPLE_TEAM_ID", "PLS_APPLE_CLIENT_ID", "PLS_APPLE_SIGNIN_KEY_ID", "PLS_APPLE_SIGNIN_PRIVATE_KEY"] as const
+        const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+        const globals = globalThis as Record<string, unknown>
+        const savedGlobals = {getCookie: globals.getCookie, deleteCookie: globals.deleteCookie, setCookie: globals.setCookie}
+        const originalFetch = globalThis.fetch
+        Object.assign(globals, {getCookie: h3.getCookie, deleteCookie: h3.deleteCookie, setCookie: h3.setCookie})
+        for (const [name, value] of [
+            ["PLS_SESSION_SECRET", "apple-login-session"],
+            ["PLS_TOKEN_ENCRYPTION_KEY", "apple-login-encryption"],
+            ["PLS_APPLE_TEAM_ID", "TEAMID1234"],
+            ["PLS_APPLE_CLIENT_ID", "com.example.web"],
+            ["PLS_APPLE_SIGNIN_KEY_ID", "SIGNINKEY1"],
+            ["PLS_APPLE_SIGNIN_PRIVATE_KEY", privateKeyPem]
+        ] as const) {
+            process.env[name] = value
+        }
+        clearServerConfigCache()
+        const userId = new ObjectId()
+        const user = {_id: userId, email: "listener@example.com", displayName: "Apple Music user", tier: "free" as const, createdAt: new Date(), updatedAt: new Date()}
+        const db = {
+            oauthTransactions: {findOneAndDelete: async () => undefined as unknown},
+            providerAccounts: {
+                find: () => ({toArray: async () => []}),
+                findOne: async () => null,
+                updateOne: async () => ({})
+            },
+            users: {
+                findOne: async (query: {email?: string}) => (query.email ? null : user),
+                insertOne: async () => ({insertedId: userId}),
+                updateOne: async () => ({})
+            }
+        }
+        const collectionsSpy = spyOn(collectionsModule, "collections").mockResolvedValue(db as never)
+        const sessionSpy = spyOn(session, "createSession").mockResolvedValue()
+        try {
+            const finish = async (redirectAfter: string) => {
+                const state = `state-${redirectAfter}`
+                const verifier = `verifier-${redirectAfter}`
+                db.oauthTransactions.findOneAndDelete = async () => ({
+                    redirectAfter,
+                    codeVerifier: await encryptSecret(verifier),
+                    expiresAt: new Date(Date.now() + 60_000)
+                })
+                const nonce = createHash("sha256").update(verifier).digest("base64url")
+                const claims = {iss: "https://appleid.apple.com", aud: "com.example.web", sub: "001.apple", exp: Date.now() / 1000 + 600, nonce, email: user.email, email_verified: true}
+                globalThis.fetch = (async () => new Response(JSON.stringify({access_token: "apple-access", id_token: idToken(claims)}))) as typeof fetch
+                const cookie = `ps_oauth_${hashOpaqueToken(state)}=browser-nonce`
+                return finishOAuth(oauthEvent(cookie), "apple", "apple-code", state)
+            }
+
+            expect(await finish("/sync?page=2")).toBe("/account?appleMusic=authorize&redirect=%2Fsync%3Fpage%3D2")
+            expect(await finish("//evil.example")).toBe("/account?appleMusic=authorize&redirect=%2Fsync")
+            expect(await finish("https://evil.example/phish")).toBe("/account?appleMusic=authorize&redirect=%2Fsync")
+        } finally {
+            collectionsSpy.mockRestore()
+            sessionSpy.mockRestore()
+            globalThis.fetch = originalFetch
+            for (const name of names) {
+                if (saved[name] === undefined) delete process.env[name]
+                else process.env[name] = saved[name]
+            }
+            clearServerConfigCache()
+            Object.assign(globals, savedGlobals)
+        }
+    })
 })
+
+function oauthEvent(cookie: string): H3Event {
+    const headers = new Map<string, string | string[]>()
+    return {
+        node: {
+            req: {headers: {cookie}},
+            res: {
+                getHeader: (name: string) => headers.get(name.toLowerCase()),
+                setHeader: (name: string, value: string | string[]) => headers.set(name.toLowerCase(), value),
+                removeHeader: (name: string) => headers.delete(name.toLowerCase()),
+                appendHeader: (name: string, value: string) => {
+                    const current = headers.get(name.toLowerCase())
+                    if (!current) headers.set(name.toLowerCase(), value)
+                    else headers.set(name.toLowerCase(), Array.isArray(current) ? [...current, value] : [current, value])
+                }
+            }
+        }
+    } as unknown as H3Event
+}
 
 const providerFetch = mock(async (): Promise<unknown> => undefined)
 const account = {provider: "apple", externalAccountId: "001.abc", storefront: "us"} as ProviderAccountDocument
