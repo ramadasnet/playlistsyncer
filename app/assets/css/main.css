@@ -585,6 +585,16 @@ main {
 .provider-support > svg {
     color: var(--green);
 }
+.provider-support.open-source {
+    margin-top: 20px;
+}
+.provider-support.open-source > svg {
+    grid-column: -1;
+}
+.provider-support.open-source a {
+    color: var(--green);
+    border-bottom: 1px solid currentColor;
+}
 
 .auth-layout {
     display: grid;
@@ -1745,6 +1755,15 @@ select {
     display: flex;
     flex-wrap: wrap;
     gap: 22px;
+    align-items: center;
+}
+.footer-github {
+    display: inline-flex;
+    align-items: center;
+    color: rgba(255, 255, 255, 0.7);
+}
+.footer-github:hover {
+    color: var(--white);
 }
 
 *:focus-visible {

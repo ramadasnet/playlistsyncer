@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ArrowRight, Check, Minus, RefreshCw, ShieldCheck} from "lucide-vue-next"
+import {ArrowRight, Check, Github, Minus, RefreshCw, ShieldCheck} from "lucide-vue-next"
 import {formatProviderNames} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate} from "~/utils/plan"
 
@@ -94,6 +94,14 @@ const features = computed<[string, PlanValue, PlanValue][]>(() => [
                 <ProviderBadge v-for="provider in enabledProviders" :key="provider" :provider="provider" />
             </div>
             <ShieldCheck :size="44" aria-hidden="true" />
+        </section>
+
+        <section class="provider-support open-source">
+            <div>
+                <h2>Open source</h2>
+                <p>PlaylistSyncer is fully open source. Prefer to run it on your own terms? <a href="https://github.com/ramadasnet/playlistsyncer" target="_blank" rel="noopener noreferrer">Download the code from GitHub</a> and host it yourself.</p>
+            </div>
+            <Github :size="44" aria-hidden="true" />
         </section>
     </div>
 </template>
