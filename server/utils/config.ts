@@ -228,6 +228,10 @@ export function checkStartupConfig(config: ServerConfig, role: "website" | "jobs
         const problems = production ? errors : warnings
         problems.push(`Creem billing is partially configured; also set ${missingCreem.join(", ")}`)
     }
+    // The .p8 does not say which services Apple enabled. Reusing the sign-in key is valid only when Media Services is on.
+    if (config.appleSigninKeyId && config.appleSigninPrivateKey && config.appleMusicKeyId === config.appleSigninKeyId && config.appleMusicPrivateKey === config.appleSigninPrivateKey) {
+        warnings.push("The Sign in with Apple key is also used for MusicKit. It must have Media Services enabled, or Apple rejects music authorization. Set PLS_APPLE_MUSIC_KEY_ID and PLS_APPLE_MUSIC_PRIVATE_KEY for a separate MusicKit key.")
+    }
     if (!production) {
         return {errors, warnings}
     }

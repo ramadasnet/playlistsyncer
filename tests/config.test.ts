@@ -171,6 +171,16 @@ describe("server configuration", () => {
         expect(checkStartupConfig(parseServerConfig({}), "website", false)).toEqual({errors: [], warnings: []})
     })
 
+    test("warns when the Sign in with Apple key is also used for MusicKit", () => {
+        const signIn = {appleTeamId: "TEAM", appleClientId: "com.example.web", appleSigninKeyId: "SIGNIN", appleSigninPrivateKey: "sign-in-key"}
+        const reused = "The Sign in with Apple key is also used for MusicKit. It must have Media Services enabled, or Apple rejects music authorization. Set PLS_APPLE_MUSIC_KEY_ID and PLS_APPLE_MUSIC_PRIVATE_KEY for a separate MusicKit key."
+        const shared = parseServerConfig({...productionValues, ...signIn, smtpHost: "smtp.example.com"})
+
+        expect(checkStartupConfig(shared, "website", false)).toEqual({errors: [], warnings: [reused]})
+        expect(checkStartupConfig(shared, "website", true)).toEqual({errors: [], warnings: [reused]})
+        expect(checkStartupConfig(parseServerConfig({...productionValues, ...signIn, appleMusicKeyId: "MUSIC", appleMusicPrivateKey: "music-key", smtpHost: "smtp.example.com"}), "website", true)).toEqual({errors: [], warnings: []})
+    })
+
     test("warns when production billing explicitly uses the Creem sandbox", () => {
         const creem = {creemApiKey: "creem_key", creemProProductId: "prod_123", creemWebhookSecret: "whsec", smtpHost: "smtp.example.com"}
 
