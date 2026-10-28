@@ -1491,6 +1491,9 @@ select {
     color: rgba(255, 255, 255, 0.76);
     font-size: 0.8rem;
 }
+.builder-footer .button {
+    white-space: nowrap;
+}
 .builder-footer .builder-warning {
     color: var(--white);
     font-weight: 700;
