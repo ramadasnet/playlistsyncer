@@ -1,6 +1,6 @@
-# PlaylistSyncer (BETA)
+# PlaylistSyncer
 
-An open-source service that allows users to sync their playlists among multiple music providers.
+An open-source service that allows users to sync their playlists among multiple music providers. Better, leaner, and cheaper than tunemymusic.com.
 
 - Two-way sync: changes made to a playlist on one service will also update the playlist on the other service.
 - One-way sync: one provider acts as the master, and the playlist on the other provider is a mirror of the master.
@@ -17,7 +17,7 @@ An open-source service that allows users to sync their playlists among multiple 
 
 ## Architecture and persistence
 
-MongoDB collections hold:
+MongoDB-compatible database hold:
 
 - users and their effective Free or PRO entitlement
 - encrypted provider credentials and provider account identities
@@ -72,7 +72,7 @@ Admin settings are server-only:
 
 | Variable                         | Description                                                                         | Default                                                                             |
 | -------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `PLS_ADMIN_URL`                  | Exact external origin; HTTPS is required in production                              | `https://admin.playlistsyncer.com` in production, `http://localhost:3009` otherwise |
+| `PLS_ADMIN_URL`                  | Exact external origin; HTTPS is required in production                              | `http://localhost:3009`  |
 | `PLS_ADMIN_GOOGLE_CLIENT_ID`     | Google OAuth web client ID for staff login                                          | Unset                                                                               |
 | `PLS_ADMIN_GOOGLE_CLIENT_SECRET` | Corresponding Google client secret                                                  | Unset                                                                               |
 | `PLS_ADMIN_ALLOWED_EMAILS`       | Comma-separated verified Google email addresses permitted to administer the service | Empty; nobody allowed                                                               |
@@ -80,14 +80,13 @@ Admin settings are server-only:
 
 Set `PLS_ADMIN_ALLOWED_EMAILS=igor@ramadas.net` in production. Create a Google OAuth **Web application** client, enable the `openid email profile` scopes, and register these exact authorized redirect URIs for the relevant environments:
 
-- `https://admin.playlistsyncer.com/api/auth/callback`
 - `http://localhost:3009/api/auth/callback`
 
 Staff login is independent from consumer music-provider accounts. Admin sessions are opaque database-backed, host-only HTTP-only cookies; production cookies use the `__Host-` prefix. Every protected request rechecks the configured email allowlist. Mutation requests must carry the exact configured admin origin. Keep Google MFA enabled on staff accounts; an identity-aware proxy can add another access boundary.
 
 Build a **separate** image from the repository root with `docker build -f admin/Dockerfile -t playlistsyncer-admin .`. Its Dockerfile-specific ignore file includes admin sources while excluding local credentials and generated files. The independent Admin CI workflow validates the admin and publishes `ghcr.io/<owner>/<repository>-admin` on relevant master pushes. Admin-only source changes do not trigger the consumer CI/image workflow; shared server/domain changes trigger both. Supply the shared MongoDB settings, admin settings, and Creem settings to this service. The existing consumer billing service requires `PLS_CREEM_API_KEY`, `PLS_CREEM_PRO_PRODUCT_ID`, and `PLS_CREEM_SERVER` for billing actions. Supply any promotion/entitlement settings consistently across admin, website and jobs. An Infisical machine identity can supply these settings just as it does for the consumer service.
 
-Route only `admin.playlistsyncer.com` to the admin service's port 3009 behind an HTTPS reverse proxy. Preserve the external origin and the `Origin` header; do not route admin APIs through the consumer hostname. The image does not run the consumer site or scheduler. Admin code/configuration changes should trigger the admin build pipeline; shared server/domain changes should validate both apps. Deploying this app, configuring DNS, and creating Google credentials remain explicit operational steps.
+Route the admin service's port 3009 behind an HTTPS reverse proxy. Preserve the external origin and the `Origin` header; do not route admin APIs through the consumer hostname. The image does not run the consumer site or scheduler. Admin code/configuration changes should trigger the admin build pipeline; shared server/domain changes should validate both apps. Deploying this app, configuring DNS, and creating Google credentials remain explicit operational steps.
 
 Capabilities and semantics:
 
