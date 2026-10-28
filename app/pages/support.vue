@@ -8,7 +8,7 @@ const description = computed(() => {
     return "Find help for PlaylistSyncer."
 })
 
-useSeoMeta({
+usePageSeo({
     title: "Support",
     description
 })
@@ -16,6 +16,7 @@ useSeoMeta({
 
 <template>
     <div class="shell page-shell support-page">
+        <PageHeading title="Support" :description="description" />
         <iframe v-if="helpUrl" class="support-frame" :src="helpUrl" title="PlaylistSyncer support chat" loading="eager" referrerpolicy="strict-origin-when-cross-origin" allow="clipboard-write" />
         <p v-else-if="supportEmail" class="support-email">
             <a :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>

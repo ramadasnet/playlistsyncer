@@ -6,7 +6,7 @@ import {isAwaitingFirstSync, isSyncInProgress, syncTaskBusyMessage} from "~~/sha
 import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlockedMessage, findAccountSyncBetweenProviders, type Provider, type SyncTaskDirection} from "~~/shared/types/domain"
 
 definePageMeta({middleware: "auth"})
-useSeoMeta({title: "My Sync Tasks"})
+usePageSeo({title: "My Sync Tasks", robots: "noindex"})
 
 const auth = useAuthStore()
 const {isProviderEnabled} = await useEnabledProviders()

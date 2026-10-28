@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {CheckCircle2, CircleAlert, LoaderCircle} from "lucide-vue-next"
 
-useSeoMeta({title: "Confirm Email"})
+usePageSeo({title: "Confirm Email", robots: "noindex"})
 
 const route = useRoute()
 const auth = useAuthStore()

@@ -9,7 +9,7 @@ const {everyLabel} = useProSyncCadence()
 const {data: trial} = await useFetch<{proSubscriptionRequiredAt?: string}>("/api/trial")
 const trialEndsAt = computed(() => complimentaryTrialEndsAt(trial.value?.proSubscriptionRequiredAt || String(config.public.proSubscriptionRequiredAt || "")))
 
-useSeoMeta({
+usePageSeo({
     title: () => {
         const names = formatProviderNames(enabledProviders.value)
         return names ? `Sync ${names} playlists` : "Sync playlists"
@@ -20,12 +20,30 @@ useSeoMeta({
     }
 })
 
+const siteUrl = String(config.public.siteUrl).replace(/\/$/, "")
+useHead({
+    script: [
+        {
+            type: "application/ld+json",
+            innerHTML: JSON.stringify({
+                "@context": "https://schema.org",
+                "@type": "SoftwareApplication",
+                name: String(config.public.appName),
+                url: siteUrl,
+                applicationCategory: "MultimediaApplication",
+                operatingSystem: "Web",
+                description: "Sync playlists one-way or two-way across music streaming providers."
+            })
+        }
+    ]
+})
+
 const auth = useAuthStore()
 </script>
 
 <template>
     <section class="hero">
-        <img src="/music-studio.jpg" alt="Visualization of playlists syncing across music providers" />
+        <img src="/music-studio.jpg" alt="Visualization of playlists syncing across music providers" fetchpriority="high" />
         <div class="hero-scrim" />
         <div class="shell hero-content">
             <p class="eyebrow light">Cross-platform playlist sync</p>

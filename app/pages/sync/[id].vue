@@ -57,7 +57,7 @@ const pageTitle = computed(() => {
     if (!current) return "Sync run"
     return current.source.name === current.destination.name ? current.source.name : `${current.source.name} · ${current.destination.name}`
 })
-useSeoMeta({title: pageTitle})
+usePageSeo({title: pageTitle, robots: "noindex"})
 const pageDescription = computed(() => (task.value?.direction === "one-way" ? "One-way sync" : "Two-way sync"))
 const loadError = computed(() => {
     if (!error.value) return ""
