@@ -3,7 +3,7 @@ import {ArrowRight, Check, Github, Minus, RefreshCw, ShieldCheck} from "lucide-v
 import {formatProviderNames} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate} from "~/utils/plan"
 
-useSeoMeta({title: "Features"})
+usePageSeo({title: "Features", description: "Compare PlaylistSyncer Free and PRO plans: playlist pair limits, automatic sync frequency, and sync history."})
 
 const config = useRuntimeConfig()
 const auth = useAuthStore()

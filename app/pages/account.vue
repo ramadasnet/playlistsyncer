@@ -7,7 +7,7 @@ import {maxDisplayNameLength, normalizeDisplayName} from "~~/shared/display-name
 import {normalizeRedirect} from "~~/shared/redirect"
 
 definePageMeta({middleware: "auth"})
-useSeoMeta({title: "Account"})
+usePageSeo({title: "Account", robots: "noindex"})
 
 const auth = useAuthStore()
 const route = useRoute()

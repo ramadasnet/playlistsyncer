@@ -12,7 +12,12 @@ export default defineNuxtConfig({
     ignore: ["admin/**"],
     app: {
         head: {
-            link: [{rel: "icon", type: "image/svg+xml", href: "/logo-mark.svg"}]
+            htmlAttrs: {lang: "en"},
+            meta: [{name: "theme-color", content: "#1d6b45"}],
+            link: [
+                {rel: "icon", type: "image/svg+xml", href: "/logo-mark.svg"},
+                {rel: "apple-touch-icon", href: "/apple-touch-icon.png"}
+            ]
         }
     },
     css: ["~/assets/css/main.css"],
