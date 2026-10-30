@@ -24,6 +24,8 @@ export async function getDatabase(): Promise<Db> {
         appName: "playlistsync",
         maxPoolSize: 20,
         minPoolSize: 1,
+        // Close connections opened by request bursts so idle processes return to one socket (and one Oracle/ORDS session).
+        maxIdleTimeMS: 60_000,
         serverSelectionTimeoutMS: 5000,
         ...firestoreMongoOptions(uri)
     })
