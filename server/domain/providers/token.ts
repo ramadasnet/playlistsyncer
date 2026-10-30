@@ -68,6 +68,9 @@ async function refreshAccessToken(account: ProviderAccountDocument): Promise<str
 
 // Return a usable access token, persisting refreshed credentials when needed.
 export async function getAccessToken(account: ProviderAccountDocument, options?: {force?: boolean}): Promise<string> {
+    if (!account.accessToken) {
+        throw createError({statusCode: 409, statusMessage: `${account.provider} must be reconnected`})
+    }
     if (!options?.force && !accessTokenNeedsRefresh(account.tokenExpiresAt)) {
         return decryptSecret(account.accessToken)
     }
@@ -92,12 +95,14 @@ export async function getAccessToken(account: ProviderAccountDocument, options?:
 // Refresh connected accounts that are close to expiry so a session starts with valid tokens.
 export async function ensureFreshAccessTokens(accounts: ProviderAccountDocument[]): Promise<void> {
     await Promise.all(
-        accounts.map(async (account) => {
-            try {
-                await getAccessToken(account)
-            } catch (error) {
-                logger.warn("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`, error)
-            }
-        })
+        accounts
+            .filter((account) => account.connection !== "extension")
+            .map(async (account) => {
+                try {
+                    await getAccessToken(account)
+                } catch (error) {
+                    logger.warn("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`, error)
+                }
+            })
     )
 }
