@@ -1,0 +1,168 @@
+/* Brand colours from app/assets/css/main.css. */
+:root {
+    --ink: #151814;
+    --ink-soft: #545a52;
+    --paper: #f7f7f2;
+    --white: #ffffff;
+    --line: #d8dbd3;
+    --green: #1d6b45;
+    --green-bright: #b9f46e;
+    --danger: #a83232;
+    font-family: "Manrope", system-ui, sans-serif;
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--paper);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    width: 340px;
+    margin: 0;
+    padding: 14px 16px 16px;
+}
+
+h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 800;
+}
+
+h2 {
+    margin: 16px 0 8px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+}
+
+p {
+    margin: 0 0 10px;
+    line-height: 1.4;
+}
+
+a {
+    color: var(--green);
+    font-weight: 600;
+}
+
+code {
+    display: block;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--white);
+    font-size: 12px;
+    word-break: break-all;
+    user-select: all;
+}
+
+ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 12px;
+}
+
+.muted {
+    color: var(--ink-soft);
+}
+
+.error {
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: var(--white);
+    background: var(--danger);
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.row:last-child {
+    border-bottom: 0;
+}
+
+.row span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.row small {
+    display: block;
+    color: var(--ink-soft);
+}
+
+.badge {
+    flex: none;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: var(--line);
+}
+
+.busy {
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--green-bright);
+    font-weight: 600;
+}
+
+button {
+    flex: none;
+    padding: 7px 12px;
+    border: 1px solid var(--green);
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 700;
+    color: var(--white);
+    background: var(--green);
+    cursor: pointer;
+}
+
+button.secondary {
+    color: var(--ink);
+    border-color: var(--line);
+    background: var(--white);
+}
+
+button:hover {
+    border-color: var(--ink);
+}
+
+button:focus-visible,
+a:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.wide {
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+footer {
+    margin-top: 14px;
+    font-size: 12px;
+}

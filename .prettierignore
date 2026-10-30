@@ -1,2 +1,5 @@
 # Canonical license text, kept verbatim
 LICENSE.md
+
+# Browser extension builds
+extension/dist

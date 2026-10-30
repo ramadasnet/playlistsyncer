@@ -55,3 +55,6 @@ id_ed25519
 *.sqlite
 *.sqlite3
 *.sql
+
+# Browser extension builds
+extension/dist
