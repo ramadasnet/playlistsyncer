@@ -18,6 +18,7 @@ logs
 .fleet
 .idea
 .vscode
+.playwright-mcp
 
 # Local env files
 .env

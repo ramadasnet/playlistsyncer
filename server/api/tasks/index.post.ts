@@ -2,6 +2,7 @@
 import type {ObjectId} from "mongodb"
 import {z} from "zod"
 import {collections} from "../../data/collections"
+import {isUserDeletionPending} from "../../domain/accounts"
 import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {getProviderAdapter} from "../../domain/providers"
@@ -138,6 +139,13 @@ export default defineEventHandler(async (event) => {
                 throw createError({statusCode: 409, statusMessage: accountSyncConflictMessage({sourceProvider: sourceAccount.provider, destinationProvider: destinationAccount.provider})})
             }
             throw error
+        }
+        // Account deletion may run in another process; it flags the user before removing tasks, so an insert that slipped past this lock still sees it.
+        const owner = await db.users.findOne({_id: user._id!}, {projection: {deletionStartedAt: 1}})
+        if (!owner || isUserDeletionPending(owner)) {
+            logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Account deletion in progress")
+            await db.syncTasks.deleteOne({_id: result.insertedId})
+            throw createError({statusCode: 409, statusMessage: "This account is being deleted"})
         }
         logger.info("Tasks.create", `Task ${result.insertedId.toHexString()}`, `User ${user._id!.toHexString()}`, `${accounts[0]!.provider} to ${accounts[1]!.provider}`, direction)
         return result.insertedId

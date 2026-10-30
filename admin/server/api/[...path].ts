@@ -1,6 +1,6 @@
 import {createError, defineEventHandler, getRouterParam, readBody} from "h3"
 import {ZodError} from "zod"
-import {discoverSubscriptions, getTask, getUser, listTasks, listUsers, statistics, updateSubscription, updateTask, updateUser} from "../utils/management"
+import {deleteTask, deleteUser, discoverSubscriptions, getTask, getUser, listTasks, listUsers, statistics, updateSubscription, updateTask, updateUser} from "../utils/management"
 
 export default defineEventHandler(async (event) => {
     const path = (getRouterParam(event, "path") || "").split("/")
@@ -13,6 +13,8 @@ export default defineEventHandler(async (event) => {
         if (event.method === "GET" && resource === "tasks" && !action) return id ? await getTask(id) : await listTasks(event)
         if (event.method === "PATCH" && resource === "users" && id && !action) return await updateUser(event, id, await readBody(event))
         if (event.method === "PATCH" && resource === "tasks" && id && !action) return await updateTask(event, id, await readBody(event))
+        if (event.method === "DELETE" && resource === "users" && id && !action) return await deleteUser(event, id)
+        if (event.method === "DELETE" && resource === "tasks" && id && !action) return await deleteTask(event, id)
         if (event.method === "POST" && resource === "tasks" && id && action === "cancel") return await updateTask(event, id, null, true)
         if (event.method === "POST" && resource === "users" && id && action === "subscription") return await updateSubscription(event, id, await readBody(event))
         throw createError({statusCode: 404, statusMessage: "Admin endpoint not found"})

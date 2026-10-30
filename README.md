@@ -70,13 +70,13 @@ After the normal root dependency installation, run `bun run admin:dev` to serve 
 
 Admin settings are server-only:
 
-| Variable                         | Description                                                                         | Default                                                                             |
-| -------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `PLS_ADMIN_URL`                  | Exact external origin; HTTPS is required in production                              | `http://localhost:3009`  |
-| `PLS_ADMIN_GOOGLE_CLIENT_ID`     | Google OAuth web client ID for staff login                                          | Unset                                                                               |
-| `PLS_ADMIN_GOOGLE_CLIENT_SECRET` | Corresponding Google client secret                                                  | Unset                                                                               |
-| `PLS_ADMIN_ALLOWED_EMAILS`       | Comma-separated verified Google email addresses permitted to administer the service | Empty; nobody allowed                                                               |
-| `PLS_ADMIN_SESSION_HOURS`        | Absolute session lifetime, from 1 to 24 hours                                       | `8`                                                                                 |
+| Variable                         | Description                                                                         | Default                 |
+| -------------------------------- | ----------------------------------------------------------------------------------- | ----------------------- |
+| `PLS_ADMIN_URL`                  | Exact external origin; HTTPS is required in production                              | `http://localhost:3009` |
+| `PLS_ADMIN_GOOGLE_CLIENT_ID`     | Google OAuth web client ID for staff login                                          | Unset                   |
+| `PLS_ADMIN_GOOGLE_CLIENT_SECRET` | Corresponding Google client secret                                                  | Unset                   |
+| `PLS_ADMIN_ALLOWED_EMAILS`       | Comma-separated verified Google email addresses permitted to administer the service | Empty; nobody allowed   |
+| `PLS_ADMIN_SESSION_HOURS`        | Absolute session lifetime, from 1 to 24 hours                                       | `8`                     |
 
 Set `PLS_ADMIN_ALLOWED_EMAILS=igor@ramadas.net` in production. Create a Google OAuth **Web application** client, enable the `openid email profile` scopes, and register these exact authorized redirect URIs for the relevant environments:
 
@@ -93,6 +93,7 @@ Capabilities and semantics:
 - User edits cover display name, confirmed email and weekly-summary preference. Changing confirmed email is a privileged verification override: pending confirmation tokens are cleared and existing consumer sessions are revoked. Tier and billing fields cannot be edited directly.
 - Subscription changes call Creem (pause, resume, cancel at period end, or cancel immediately), then read Creem again and reuse the existing subscription/entitlement reconciliation. **Discover & reconcile** also finds subscriptions not yet linked locally. Reconcile before retrying any ambiguous billing failure; a provider write may already have succeeded.
 - Task edits cover status, direction and next-run time. Running tasks cannot be changed. Cancellation pauses future runs, retains configuration/history and can later be reversed by activating the task. It does not abort an in-flight provider write. Playlist identities cannot be replaced in place. Direction edits maintain playlist writer claims; activations respect the owner's plan.
+- Users and sync tasks can be deleted from the admin. User deletion reuses the consumer account-deletion logic, removing tasks, runs, snapshots, provider accounts and sessions; it is blocked while the owner has a renewing Creem subscription (cancel it first) or while a task is running. Task deletion permanently removes the task's run history and snapshots, unlike cancellation, which retains them. Both deletions are recorded in `adminAudit`.
 - Statistics distinguish stored PRO, effective promotional PRO, and paid/trialing subscription access. Provider totals count distinct connected users. Playlist totals count distinct account/playlist pairs referenced by tasks and full-sync mappings, not all playlists in users' libraries. Run health uses retained run history from the last 24 hours.
 - Email counters begin with the first instrumented send and count SMTP-accepted messages and failed attempts, not guaranteed inbox delivery. Historical sends cannot be reconstructed. Metrics storage failures are logged and do not cause a successfully sent email to be retried.
 - The `adminAudit` collection records the staff actor, target, intent and completion status of mutations. A failed or pending record may require reconciliation after a provider or database interruption. Protect this collection and the admin database credentials as privileged operational data.

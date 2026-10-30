@@ -1672,6 +1672,9 @@ select {
 .page-shell.support-page {
     padding-top: 32px;
 }
+.support-page .page-heading {
+    margin-bottom: 27.5px;
+}
 .support-email {
     margin: 0 0 28px;
     font-weight: 700;
@@ -1904,6 +1907,9 @@ select {
     }
     .page-heading {
         margin-bottom: 38px;
+    }
+    .support-page .page-heading {
+        margin-bottom: 19px;
     }
     .plan-grid {
         grid-template-columns: 1fr;
