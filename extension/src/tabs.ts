@@ -4,6 +4,8 @@ import {sleep, waitFor} from "./util"
 
 const idleCloseMs = 2 * 60_000
 const ownedKey = "ownedTabs"
+// One-shot alarm that closes owned tabs once they go idle, independent of the poll schedule.
+export const tabsCleanupAlarm = "playlistsyncer-tabs"
 const opening = new Map<string, Promise<number>>()
 let owned: Record<string, number> | undefined
 
@@ -13,9 +15,12 @@ async function ownedTabs(): Promise<Record<string, number>> {
     return owned
 }
 
-// Persist the tabs opened by the extension.
+// Persist the tabs opened by the extension, and point the cleanup alarm at the earliest idle time or clear it when none remain.
 async function saveOwned(): Promise<void> {
     await chrome.storage.session.set({[ownedKey]: owned ?? {}})
+    const times = Object.values(owned ?? {})
+    if (times.length) await chrome.alarms.create(tabsCleanupAlarm, {when: Math.min(...times) + idleCloseMs})
+    else await chrome.alarms.clear(tabsCleanupAlarm)
 }
 
 // Mark a tab opened by the extension as used now, so it is not closed while commands run.

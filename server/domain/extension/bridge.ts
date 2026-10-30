@@ -91,7 +91,7 @@ export function isExtensionClientOnline(clientId: string): boolean {
 
 // The message shown when a task or request needs the browser extension.
 export function extensionOfflineMessage(provider?: ExtensionProvider) {
-    return `Open your browser with the PlaylistSyncer extension and sign in to ${provider ? providerDisplayNames[provider] : "your music service"} to continue`
+    return `Open PlaylistSyncer or the browser extension popup${provider ? ` and sign in to ${providerDisplayNames[provider]}` : ""} to continue`
 }
 
 // Record a poll from a client and the provider accounts it reported.

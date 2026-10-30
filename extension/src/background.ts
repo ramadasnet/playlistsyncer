@@ -1,9 +1,20 @@
 // Background service worker (Chrome) / event page (Firefox): links the extension to PlaylistSyncer and runs the queued provider commands.
-import type {ExtensionCommand, ExtensionCommandResult, ExtensionMeResponse, ExtensionPollRequest, ExtensionPollResponse, ExtensionProvider, ExtensionProviderAccount, ExtensionTokenRequest, ExtensionTokenResponse} from "../../shared/types/extension"
+import {
+    extensionScheduledPollIntervalMs,
+    type ExtensionCommand,
+    type ExtensionCommandResult,
+    type ExtensionMeResponse,
+    type ExtensionPollRequest,
+    type ExtensionPollResponse,
+    type ExtensionProvider,
+    type ExtensionProviderAccount,
+    type ExtensionTokenRequest,
+    type ExtensionTokenResponse
+} from "../../shared/types/extension"
 import type {PopupMessage, PopupState} from "./messages"
 import {connectors, getConnector} from "./providers"
 import {ProviderError, type ProviderConnector} from "./providers/types"
-import {closeIdleTabs, hasProviderTab} from "./tabs"
+import {closeIdleTabs, hasProviderTab, tabsCleanupAlarm} from "./tabs"
 import {errorMessage, getLocal, setLocal, sleep} from "./util"
 
 interface Link {
@@ -21,19 +32,25 @@ interface ProviderStatus {
 type AccountCache = Partial<Record<ExtensionProvider, ProviderStatus>>
 
 const serverUrl = PLS_EXTENSION_SERVER_URL.replace(/\/+$/, "")
+const sitePatterns = [`${new URL(serverUrl).origin}/*`]
 const detectIntervalMs = 15 * 60_000
+const idleThresholdSec = 60
+const interactiveWindowMs = 60_000
+const scheduledPollAlarm = "playlistsyncer-scheduled"
+const scheduledPollIntervalMinutes = extensionScheduledPollIntervalMs / 60_000
 const maxPerProvider = 2
 const activeCommands = new Set<string>()
 const slots: Partial<Record<ExtensionProvider, {active: number; waiting: (() => void)[]}>> = {}
 const detecting = new Map<ExtensionProvider, Promise<ProviderStatus>>()
 let accountCache: AccountCache | undefined
-let looping = false
+let polling = false
+let interactiveUntil = 0
 let me: ExtensionMeResponse | undefined
 let lastError: string | undefined
 
 class UnauthorizedError extends Error {}
 
-// Keep the background alive while a long task runs; extension API calls reset the idle timer.
+// Keep the background alive while a poll session or the linking flow runs; extension API calls reset the idle timer.
 function keepAlive(): () => void {
     const timer = setInterval(() => void chrome.runtime.getPlatformInfo(), 20_000)
     return () => clearInterval(timer)
@@ -55,10 +72,11 @@ async function api<T>(path: string, body?: unknown, timeoutMs = 30_000): Promise
     return (text ? JSON.parse(text) : null) as T
 }
 
-// Forget the PlaylistSyncer link.
+// Forget the PlaylistSyncer link and the scheduling state bound to it, so a fresh link starts without inherited gates.
 async function unlink(): Promise<void> {
     me = undefined
-    await chrome.storage.local.remove("link")
+    interactiveUntil = 0
+    await chrome.storage.local.remove(["link", "lastScheduledPollAt"])
 }
 
 // Random URL-safe string from crypto.getRandomValues.
@@ -141,7 +159,7 @@ function detect(connector: ProviderConnector): Promise<ProviderStatus> {
     return next
 }
 
-// Re-detect accounts. Without force, only stale or unknown providers are detected every 15 minutes, and only when a provider tab is already open, to avoid opening tabs in the background.
+// Re-detect accounts. Without force, stale or unknown providers are always detected, which may open an inactive provider tab, so this only runs inside an authorized poll session. Known providers are re-detected at most every 15 minutes and only when a provider tab is already open.
 async function refreshAccounts(force: boolean): Promise<AccountCache> {
     const cache = await accounts()
     await Promise.all(
@@ -225,37 +243,102 @@ async function runCommand(command: ExtensionCommand): Promise<void> {
     activeCommands.delete(command.id)
 }
 
-// Long-poll the server for commands while linked; commands run without blocking the next poll.
+// True while the PlaylistSyncer website is the active tab of a browser window that is actually focused; background site tabs and an unfocused browser do not count as interaction.
+async function siteTabActive(): Promise<boolean> {
+    const win = await chrome.windows.getLastFocused().catch(() => undefined)
+    if (!win?.focused) return false
+    return (await chrome.tabs.query({active: true, lastFocusedWindow: true, url: sitePatterns})).length > 0
+}
+
+// True while explicit website or popup use keeps polling live.
+async function interactive(): Promise<boolean> {
+    return Date.now() < interactiveUntil || (await siteTabActive())
+}
+
+// The automatic scheduled check may run only while the system is idle or locked, and at most every 30 minutes.
+async function scheduledCheckDue(): Promise<boolean> {
+    if ((await chrome.idle.queryState(idleThresholdSec)) === "active") return false
+    const last = (await getLocal<number>("lastScheduledPollAt")) ?? 0
+    return Date.now() - last >= extensionScheduledPollIntervalMs
+}
+
+// Start polling for the automatic scheduled check when it is idle and due; wakeups while the user is active never reach the network.
+async function checkScheduledPoll(): Promise<void> {
+    if ((await getLocal<Link>("link")) && (await scheduledCheckDue())) void pollLoop()
+}
+
+// Start polling while the website is the active tab of the focused window, so site work never waits for the scheduled cadence.
+async function checkSiteActive(): Promise<void> {
+    if ((await getLocal<Link>("link")) && (await siteTabActive())) void pollLoop()
+}
+
+// Start polling after a wakeup only when something allows it: active website use or a due idle scheduled check.
+async function checkWake(): Promise<void> {
+    if (!(await getLocal<Link>("link")) || polling) return
+    if ((await siteTabActive()) || (await scheduledCheckDue())) void pollLoop()
+}
+
+// Long-poll the server while there is a reason to: a due idle scheduled check, commands in flight, or fresh website/popup interaction. Exits when nothing remains instead of polling forever.
 async function pollLoop(): Promise<void> {
-    if (looping) return
-    looping = true
+    if (polling) return
+    polling = true
     const release = keepAlive()
     let backoff = 5_000
+    let failures = 0
+    let busy = false
     try {
         while (await getLocal<Link>("link")) {
+            // Poll only while something authorizes it: a due idle scheduled check, work in flight, or fresh interaction.
+            let runScheduled = await scheduledCheckDue()
+            if (!runScheduled && !busy && !activeCommands.size && !(await interactive())) break
+            const cache = await refreshAccounts(false)
+            // Detection can take tens of seconds, so authorization is checked again before any request: a user who resumed meanwhile gets no new scheduled batch, only live work continues.
+            runScheduled = await scheduledCheckDue()
+            if (!runScheduled && !busy && !activeCommands.size && !(await interactive())) break
+            if (runScheduled) {
+                // The check timestamp and the alarm anchor to the actual send, so restarts and delayed wakeups cannot shift the cadence.
+                const checkedAt = Date.now()
+                await setLocal({lastScheduledPollAt: checkedAt})
+                await chrome.alarms.create(scheduledPollAlarm, {when: checkedAt + extensionScheduledPollIntervalMs, periodInMinutes: scheduledPollIntervalMinutes})
+            }
             try {
-                const cache = await refreshAccounts(false)
                 const body: ExtensionPollRequest = {
                     version: chrome.runtime.getManifest().version,
                     browser: PLS_BROWSER,
-                    accounts: Object.values(cache).flatMap((s) => (s?.account ? [{...s.account, displayName: s.account.displayName.slice(0, 200)}] : []))
+                    accounts: Object.values(cache).flatMap((s) => (s?.account ? [{...s.account, displayName: s.account.displayName.slice(0, 200)}] : [])),
+                    runScheduled
                 }
                 const response = await api<ExtensionPollResponse>("/api/extension/poll", body, 30_000)
                 backoff = 5_000
+                failures = 0
+                busy = !!response?.busy
                 const commands = response?.commands ?? []
                 for (const command of commands) void runCommand(command)
+                if (!commands.length && !busy && !activeCommands.size && !(await interactive())) break
                 if (!commands.length && response?.retryAfterMs) await sleep(response.retryAfterMs)
             } catch (err) {
                 if (err instanceof UnauthorizedError) break
                 console.warn("PlaylistSyncer: poll failed", errorMessage(err))
+                // An idle check with nothing left to do stops at the first error instead of retrying forever; work in flight gets bounded retries.
+                failures++
+                if (failures >= 6 || (!busy && !activeCommands.size && !(await interactive()))) break
                 await sleep(backoff)
                 backoff = Math.min(backoff * 2, 60_000)
             }
         }
     } finally {
         release()
-        looping = false
+        polling = false
     }
+}
+
+// Close provider tabs that went idle, but postpone while commands may still use them.
+async function cleanupTabs(): Promise<void> {
+    if (activeCommands.size) {
+        await chrome.alarms.create(tabsCleanupAlarm, {delayInMinutes: 2})
+        return
+    }
+    await closeIdleTabs()
 }
 
 // Build the popup state, optionally re-detecting accounts and reloading the tasks.
@@ -270,7 +353,11 @@ async function popupState(refresh: boolean): Promise<PopupState> {
         await Promise.all([refreshAccounts(true), loadMe])
     }
     const link = await getLocal<Link>("link")
-    if (link) void pollLoop()
+    if (link) {
+        // Explicit popup use, including cached state requests, renews the interactive polling window.
+        interactiveUntil = Date.now() + interactiveWindowMs
+        void pollLoop()
+    }
     const cache = await accounts()
     const providers = connectors.map((c) => ({provider: c.provider, name: c.name, loginUrl: c.loginUrl, account: cache[c.provider]?.account, error: cache[c.provider]?.error}))
     const error = lastError
@@ -293,12 +380,34 @@ chrome.runtime.onMessage.addListener((message: PopupMessage, _sender, sendRespon
     return true
 })
 
-// Restart the poll loop whenever the background wakes up, and close idle provider tabs.
-chrome.runtime.onStartup.addListener(() => void pollLoop())
-chrome.runtime.onInstalled.addListener(() => void pollLoop())
-chrome.alarms.onAlarm.addListener(() => {
-    void pollLoop()
-    void closeIdleTabs()
+// Poll while the website is the active tab of the focused window, so site work never waits for the scheduled cadence.
+chrome.tabs.onActivated.addListener(() => void checkSiteActive())
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+    if (tab.active && (changeInfo.url !== undefined || changeInfo.status === "complete")) void checkSiteActive()
 })
-void chrome.alarms.create("playlistsyncer", {periodInMinutes: 1})
-void pollLoop()
+chrome.windows.onFocusChanged.addListener(() => void checkSiteActive())
+
+// Wake for the scheduled check when the system goes idle or locks, and keep the 30 minute cadence through the scheduling alarm.
+chrome.idle.setDetectionInterval(idleThresholdSec)
+chrome.idle.onStateChanged.addListener((state) => {
+    if (state !== "active") void checkScheduledPoll()
+})
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === scheduledPollAlarm) void checkScheduledPoll()
+    else if (alarm.name === tabsCleanupAlarm) void cleanupTabs()
+})
+chrome.runtime.onStartup.addListener(() => void checkWake())
+chrome.runtime.onInstalled.addListener(() => void checkWake())
+
+// Recreate the scheduling alarm only when missing or on a wrong interval, anchored to the last check when one is stored; an aligned alarm is never shifted.
+async function ensureScheduledPollAlarm(): Promise<void> {
+    const alarm = await chrome.alarms.get(scheduledPollAlarm)
+    if (alarm?.periodInMinutes === scheduledPollIntervalMinutes) return
+    const last = (await getLocal<number>("lastScheduledPollAt")) ?? 0
+    await chrome.alarms.create(scheduledPollAlarm, {when: last ? Math.max(Date.now(), last + extensionScheduledPollIntervalMs) : Date.now() + extensionScheduledPollIntervalMs, periodInMinutes: scheduledPollIntervalMinutes})
+}
+
+// Drop the alarm name used by older builds, then make sure the scheduling alarm exists.
+void chrome.alarms.clear("playlistsyncer")
+void ensureScheduledPollAlarm()
+void checkWake()

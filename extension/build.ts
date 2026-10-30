@@ -11,7 +11,7 @@ const root = import.meta.dir
 const dist = `${root}/dist`
 const serverUrl = (process.env.PLS_EXTENSION_SERVER_URL || "https://playlistsyncer.com").replace(/\/+$/, "")
 const iconSizes = [16, 32, 48, 128]
-const permissions = ["identity", "storage", "alarms", "tabs", "scripting", "webRequest"]
+const permissions = ["identity", "storage", "alarms", "tabs", "scripting", "webRequest", "idle"]
 
 if (!/^\d{1,5}(\.\d{1,5}){0,3}$/.test(pkg.version) || pkg.version.split(".").some((n) => Number(n) > 65535)) throw new Error(`Invalid extension version ${pkg.version}`)
 

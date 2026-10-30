@@ -28,9 +28,9 @@ The popup shows the exact redirect URI of the installed extension while it is no
 
 ## How it works
 
-- The background script long-polls `POST /api/extension/poll`, runs the queued commands (max 2 at a time per provider) and posts each result to `/api/extension/results`. A keepalive and a 1 minute alarm keep the loop running.
+- The background script long-polls `POST /api/extension/poll`, runs the queued commands (max 2 at a time per provider) and posts each result to `/api/extension/results`. Scheduled task checks run at most every 30 minutes and only while the system has been idle or locked for a minute; the schedule is kept by an alarm and a persisted timestamp, and polling stays live while commands run, while the website is the active tab, or shortly after the popup is used.
 - Providers live in `src/providers/` (one file per provider implementing `ProviderConnector`, registered in `src/providers/index.ts`). The contract with the server is `shared/types/extension.ts`.
-- Provider requests run inside a provider tab (an existing one, or an inactive tab opened by the extension and closed after 2 idle minutes).
+- Provider requests run inside a provider tab (an existing one, or an inactive tab opened by the extension and closed after 2 idle minutes by a cleanup alarm).
 
 ## Security model
 

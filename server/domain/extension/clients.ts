@@ -3,7 +3,7 @@ import {createHash, randomBytes, timingSafeEqual} from "node:crypto"
 import type {H3Event} from "h3"
 import type {ObjectId} from "mongodb"
 import type {ExtensionClientDocument, ProviderAccountDocument} from "~~/shared/types/domain"
-import {isExtensionProvider, type ExtensionProviderAccount} from "~~/shared/types/extension"
+import {extensionScheduledPollIntervalMs, isExtensionProvider, type ExtensionProviderAccount} from "~~/shared/types/extension"
 import {collections} from "../../data/collections"
 import {getServerConfig} from "../../utils/config"
 import logger from "../../utils/logger"
@@ -15,7 +15,7 @@ import {extensionOfflineMessage, isExtensionOnline, unregisterExtensionClient} f
 
 const authorizationCodeTtlMs = 5 * 60 * 1000
 const lastSeenWriteIntervalMs = 60 * 1000
-const dueTaskCheckIntervalMs = 60 * 1000
+const dueTaskCheckIntervalMs = extensionScheduledPollIntervalMs
 
 const lastSeenWrites = new Map<string, number>()
 const dueTaskChecks = new Map<string, number>()
@@ -164,7 +164,16 @@ export function assertExtensionAccountsOnline(accounts: ProviderAccountDocument[
     }
 }
 
-// Run the user's due extension tasks one after another while their extension is online. Checks at most once a minute per user.
+// True while the user's scheduled batch is starting or running, or an extension task still holds a live lease. Polls use this to stay online for queued commands.
+export async function hasRunningExtensionTasks(userId: ObjectId) {
+    if (runningDueTasks.has(userId.toHexString())) {
+        return true
+    }
+    const db = await collections()
+    return Boolean(await db.syncTasks.findOne({userId, browserExtension: true, leaseExpiresAt: {$gt: new Date()}}, {projection: {_id: 1}}))
+}
+
+// Run the user's due extension tasks one after another while their extension is online. Checks at most once per scheduled poll interval per user.
 export function runDueExtensionTasks(userId: ObjectId) {
     const key = userId.toHexString()
     const now = Date.now()

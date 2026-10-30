@@ -11,6 +11,9 @@ export function isExtensionProvider(provider: string): provider is ExtensionProv
     return (extensionProviders as readonly string[]).includes(provider)
 }
 
+// How often the extension may ask the server to start due scheduled tasks. The extension only sends these checks while the system is idle or locked.
+export const extensionScheduledPollIntervalMs = 30 * 60_000
+
 // Provider adapter methods that the server can ask the extension to run.
 export const extensionCommandMethods = ["listPlaylists", "createPlaylist", "deletePlaylist", "getPlaylistItems", "searchTrackCandidates", "getTrackDurations", "addTracks", "removePlaylistItems"] as const
 
@@ -91,11 +94,15 @@ export interface ExtensionPollRequest {
     version: string
     browser: "chrome" | "firefox"
     accounts: ExtensionProviderAccount[]
+    // True only on the first poll of an idle, due scheduled check (at most every extensionScheduledPollIntervalMs); it lets the server start due tasks.
+    runScheduled?: boolean
 }
 
 // Response of POST /api/extension/poll.
 export interface ExtensionPollResponse {
     commands: ExtensionCommand[]
+    // True while a scheduled batch or extension sync is still running, so the extension keeps polling for its commands instead of sleeping.
+    busy?: boolean
     // Wait this long before the next poll when no commands were returned.
     retryAfterMs?: number
 }
