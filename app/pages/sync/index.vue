@@ -32,12 +32,14 @@ const allPlaylistsId = "__all__"
 const createPlaylistId = "__create__"
 
 const allAccounts = computed(() => accountData.value?.accounts || [])
-const accounts = computed(() => allAccounts.value.filter((account) => isProviderEnabled(account.provider)))
+// Accounts connected through the browser extension stay usable when the provider has no server integration.
+const accountUsable = (account: ConnectedAccount) => account.connection === "extension" || isProviderEnabled(account.provider)
+const accounts = computed(() => allAccounts.value.filter(accountUsable))
 const tasks = computed(() =>
     (taskData.value?.tasks || []).filter((task) => {
         const source = allAccounts.value.find((account) => account.id === String(task.source.providerAccountId))
         const destination = allAccounts.value.find((account) => account.id === String(task.destination.providerAccountId))
-        return (!source || isProviderEnabled(source.provider)) && (!destination || isProviderEnabled(destination.provider))
+        return (!source || accountUsable(source)) && (!destination || accountUsable(destination))
     })
 )
 const taskProviderPairs = computed(() =>
@@ -72,6 +74,7 @@ const selectedDestinationProvider = computed(() => accountProvider(destinationAc
 // Apple Music lets apps add songs but not remove them, which changes what a sync can do on that side.
 const writesToAppleMusic = computed(() => selectedDestinationProvider.value === "apple" || (effectiveDirection.value === "two-way" && selectedSourceProvider.value === "apple"))
 const appleMusicRemovalNote = "Apple Music does not let apps remove songs, so songs removed on the other side stay in Apple Music until you remove them there."
+const usesExtension = computed(() => [sourceAccountId.value, destinationAccountId.value].some((id) => allAccounts.value.find((account) => account.id === id)?.connection === "extension"))
 const conflictingFullSync = computed(() => {
     const sourceProvider = selectedSourceProvider.value
     const destinationProvider = selectedDestinationProvider.value
@@ -82,6 +85,19 @@ const fullSyncConflictMessage = computed(() => (conflictingFullSync.value ? acco
 const canSubmit = computed(
     () => !conflictingFullSync.value && !!sourceAccountId.value && !!destinationAccountId.value && (syncAllPlaylists.value ? auth.user?.tier === "pro" : !!sourcePlaylist.value && (!!destinationPlaylist.value || createDestinationPlaylist.value))
 )
+
+// Online when every extension account of the task has a running extension.
+function extensionOnline(task: SyncTaskSummary) {
+    return [task.source.providerAccountId, task.destination.providerAccountId].every((id) => {
+        const account = allAccounts.value.find((item) => item.id === String(id))
+        return account?.connection !== "extension" || account.online === true
+    })
+}
+
+// Label an account option, marking accounts that run through the browser extension.
+function accountOptionLabel(account: ConnectedAccount) {
+    return `${account.provider} · ${account.displayName}${account.connection === "extension" ? " (browser extension)" : ""}`
+}
 
 function accountProvider(accountId: string): Provider | undefined {
     return allAccounts.value.find((account) => account.id === String(accountId))?.provider
@@ -342,7 +358,7 @@ onUnmounted(() => {
                     ><span>{{ oneWayLabels ? "Master account" : "Source account" }}</span
                     ><select v-model="sourceAccountId">
                         <option value="">Choose account</option>
-                        <option v-for="account in accounts" :key="account.id" :value="account.id">{{ account.provider }} · {{ account.displayName }}</option>
+                        <option v-for="account in accounts" :key="account.id" :value="account.id">{{ accountOptionLabel(account) }}</option>
                     </select></label
                 >
                 <label
@@ -361,7 +377,7 @@ onUnmounted(() => {
                     ><span>{{ oneWayLabels ? "Mirror account" : "Destination account" }}</span
                     ><select v-model="destinationAccountId">
                         <option value="">Choose account</option>
-                        <option v-for="account in accounts.filter((item) => item.id !== sourceAccountId)" :key="account.id" :value="account.id">{{ account.provider }} · {{ account.displayName }}</option>
+                        <option v-for="account in accounts.filter((item) => item.id !== sourceAccountId)" :key="account.id" :value="account.id">{{ accountOptionLabel(account) }}</option>
                     </select></label
                 >
                 <label
@@ -399,6 +415,10 @@ onUnmounted(() => {
                 <p v-else>
                     The first run adds each playlist's missing tracks to the other. Later runs reconcile changes in both directions.
                     <template v-if="writesToAppleMusic">{{ appleMusicRemovalNote }}</template>
+                </p>
+                <p v-if="usesExtension" class="builder-extension-note">
+                    <BrowserExtensionBadge />
+                    This task runs in your browser through the PlaylistSyncer extension, not on our servers. It runs while your browser is open and signed in to the music service.
                 </p>
                 <button class="button button-light" type="button" :disabled="!canSubmit || submitting" @click="createTask"><LoaderCircle v-if="submitting" class="spin" :size="17" />Create task</button>
             </div>
@@ -465,6 +485,7 @@ onUnmounted(() => {
                 <div class="task-meta">
                     <span class="status-label" :class="`status-${taskStatus(task)}`"><span />{{ taskStatus(task).replace("_", " ") }}</span>
                     <span>{{ isOneWay(task) ? "One-way" : "Two-way" }}</span>
+                    <BrowserExtensionBadge v-if="task.browserExtension" :online="extensionOnline(task)" />
                     <span>{{ task.status === "paused" ? "Paused" : `Next ${formatDate(task.nextRunAt)}` }}</span>
                     <span v-if="isSyncInProgress(task)" class="task-progress"><LoaderCircle class="spin" :size="14" />{{ syncProgressMessage(task) }}</span>
                     <template v-else>

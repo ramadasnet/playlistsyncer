@@ -28,6 +28,20 @@ export interface ConnectedAccount {
     tokenExpiresAt?: string
     // Apple Music is connected but MusicKit access to the library was not granted yet.
     authorizationRequired?: boolean
+    // "extension" when the PlaylistSyncer browser extension runs this account's provider requests.
+    connection?: "extension"
+    // For extension accounts: the extension polled recently and is signed in to this account.
+    online?: boolean
+}
+
+// A browser where the user linked the PlaylistSyncer extension.
+export interface LinkedBrowser {
+    id: string
+    browser: "chrome" | "firefox"
+    version?: string
+    online: boolean
+    lastSeenAt?: string
+    createdAt: string
 }
 
 // Provider playlist summary used by selection views.
@@ -55,6 +69,8 @@ export interface SyncTaskSummary {
     lastError?: string
     createdAt?: string
     leaseExpiresAt?: string
+    // The task runs in the user's browser through the PlaylistSyncer extension.
+    browserExtension?: boolean
     latestRun?: {
         status: SyncRunStatus
         additions: number
