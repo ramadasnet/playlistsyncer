@@ -114,6 +114,8 @@ export interface UserDocument {
     lastLoginAt?: Date
     // Set when the inactive account warning was sent; cleared on the next login.
     inactivityWarningSentAt?: Date
+    // Set while an account deletion runs so a task insert from another process can refuse; cleared on failure.
+    deletionStartedAt?: Date
     createdAt: Date
     updatedAt: Date
 }

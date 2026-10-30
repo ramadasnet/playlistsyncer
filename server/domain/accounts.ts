@@ -13,6 +13,14 @@ import logger from "../utils/logger"
 // Subscription states that still renew and charge the customer.
 export const renewingSubscriptionStatuses = new Set(["active", "trialing"])
 
+// A deletion flag this old means the deleting process died, so it must not block the user forever.
+export const userDeletionFlagTtlMs = 10 * 60 * 1000
+
+// True while a recently started account deletion may still be removing this user's tasks.
+export function isUserDeletionPending(user: Pick<UserDocument, "deletionStartedAt">, now = new Date()) {
+    return Boolean(user.deletionStartedAt && now.getTime() - user.deletionStartedAt.getTime() < userDeletionFlagTtlMs)
+}
+
 // Resolve a playlist count without letting one provider failure hide the other accounts.
 export async function playlistCountForAccount(account: ProviderAccountDocument): Promise<number | undefined> {
     if (!isProviderEnabled(account.provider)) {
@@ -114,15 +122,17 @@ export async function deleteUserAccount(user: UserDocument): Promise<void> {
     }
     // Hold the task-creation lock for the whole deletion so a new task cannot appear after the reservation.
     await withUserLock(userId, async () => {
+        const db = await collections()
         const leaseId = randomUUID()
         let removed = false
         try {
+            // Flag the user before removing tasks so a task insert that slipped past this process's lock still sees it.
+            await db.users.updateOne({_id: userId}, {$set: {deletionStartedAt: new Date()}})
             const reservation = await reserveTasksForDeletion(userId, leaseId)
             if (!reservation.ok) {
                 logger.warn("Accounts.deleteUser", `User ${userId.toHexString()}`, syncTaskBusyMessage)
                 throw createError({statusCode: 409, statusMessage: syncTaskBusyMessage})
             }
-            const db = await collections()
             const taskIds = reservation.taskIds
             await Promise.all([db.syncSnapshots.deleteMany({taskId: {$in: taskIds}}), db.syncRuns.deleteMany({taskId: {$in: taskIds}})])
             await db.syncTasks.deleteMany({userId})
@@ -132,8 +142,8 @@ export async function deleteUserAccount(user: UserDocument): Promise<void> {
             removed = true
             logger.info("Accounts.deleteUser", `User ${userId.toHexString()}`, `Tasks ${taskIds.length}`)
         } catch (error) {
-            // A failure halfway through the reservation still holds leases, so clear those before the error leaves.
-            if (!removed) await releaseTaskReservation(userId, leaseId)
+            // A failure halfway through the reservation still holds leases and the flag, so clear both before the error leaves.
+            if (!removed) await Promise.all([releaseTaskReservation(userId, leaseId), db.users.updateOne({_id: userId}, {$unset: {deletionStartedAt: ""}})])
             throw error
         }
     })

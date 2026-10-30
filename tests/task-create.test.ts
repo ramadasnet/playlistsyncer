@@ -44,15 +44,22 @@ function fakeCollection() {
                 return store.filter((doc) => matches(doc, filter))
             }
         }),
+        findOne: async (filter: Doc = {}) => store.find((doc) => matches(doc, filter)) ?? null,
         insertOne: async (doc: Doc) => {
             doc._id ??= new ObjectId()
             store.push(doc)
             return {insertedId: doc._id as ObjectId}
+        },
+        deleteOne: async (filter: Doc) => {
+            const index = store.findIndex((doc) => matches(doc, filter))
+            if (index < 0) return {deletedCount: 0}
+            store.splice(index, 1)
+            return {deletedCount: 1}
         }
     }
 }
 
-const db = {providerAccounts: fakeCollection(), syncTasks: fakeCollection()}
+const db = {providerAccounts: fakeCollection(), syncTasks: fakeCollection(), users: fakeCollection()}
 const userId = new ObjectId()
 const sourceAccountId = new ObjectId()
 const destinationAccountId = new ObjectId()
@@ -94,7 +101,9 @@ beforeEach(() => {
     runSpy = spyOn(engine, "runSyncTask").mockResolvedValue({additions: 0, removals: 0, skipped: 0, conflicts: 0})
     db.providerAccounts.store.length = 0
     db.syncTasks.store.length = 0
+    db.users.store.length = 0
     db.providerAccounts.store.push({_id: sourceAccountId, userId, provider: "spotify"}, {_id: destinationAccountId, userId, provider: "tidal"})
+    db.users.store.push({_id: userId})
     db.syncTasks.insertOne = async (doc: Doc) => {
         doc._id ??= new ObjectId()
         db.syncTasks.store.push(doc)
@@ -174,5 +183,21 @@ describe("playlist task creation conflicts", () => {
 
         await expect(post(playlistRequest("one-way", "src", "dst"))).rejects.toThrow("Another sync task already writes to this playlist")
         expect(db.syncTasks.store).toHaveLength(0)
+    })
+
+    test("removes the task and rejects while the owner's deletion is pending", async () => {
+        db.users.store[0]!.deletionStartedAt = new Date()
+
+        await expect(post(playlistRequest("one-way", "src", "dst"))).rejects.toThrow("This account is being deleted")
+        expect(db.syncTasks.store).toHaveLength(0)
+    })
+
+    test("creates the task when the owner's deletion flag is stale", async () => {
+        db.users.store[0]!.deletionStartedAt = new Date(Date.now() - 11 * 60_000)
+
+        const {event} = await post(playlistRequest("one-way", "src", "dst"))
+
+        expect(event.statusCode).toBe(201)
+        expect(db.syncTasks.store).toHaveLength(1)
     })
 })

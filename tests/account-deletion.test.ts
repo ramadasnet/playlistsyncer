@@ -186,6 +186,7 @@ describe.skipIf(!mongoUri)("disconnecting providers and deleting accounts agains
 
         await expect(deleteUserAccount((await db.users.findOne({_id: userId}))!)).rejects.toMatchObject({statusCode: 409})
         expect(await db.providerAccounts.countDocuments({userId})).toBe(2)
+        expect((await db.users.findOne({_id: userId}))?.deletionStartedAt).toBeUndefined()
     })
 
     test("two concurrent disconnects keep one sign-in account", async () => {
