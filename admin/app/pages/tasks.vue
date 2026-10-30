@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ArrowLeft, ArrowRight, ExternalLink, RefreshCw, Save, Search, X} from "lucide-vue-next"
+import {ArrowLeft, ArrowRight, ExternalLink, RefreshCw, Save, Search, Trash2, X} from "lucide-vue-next"
 import type {TaskDetail, TaskList} from "../../shared/contracts"
 import {errorLabel} from "../utils/format"
 const route = useRoute()
@@ -61,6 +61,24 @@ async function update(cancel = false) {
         saving.value = false
     }
 }
+async function remove() {
+    if (!detail.value) return
+    if (!window.confirm("Permanently delete this sync task? Its configuration, run history and snapshots will be removed. Canceling future runs retains them instead.")) return
+    saving.value = true
+    failure.value = ""
+    notice.value = ""
+    try {
+        await $fetch(`/api/tasks/${detail.value.task.id}`, {method: "DELETE"})
+        dialog.value?.close()
+        detail.value = null
+        notice.value = "Task deleted."
+        await refresh()
+    } catch (cause) {
+        failure.value = errorLabel(cause)
+    } finally {
+        saving.value = false
+    }
+}
 </script>
 
 <template>
@@ -73,6 +91,7 @@ async function update(cancel = false) {
         <button class="icon-button" title="Refresh tasks" aria-label="Refresh tasks" :disabled="status === 'pending'" @click="refresh()"><RefreshCw :size="20" /></button>
     </div>
     <p v-if="error || (failure && !dialog?.open)" role="alert" class="notice error">{{ error ? errorLabel(error) : failure }}</p>
+    <p v-if="notice && !dialog?.open" role="status" class="notice">{{ notice }}</p>
     <NuxtLink v-if="userId" to="/tasks" class="text-link">Clear user filter<X :size="16" /></NuxtLink>
     <form class="toolbar" @submit.prevent="searchTasks">
         <div class="search-field">
@@ -156,7 +175,8 @@ async function update(cancel = false) {
                 ><label>Next run (local time)<input v-model="form.nextRunAt" type="datetime-local" required /></label>
                 <div class="actions">
                     <button class="primary" :disabled="saving || detail.task.busy"><Save :size="16" />Save task</button
-                    ><button type="button" class="danger-button" :disabled="saving || detail.task.busy || detail.task.status === 'paused'" @click="update(true)">Cancel future runs</button>
+                    ><button type="button" class="danger-button" :disabled="saving || detail.task.busy || detail.task.status === 'paused'" @click="update(true)">Cancel future runs</button
+                    ><button type="button" class="danger-button" :disabled="saving || detail.task.busy" @click="remove"><Trash2 :size="16" />Delete task</button>
                 </div>
             </form>
             <section class="dialog-section">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ArrowLeft, ArrowRight, ExternalLink, RefreshCw, Save, Search, X} from "lucide-vue-next"
+import {ArrowLeft, ArrowRight, ExternalLink, RefreshCw, Save, Search, Trash2, X} from "lucide-vue-next"
 import type {UserDetail, UserList} from "../../shared/contracts"
 import {errorLabel} from "../utils/format"
 
@@ -54,6 +54,23 @@ async function save() {
     try {
         fill(await $fetch<UserDetail>(`/api/users/${detail.value.user.id}`, {method: "PATCH", body: {...form}}))
         notice.value = "User updated."
+        await refresh()
+    } catch (cause) {
+        failure.value = errorLabel(cause)
+    } finally {
+        saving.value = false
+    }
+}
+async function remove() {
+    if (!detail.value) return
+    if (!window.confirm("Permanently delete this user? Their account, provider connections, sessions, and all sync tasks and history will be erased. This cannot be undone.")) return
+    saving.value = true
+    failure.value = ""
+    try {
+        await $fetch(`/api/users/${detail.value.user.id}`, {method: "DELETE"})
+        dialog.value?.close()
+        detail.value = null
+        notice.value = "User deleted."
         await refresh()
     } catch (cause) {
         failure.value = errorLabel(cause)
@@ -237,6 +254,10 @@ async function discover() {
                         </select></label
                     ><button :disabled="saving"><RefreshCw :size="16" />{{ saving ? "Working..." : "Apply in Creem" }}</button>
                 </form>
+            </section>
+            <section class="dialog-section">
+                <h3>Danger zone</h3>
+                <button type="button" class="danger-button" :disabled="saving" @click="remove"><Trash2 :size="16" />Delete user</button>
             </section>
         </template>
     </dialog>

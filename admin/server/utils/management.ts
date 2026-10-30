@@ -2,6 +2,7 @@ import {createError, getQuery, type H3Event} from "h3"
 import {ObjectId, type Filter} from "mongodb"
 import {z} from "zod"
 import {collections} from "../../../server/data/collections"
+import {deleteUserAccount, renewingSubscriptionStatuses} from "../../../server/domain/accounts"
 import type {MailMetrics} from "../../../server/domain/mail/send"
 import {applySubscription, getCreem} from "../../../server/domain/billing/creem"
 import {syncCreemSubscriptions} from "../../../server/domain/billing/subscription-sync"
@@ -154,6 +155,19 @@ export async function updateUser(event: H3Event, id: string, input: unknown) {
     })
 }
 
+/** Delete a user with all their data, unless a renewing subscription would keep charging them. */
+export async function deleteUser(event: H3Event, id: string) {
+    const db = await collections()
+    const user = await db.users.findOne({_id: adminObjectId(id)})
+    if (!user) throw createError({statusCode: 404, statusMessage: "User not found"})
+    if (user.creemSubscriptionStatus && renewingSubscriptionStatuses.has(user.creemSubscriptionStatus))
+        throw createError({statusCode: 409, statusMessage: "Cancel this user's subscription (Cancel immediately under Subscription) before deleting the account"})
+    return audited(event, "user.delete", id, {email: user.email, displayName: user.displayName}, async () => {
+        await deleteUserAccount(user)
+        return {ok: true}
+    })
+}
+
 /** List task state with bounded results and owner/status filters. */
 export async function listTasks(event: H3Event) {
     const query = listSchema.parse(getQuery(event))
@@ -233,6 +247,20 @@ export async function updateTask(event: H3Event, id: string, input: unknown, can
         )
         if (!result.matchedCount) throw createError({statusCode: 409, statusMessage: "Task is now running; retry when it finishes"})
         return getTask(id)
+    })
+}
+
+/** Delete an idle task and its retained run history and snapshots. */
+export async function deleteTask(event: H3Event, id: string) {
+    const db = await collections()
+    const task = await db.syncTasks.findOne({_id: adminObjectId(id)})
+    if (!task) throw createError({statusCode: 404, statusMessage: "Task not found"})
+    await assertSyncTaskIdle(task)
+    return audited(event, "task.delete", id, {before: taskView(task)}, async () => {
+        const result = await db.syncTasks.deleteOne({_id: task._id!, ...idleLeaseFilter()})
+        if (!result.deletedCount) throw createError({statusCode: 409, statusMessage: "Task is now running; retry when it finishes"})
+        await Promise.all([db.syncSnapshots.deleteMany({taskId: task._id!}), db.syncRuns.deleteMany({taskId: task._id!})])
+        return {ok: true}
     })
 }
 

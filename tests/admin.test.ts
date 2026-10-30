@@ -3,11 +3,12 @@ import {createApp, createError, defineEventHandler, toWebHandler} from "h3"
 import {ObjectId} from "mongodb"
 import * as database from "../server/utils/database"
 import * as data from "../server/data/collections"
+import * as accounts from "../server/domain/accounts"
 import * as activity from "../server/domain/sync/task-activity"
 import * as billing from "../server/domain/billing/creem"
 import {clearServerConfigCache} from "../server/utils/config"
 import {adminConfig, isAllowedAdmin, parseAdminConfig} from "../admin/server/utils/config"
-import {adminObjectId, taskView, updateSubscription, updateTask, userView} from "../admin/server/utils/management"
+import {adminObjectId, deleteTask, deleteUser, taskView, updateSubscription, updateTask, userView} from "../admin/server/utils/management"
 import security from "../admin/server/middleware/security"
 import type {SyncTaskDocument, UserDocument} from "../shared/types/domain"
 
@@ -152,5 +153,89 @@ describe("privileged admin mutations", () => {
         )
         await expect(updateSubscription({context: {admin: {email: "igor@ramadas.net"}}} as never, user._id!.toHexString(), {action: "pause"})).rejects.toMatchObject({statusCode: 409})
         expect(paused).toBe(false)
+    })
+
+    test("deleting a user with a renewing subscription is refused before any write", async () => {
+        const db = spyOn(data, "collections").mockResolvedValue({users: {findOne: async () => ({...user, creemSubscriptionStatus: "active"})}} as never)
+        const remove = spyOn(accounts, "deleteUserAccount").mockResolvedValue(undefined)
+        const audit = spyOn(database, "getDatabase").mockResolvedValue({collection: () => ({insertOne: async () => ({insertedId: new ObjectId()})})} as never)
+        restorers.push(
+            () => db.mockRestore(),
+            () => remove.mockRestore(),
+            () => audit.mockRestore()
+        )
+        await expect(deleteUser({context: {admin: {email: "igor@ramadas.net"}}} as never, user._id!.toHexString())).rejects.toMatchObject({statusCode: 409})
+        expect(remove).not.toHaveBeenCalled()
+        expect(audit).not.toHaveBeenCalled()
+    })
+
+    test("deleting an idle user reuses the consumer account deletion flow", async () => {
+        const db = spyOn(data, "collections").mockResolvedValue({users: {findOne: async () => user}} as never)
+        const remove = spyOn(accounts, "deleteUserAccount").mockResolvedValue(undefined)
+        const audit = spyOn(database, "getDatabase").mockResolvedValue({collection: () => ({insertOne: async () => ({insertedId: new ObjectId()}), updateOne: async () => ({})})} as never)
+        restorers.push(
+            () => db.mockRestore(),
+            () => remove.mockRestore(),
+            () => audit.mockRestore()
+        )
+        await expect(deleteUser({context: {admin: {email: "igor@ramadas.net"}}} as never, user._id!.toHexString())).resolves.toEqual({ok: true})
+        expect(remove).toHaveBeenCalledTimes(1)
+        expect(remove).toHaveBeenCalledWith(user)
+    })
+
+    test("a busy task cannot be deleted", async () => {
+        let deleted = false
+        const db = spyOn(data, "collections").mockResolvedValue({
+            syncTasks: {
+                findOne: async () => task,
+                deleteOne: async () => {
+                    deleted = true
+                    return {deletedCount: 1}
+                }
+            }
+        } as never)
+        const idle = spyOn(activity, "assertSyncTaskIdle").mockRejectedValue(createError({statusCode: 409}))
+        restorers.push(
+            () => db.mockRestore(),
+            () => idle.mockRestore()
+        )
+        await expect(deleteTask({} as never, task._id!.toHexString())).rejects.toMatchObject({statusCode: 409})
+        expect(deleted).toBe(false)
+    })
+
+    test("deleting an idle task removes it with its runs and snapshots", async () => {
+        const deletions: unknown[] = []
+        const history: unknown[] = []
+        const db = spyOn(data, "collections").mockResolvedValue({
+            syncTasks: {
+                findOne: async () => task,
+                deleteOne: async (filter: unknown) => {
+                    deletions.push(filter)
+                    return {deletedCount: 1}
+                }
+            },
+            syncSnapshots: {
+                deleteMany: async (filter: unknown) => {
+                    history.push(filter)
+                    return {deletedCount: 1}
+                }
+            },
+            syncRuns: {
+                deleteMany: async (filter: unknown) => {
+                    history.push(filter)
+                    return {deletedCount: 1}
+                }
+            }
+        } as never)
+        const idle = spyOn(activity, "assertSyncTaskIdle").mockResolvedValue(undefined)
+        const audit = spyOn(database, "getDatabase").mockResolvedValue({collection: () => ({insertOne: async () => ({insertedId: new ObjectId()}), updateOne: async () => ({})})} as never)
+        restorers.push(
+            () => db.mockRestore(),
+            () => idle.mockRestore(),
+            () => audit.mockRestore()
+        )
+        await expect(deleteTask({context: {admin: {email: "igor@ramadas.net"}}} as never, task._id!.toHexString())).resolves.toEqual({ok: true})
+        expect(deletions).toHaveLength(1)
+        expect(history).toEqual([{taskId: task._id}, {taskId: task._id}])
     })
 })
