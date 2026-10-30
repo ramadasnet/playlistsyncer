@@ -104,6 +104,16 @@ The service has no manual registration process. Instead, users are registered as
 
 An already authenticated user may explicitly link another provider account, but only one account per provider. Sessions are opaque, server-stored, and delivered in secure HTTP-only cookies.
 
+### Browser extension
+
+Spotify and Amazon Music do not approve new API integrations, so the PlaylistSyncer extension for Chrome and Firefox (in `extension/`) runs their provider requests in the user's own browser, with the music service sign-in that the browser already has. Provider cookies and tokens never leave the browser; the server only receives playlists and tracks.
+
+- **Linking:** the extension opens `/extension/connect` through the browser's web auth flow (OAuth 2.0 authorization code with PKCE `S256`). The signed-in user clicks Allow, and the extension exchanges the one-time code at `POST /api/extension/token` for an opaque bearer token. Only the hash of the code and of the token is stored, and the redirect URL must exactly match one in `PLS_EXTENSION_REDIRECT_URIS`.
+- **Accounts:** each poll reports the provider sessions found in the browser. The server adds them as provider accounts connected through the extension, unless the user already connected that provider with OAuth. These accounts cannot be used to sign in.
+- **Commands:** sync code calls the same provider adapter interface. For extension accounts, the adapter queues commands that the extension picks up with `POST /api/extension/poll` and answers with `POST /api/extension/results`. The queue is in memory, so the website must run as a single instance.
+- **Scheduling:** tasks that use an extension account are marked as running in the browser, and the jobs process skips them. The website starts due tasks when the user's extension polls, so they run while the browser is open. Manual runs and task creation need the extension online. The website shows these tasks and accounts with a "Runs in your browser" badge and the extension's online status.
+- **Building:** `bun run extension:build` writes the Chrome and Firefox builds, and `bun run extension:typecheck` checks the extension code.
+
 ## Rate limits
 
 The music providers have strict rate limits, and these are set via environment variables per provider.
@@ -164,6 +174,7 @@ Application settings use the `PLS_` prefix.
 | `PLS_AMAZON_CLIENT_ID`                   | Login with Amazon client ID.                                                                                                                 | Unset                                                                               |
 | `PLS_AMAZON_CLIENT_SECRET`               | Login with Amazon client secret.                                                                                                             | Unset                                                                               |
 | `PLS_AMAZON_MUSIC_API_BASE_URL`          | Reserved endpoint for an approved Amazon Music partner API.                                                                                  | Unset                                                                               |
+| `PLS_EXTENSION_REDIRECT_URIS`            | Comma-separated redirect URLs of the published browser extensions; setting it turns the browser extension on.                                | Unset; the browser extension is off                                                 |
 | `PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE`    | Shared Spotify request pacing; `0` disables pacing.                                                                                          | `120`                                                                               |
 | `PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE`    | Shared YouTube request pacing; `0` disables pacing.                                                                                          | `300`                                                                               |
 | `PLS_TIDAL_MAX_REQUESTS_PER_MINUTE`      | Shared TIDAL request pacing; `0` disables pacing.                                                                                            | `60`                                                                                |
@@ -275,7 +286,7 @@ Apple does not publish a request cap; `PLS_APPLE_MAX_REQUESTS_PER_MINUTE` paces 
 
 ### Amazon
 
-**Amazon Music is currently not approving new integrations via the API, so this has NOT been tested with PlaylistSyncer yet!**
+**Amazon Music is currently not approving new integrations via the API, so this has NOT been tested with PlaylistSyncer yet!** Users can connect Amazon Music through the [browser extension](#browser-extension) instead.
 
 Supply Login with Amazon values in `PLS_AMAZON_CLIENT_ID` and `PLS_AMAZON_CLIENT_SECRET`, with this exact return URL:
 
@@ -475,6 +486,7 @@ Website process:
 
 - `GET /api/health`: HTTP 200 with `status: "ok"` only when MongoDB accepts a connection check; HTTP 503 with `status: "unhealthy"` otherwise
 - `POST /api/webhooks/creem`: Creem-signed subscription events
+- `POST /api/extension/token`, `POST /api/extension/poll`, `POST /api/extension/results`, `GET /api/extension/me`, `POST /api/extension/disconnect`: browser extension endpoints, authenticated with the extension's bearer token
 
 Jobs process (`PLS_JOBS_PORT`):
 
