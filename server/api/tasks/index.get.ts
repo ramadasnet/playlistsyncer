@@ -13,27 +13,28 @@ export default defineEventHandler(async (event) => {
     const tasks = await db.syncTasks.find({userId: user._id!}).sort({createdAt: -1}).toArray()
     const tier = resolveEntitlement(user).tier
     const taskIds = tasks.flatMap((task) => (task._id ? [task._id] : []))
-    const runs = taskIds.length
-        ? await db.syncRuns
-              .find(
-                  {taskId: {$in: taskIds}},
-                  {
-                      projection: {
-                          taskId: 1,
-                          status: 1,
-                          additions: 1,
-                          removals: 1,
-                          conflicts: 1,
-                          skipped: 1,
-                          startedAt: 1,
-                          progress: 1
-                      }
-                  }
-              )
-              .sort({startedAt: 1})
-              .toArray()
-        : []
-    const latestRun = new Map(runs.map((run) => [run.taskId.toHexString(), run]))
+    // One indexed lookup per task ({taskId: 1, startedAt: -1}) instead of loading every retained run just to keep the latest.
+    const runs = await Promise.all(
+        taskIds.map((taskId) =>
+            db.syncRuns.findOne(
+                {taskId},
+                {
+                    sort: {startedAt: -1},
+                    projection: {
+                        taskId: 1,
+                        status: 1,
+                        additions: 1,
+                        removals: 1,
+                        conflicts: 1,
+                        skipped: 1,
+                        startedAt: 1,
+                        progress: 1
+                    }
+                }
+            )
+        )
+    )
+    const latestRun = new Map(runs.flatMap((run) => (run ? [[run.taskId.toHexString(), run] as const] : [])))
     const isPro = tier === "pro"
     return {
         tasks: tasks.map((task) => serializeSyncTask(task, task._id ? latestRun.get(task._id.toHexString()) : undefined, tier, isPlanLockedTask(task, tasks, isPro)))
