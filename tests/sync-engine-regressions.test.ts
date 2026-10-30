@@ -223,7 +223,7 @@ function adapterFor(provider: Provider): ProviderAdapter {
 const adapters = new Map<Provider, ProviderAdapter>()
 
 const collectionsSpy = spyOn(collectionsModule, "collections").mockResolvedValue(db as unknown as Awaited<ReturnType<typeof collectionsModule.collections>>)
-const adapterSpy = spyOn(providers, "getProviderAdapter").mockImplementation((provider: Provider) => {
+const adapterSpy = spyOn(providers, "getAccountAdapter").mockImplementation(({provider}: {provider: Provider}) => {
     if (!adapters.has(provider)) adapters.set(provider, adapterFor(provider))
     return adapters.get(provider)!
 })

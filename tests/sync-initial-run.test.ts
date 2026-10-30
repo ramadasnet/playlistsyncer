@@ -237,7 +237,7 @@ const db = {
 
 // Spies instead of mock.module, which would leak the fakes into every later test file.
 const collectionsSpy = spyOn(collectionsModule, "collections").mockResolvedValue(db as unknown as Awaited<ReturnType<typeof collectionsModule.collections>>)
-const adapterSpy = spyOn(providers, "getProviderAdapter").mockImplementation(() => adapter)
+const adapterSpy = spyOn(providers, "getAccountAdapter").mockImplementation(() => adapter)
 afterAll(() => {
     collectionsSpy.mockRestore()
     adapterSpy.mockRestore()

@@ -204,6 +204,7 @@ export function serializeSyncTask(task: SyncTaskDocument, latestRun: LatestRunSu
         lastError: task.lastError,
         createdAt: task.createdAt,
         ...(task.leaseExpiresAt ? {leaseExpiresAt: task.leaseExpiresAt} : {}),
+        ...(task.browserExtension ? {browserExtension: true} : {}),
         latestRun
     }
 }

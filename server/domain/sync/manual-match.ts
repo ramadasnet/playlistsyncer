@@ -4,7 +4,7 @@ import type {CanonicalTrack, ManualTrackAlias, Provider, ProviderAccountDocument
 import {catalogSearchLabel, parseCatalogSearchLabel} from "~~/shared/catalog-search"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
-import {getProviderAdapter, type ProviderTrack} from "../providers"
+import {getAccountAdapter, type ProviderTrack} from "../providers"
 import {rankSimilarTracks} from "../providers/matching"
 import {providerTrackUrl} from "../providers/track-ids"
 import {unmatchedTracksFromSnapshot} from "./history-visibility"
@@ -200,7 +200,7 @@ const suggestionLimit = 5
 
 // Pull catalog candidates, retrying without ISRC so near-matches can still surface.
 async function searchSuggestionCandidates(account: ProviderAccountDocument, source: ProviderTrack) {
-    const adapter = getProviderAdapter(account.provider)
+    const adapter = getAccountAdapter(account)
     const primary = await adapter.searchTrackCandidates(account, source)
     if (!source.isrc) {
         return primary
@@ -235,7 +235,7 @@ async function tracksForSuggestions(account: ProviderAccountDocument, source: Pr
         return rankSimilarTracks(source, await searchSuggestionCandidates(account, source), suggestionLimit).map((item) => item.track)
     }
     const parsed = parseCatalogSearchLabel(account.provider, text)
-    const adapter = getProviderAdapter(account.provider)
+    const adapter = getAccountAdapter(account)
     const candidates = await adapter.searchTrackCandidates(account, {...source, title: parsed.title, artists: parsed.artists, isrc: undefined})
     return firstUniqueTracks(candidates, suggestionLimit)
 }
@@ -280,7 +280,7 @@ async function locateUnmatchedPlacement(task: SyncTaskDocument, identity: Unmatc
     for (const candidate of candidates) {
         const accountId = candidate.target.unmatchedSide === "source" ? task.source.providerAccountId : task.destination.providerAccountId
         const account = await loadAccount(accountId, task.userId)
-        const live = (await getProviderAdapter(account.provider).getPlaylistItems(account, candidate.playlistId)).find((track) => liveTrackMatches(track, identity))
+        const live = (await getAccountAdapter(account).getPlaylistItems(account, candidate.playlistId)).find((track) => liveTrackMatches(track, identity))
         if (live) {
             const snapshotItems = snapshotItemsForPlaylist(snapshots, candidate.playlistId, candidate.target.unmatchedSide)
             return {target: candidate.target, unmatchedAccount: account, live, playlistId: candidate.playlistId, snapshot: flattened, snapshotItem: findSnapshotItem(snapshotItems, identity)}
@@ -410,8 +410,8 @@ export async function applyManualMatch(userId: ObjectId, taskId: ObjectId, ident
             throw createError({statusCode: 409, statusMessage: "This track is no longer in the playlist"})
         }
         const targetAccount = await loadAccount(placement.target.targetSide === "source" ? task.source.providerAccountId : task.destination.providerAccountId, userId)
-        const unmatchedAdapter = getProviderAdapter(placement.unmatchedAccount.provider)
-        const targetAdapter = getProviderAdapter(targetAccount.provider)
+        const unmatchedAdapter = getAccountAdapter(placement.unmatchedAccount)
+        const targetAdapter = getAccountAdapter(targetAccount)
         const source = asSearchTrack(unmatched, placement.snapshotItem || toCanonical(liveUnmatched))
         const candidates = await tracksForSuggestions(targetAccount, source, identity.query)
         const chosen = candidates.find((track) => track.trackId === identity.candidateTrackId)
