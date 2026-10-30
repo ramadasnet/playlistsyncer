@@ -342,9 +342,9 @@ export const spotify: ProviderConnector = {
     // Create a playlist and add it to the user's library.
     async createPlaylist({name, description}) {
         const user = await username()
-        // Unverified: playlist creation request format taken from the web player bundle.
+        // Spotify rejects a top-level "info" field here with HTTP 400, unlike rootlist changes.
         const values = {name, ...(description ? {description} : {}), formatAttributes: [], pictureSize: []}
-        const created = await spotifyFetch(`${spclient}/playlist/v2/playlist`, "POST", {ops: [{kind: "UPDATE_LIST_ATTRIBUTES", updateListAttributes: {newAttributes: {values, noValue: []}}}], info: {source: {client: "WEBPLAYER"}}})
+        const created = await spotifyFetch(`${spclient}/playlist/v2/playlist`, "POST", {ops: [{kind: "UPDATE_LIST_ATTRIBUTES", updateListAttributes: {newAttributes: {values, noValue: []}}}]})
         const id = idFromUri(created?.uri, "playlist")
         if (!id) throw new ProviderError("Spotify did not return the created playlist")
         await rootlistChange(user, {kind: "ADD", add: {addFirst: true, items: [{uri: created.uri, attributes: {timestamp: String(Date.now()), formatAttributes: [], availableSignals: []}}]}})
