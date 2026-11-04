@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import {ArrowUpRight, CircleAlert, CreditCard, KeyRound, Link2, LoaderCircle, Mail, Plus, Sparkles, Trash2, Unlink} from "lucide-vue-next"
-import type {ConnectedAccount, SessionUser} from "~/types/api"
+import {ArrowUpRight, CircleAlert, CreditCard, KeyRound, Link2, LoaderCircle, Mail, Plus, Puzzle, Sparkles, Trash2, Unlink} from "lucide-vue-next"
+import type {ConnectedAccount, LinkedBrowser, SessionUser} from "~/types/api"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
 import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
 import {maxDisplayNameLength, normalizeDisplayName} from "~~/shared/display-name"
@@ -13,10 +13,14 @@ const auth = useAuthStore()
 const route = useRoute()
 const runtimeConfig = useRuntimeConfig()
 const {everyLabel} = useProSyncCadence()
-const {enabledProviders} = await useEnabledProviders()
+const {enabledProviders, extensionProviders} = await useEnabledProviders()
 const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/accounts", {
     query: {includePlaylistCount: "true"}
 })
+const {data: extensionData, refresh: refreshExtension} = await useFetch<{enabled: boolean; clients: LinkedBrowser[]}>("/api/me/extension")
+// Providers with a server connection come first, then those only the browser extension can connect.
+const listedProviders = computed(() => [...enabledProviders.value, ...extensionProviders.value.filter((provider) => !enabledProviders.value.includes(provider))])
+const browserBusy = ref("")
 const busy = ref(false)
 const emailBusy = ref(false)
 const emailCancelBusy = ref(false)
@@ -277,6 +281,27 @@ function connectedAccount(provider: Provider) {
     return data.value?.accounts.find((account) => account.provider === provider)
 }
 
+// Show a linked-browser date in the user's locale.
+function formatDate(value: string) {
+    return new Intl.DateTimeFormat(undefined, {dateStyle: "medium", timeStyle: "short"}).format(new Date(value))
+}
+
+// Unlink one browser; its extension stops running tasks until the user connects it again.
+async function disconnectBrowser(browser: LinkedBrowser) {
+    browserBusy.value = browser.id
+    errorMessage.value = ""
+    successMessage.value = ""
+    try {
+        await api(`/api/me/extension/clients/${browser.id}`, {method: "DELETE"})
+        await Promise.all([refreshExtension(), refresh()])
+        successMessage.value = "The browser was disconnected."
+    } catch (error) {
+        errorMessage.value = statusMessage(error, "The browser could not be disconnected")
+    } finally {
+        browserBusy.value = ""
+    }
+}
+
 function openDisconnectDialog(account: ConnectedAccount) {
     disconnectTarget.value = account
     disconnectError.value = ""
@@ -518,12 +543,12 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                 <Link2 :size="22" />
             </div>
             <div class="connection-list">
-                <div v-for="provider in enabledProviders" :key="provider" class="connection-row">
+                <div v-for="provider in listedProviders" :key="provider" class="connection-row">
                     <ProviderBadge :provider="provider" />
                     <template v-if="hasProvider(provider)">
                         <div class="connection-copy">
                             <strong>{{ connectedAccount(provider)?.displayName }}</strong
-                            ><span>{{ connectedAccount(provider)?.email || "Connected" }}</span
+                            ><BrowserExtensionBadge v-if="connectedAccount(provider)?.connection === 'extension'" :online="connectedAccount(provider)?.online" /><span v-else>{{ connectedAccount(provider)?.email || "Connected" }}</span
                             ><span v-if="connectedAccount(provider)?.authorizationRequired">Music library access needed</span
                             ><span v-else>{{ connectedAccount(provider)?.playlistCount ?? 0 }} {{ connectedAccount(provider)?.playlistCount === 1 ? "playlist" : "playlists" }}</span>
                         </div>
@@ -538,11 +563,15 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                             >
                                 <LoaderCircle v-if="appleMusicAuthorizing || continuingAppleMusicLogin" class="spin" :size="16" /><KeyRound v-else :size="16" /> Authorize
                             </button>
-                            <span v-else class="status-dot"><span /> Connected</span>
+                            <span v-else-if="connectedAccount(provider)?.connection !== 'extension'" class="status-dot"><span /> Connected</span>
                             <button class="button button-small button-secondary" type="button" aria-haspopup="dialog" :aria-label="`Disconnect ${providerDisplayNames[provider]}`" @click="openDisconnectDialog(connectedAccount(provider)!)">
                                 <Unlink :size="16" /> Disconnect
                             </button>
                         </div>
+                    </template>
+                    <template v-else-if="!enabledProviders.includes(provider)">
+                        <div class="connection-copy"><strong>Not connected</strong><span>Connect through the PlaylistSyncer browser extension.</span></div>
+                        <a class="button button-small button-secondary" href="#browser-extension-heading"><Puzzle :size="16" /> How to connect</a>
                     </template>
                     <template v-else>
                         <div class="connection-copy"><strong>Not connected</strong><span>Add this provider to use it in playlist pairs.</span></div>
@@ -556,6 +585,7 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
             <p v-if="disconnectTarget" class="confirm-dialog-copy">
                 PlaylistSyncer deletes its access to <strong>{{ disconnectTarget.displayName }}</strong
                 >. Your playlists on {{ providerDisplayNames[disconnectTarget.provider] }} stay as they are, and you can connect again at any time.
+                <template v-if="disconnectTarget.connection === 'extension'"> The browser extension adds this account again while it is signed in, unless you disconnect the browser below.</template>
             </p>
             <p v-if="disconnectError" class="dialog-error" role="alert">{{ disconnectError }}</p>
             <div class="dialog-actions">
@@ -566,6 +596,38 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                 </button>
             </div>
         </OverlayDialog>
+
+        <section v-if="extensionData?.enabled" class="settings-section" aria-labelledby="browser-extension-heading">
+            <div class="settings-heading">
+                <div>
+                    <h2 id="browser-extension-heading">Browser extension</h2>
+                    <p>
+                        Some music services block apps like PlaylistSyncer. The PlaylistSyncer extension for Chrome and Firefox runs those syncs in your own browser, with your existing sign-in, so your music service password and session never reach
+                        our servers.
+                    </p>
+                </div>
+                <Puzzle :size="22" />
+            </div>
+            <div class="connection-list">
+                <div v-for="browser in extensionData.clients" :key="browser.id" class="connection-row">
+                    <span class="provider-badge">{{ browser.browser === "firefox" ? "Firefox" : "Chrome" }}</span>
+                    <div class="connection-copy">
+                        <strong>Linked {{ formatDate(browser.createdAt) }}</strong
+                        ><span>{{ browser.online ? "Online now" : browser.lastSeenAt ? `Last seen ${formatDate(browser.lastSeenAt)}` : "Not seen yet" }}</span
+                        ><span v-if="browser.version">Version {{ browser.version }}</span>
+                    </div>
+                    <div class="connection-actions">
+                        <span v-if="browser.online" class="status-dot"><span /> Online</span>
+                        <button class="button button-small button-secondary" type="button" :disabled="browserBusy === browser.id" :aria-label="`Disconnect ${browser.browser} extension`" @click="disconnectBrowser(browser)">
+                            <LoaderCircle v-if="browserBusy === browser.id" class="spin" :size="16" /><Unlink v-else :size="16" /> Disconnect
+                        </button>
+                    </div>
+                </div>
+                <div v-if="!extensionData.clients.length" class="connection-row">
+                    <div class="connection-copy"><strong>No browser linked</strong><span>Install the PlaylistSyncer extension in Chrome or Firefox, then click Connect in the extension. Syncs that use it run while your browser is open.</span></div>
+                </div>
+            </div>
+        </section>
 
         <section class="settings-section" aria-labelledby="notifications-heading">
             <div class="settings-heading">

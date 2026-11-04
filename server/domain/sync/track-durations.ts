@@ -3,7 +3,7 @@ import type {ObjectId} from "mongodb"
 import type {SyncRunDocument, SyncRunTrackReference} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
-import {getProviderAdapter} from "../providers"
+import {getAccountAdapter} from "../providers"
 import {trackIdsForProvider} from "../providers/track-ids"
 import {withTrackDurations} from "./history-visibility"
 
@@ -32,7 +32,7 @@ export async function fillMissingRunTrackDurations(userId: ObjectId, runs: SyncR
             continue
         }
         try {
-            const loaded = await getProviderAdapter(account.provider).getTrackDurations(account, ids)
+            const loaded = await getAccountAdapter(account).getTrackDurations(account, ids)
             for (const [trackId, durationMs] of loaded) {
                 durations.set(trackId, durationMs)
             }

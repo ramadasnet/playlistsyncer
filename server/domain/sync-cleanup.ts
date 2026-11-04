@@ -79,7 +79,7 @@ export function buildInactiveAccountEmail(input: {to: string; displayName?: stri
 /**
  * Deletes old sync runs and other expired documents, deletes inactive users without tasks, then warns the users who will be deleted next.
  * Users with a renewing subscription are never warned or deleted.
- * Expired sessions, OAuth transactions, and search misses are deleted here as well as by TTL indexes, so a database that cannot create those indexes still drops them.
+ * Expired sessions, OAuth transactions, extension authorization codes, and search misses are deleted here as well as by TTL indexes, so a database that cannot create those indexes still drops them.
  * @param input.send Delivers one email, and returns false when mail is not configured.
  */
 export async function runSyncCleanup(input: {options?: Partial<SyncCleanupOptions>; now?: Date; send: (message: OutboundEmail) => Promise<boolean>; appUrl?: string}) {
@@ -93,7 +93,8 @@ export async function runSyncCleanup(input: {options?: Partial<SyncCleanupOption
         db.sessions.deleteMany({expiresAt: {$lt: now}}),
         db.oauthTransactions.deleteMany({expiresAt: {$lt: now}}),
         db.searchMisses.deleteMany({expiresAt: {$lt: now}}),
-        db.webhookEvents.deleteMany({processedAt: {$lt: new Date(now.getTime() - webhookEventRetentionSeconds * 1000)}})
+        db.webhookEvents.deleteMany({processedAt: {$lt: new Date(now.getTime() - webhookEventRetentionSeconds * 1000)}}),
+        db.extensionAuthCodes.deleteMany({expiresAt: {$lt: now}})
     ])
     result.runsDeleted = runs.deletedCount
     result.sessionsDeleted = sessions.deletedCount

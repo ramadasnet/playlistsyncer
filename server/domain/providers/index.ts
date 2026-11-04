@@ -3,6 +3,7 @@ import type {Provider, ProviderAccountDocument} from "~~/shared/types/domain"
 import {isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModeDeletePlaylist, safeModeWriteBlockedMessage} from "../sync/safe-mode"
 import logger from "../../utils/logger"
 import {appleAdapter} from "./apple"
+import {extensionAdapter} from "./extension"
 import {soundcloudAdapter} from "./soundcloud"
 import {spotifyAdapter} from "./spotify"
 import {tidalAdapter} from "./tidal"
@@ -54,6 +55,15 @@ export function getProviderAdapter(provider: Provider): ProviderAdapter {
             statusMessage: "Amazon Music playlist support requires the approved API contract to be configured"
         })
     }
+    return isSafeModeEnabled() ? withoutProviderWrites(adapter) : adapter
+}
+
+// Resolve the adapter for one connected account; accounts linked through the browser extension run their requests there.
+export function getAccountAdapter(account: ProviderAccountDocument): ProviderAdapter {
+    if (account.connection !== "extension") {
+        return getProviderAdapter(account.provider)
+    }
+    const adapter = extensionAdapter(account.provider)
     return isSafeModeEnabled() ? withoutProviderWrites(adapter) : adapter
 }
 

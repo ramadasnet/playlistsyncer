@@ -5,8 +5,9 @@ import {collections} from "../../data/collections"
 import {isUserDeletionPending} from "../../domain/accounts"
 import {requireUser} from "../../domain/auth/session"
 import {resolveEntitlement} from "../../domain/billing/entitlement"
-import {getProviderAdapter} from "../../domain/providers"
+import {getAccountAdapter} from "../../domain/providers"
 import {accountSyncPairField} from "../../domain/sync/account-sync-pair"
+import {assertExtensionAccountsOnline} from "../../domain/extension/clients"
 import {beginSyncTask, completeSyncTask} from "../../domain/sync/engine"
 import {playlistWriteKey, storedPlaylistWriteKeys, writtenPlaylistRefs} from "../../domain/sync/playlist-writes"
 import {isSafeModeEnabled, logSafeModeCreatePlaylist, safeModeWriteBlockedMessage} from "../../domain/sync/safe-mode"
@@ -92,6 +93,10 @@ export default defineEventHandler(async (event) => {
                 throw createError({statusCode: 409, statusMessage: playlistWriteConflictMessage})
             }
         }
+        const browserExtension = accounts.some((account) => account.connection === "extension")
+        if (browserExtension) {
+            assertExtensionAccountsOnline(accounts)
+        }
         let destinationPlaylistId = body.destination.playlistId
         if (body.mode === "playlist" && body.destination.createNew) {
             // Creating a destination playlist is a provider write, so PLS_SAFE_MODE refuses the task.
@@ -100,7 +105,7 @@ export default defineEventHandler(async (event) => {
                 logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, safeModeWriteBlockedMessage)
                 throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
             }
-            const playlist = await getProviderAdapter(destinationAccount.provider).createPlaylist(destinationAccount, body.source.name, body.source.description)
+            const playlist = await getAccountAdapter(destinationAccount).createPlaylist(destinationAccount, body.source.name, body.source.description)
             destinationPlaylistId = playlist.id
         }
         const direction: SyncTaskDirection = body.mode === "account" ? "one-way" : body.direction
@@ -120,6 +125,7 @@ export default defineEventHandler(async (event) => {
                 name: body.destination.createNew ? body.source.name : body.destination.name
             },
             status: "active",
+            ...(browserExtension ? {browserExtension} : {}),
             nextRunAt: now,
             createdAt: now,
             updatedAt: now

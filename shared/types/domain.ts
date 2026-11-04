@@ -136,15 +136,43 @@ export interface ProviderAccountDocument {
     email?: string
     emailVerified: boolean
     displayName: string
-    accessToken: EncryptedValue
+    // Absent on accounts connected through the browser extension, which keeps the provider session in the user's browser.
+    accessToken?: EncryptedValue
     refreshToken?: EncryptedValue
     tokenExpiresAt?: Date
     // Apple Music only: the MusicKit user token authorized in the browser after Sign in with Apple, and its storefront.
     musicUserToken?: EncryptedValue
     storefront?: string
     scopes: string[]
+    // "extension" when the browser extension runs this account's provider requests. Such accounts use externalAccountId "browser:<userId>:<provider>" so they never match a provider login.
+    connection?: "extension"
+    // The provider's own user ID reported by the browser extension.
+    extensionAccountId?: string
     connectedAt: Date
     updatedAt: Date
+}
+
+// A browser extension linked to a user, identified by the hash of its bearer token.
+export interface ExtensionClientDocument {
+    _id?: ObjectId
+    userId: ObjectId
+    tokenHash: string
+    browser: "chrome" | "firefox"
+    version?: string
+    lastSeenAt?: Date
+    createdAt: Date
+}
+
+// One-time authorization code issued to a browser extension during linking, bound to its PKCE challenge and redirect URI.
+export interface ExtensionAuthCodeDocument {
+    _id?: ObjectId
+    userId: ObjectId
+    codeHash: string
+    codeChallenge: string
+    redirectUri: string
+    browser: "chrome" | "firefox"
+    expiresAt: Date
+    createdAt: Date
 }
 
 // Hashed browser session with its expiry.
@@ -215,6 +243,8 @@ export interface SyncTaskDocument {
     consecutiveFailures?: number
     leaseId?: string
     leaseExpiresAt?: Date
+    // One of the accounts is connected through the browser extension, so the task only runs while that browser is online.
+    browserExtension?: boolean
     createdAt: Date
     updatedAt: Date
 }

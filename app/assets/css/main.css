@@ -2053,3 +2053,53 @@ select {
         padding-block: 24px;
     }
 }
+.extension-badge {
+    width: max-content;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border: 1px dashed var(--ink-soft);
+    border-radius: 4px;
+    color: var(--ink);
+    background: var(--white);
+    font-size: 0.74rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.extension-badge-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--ink-soft);
+    font-weight: 600;
+}
+.extension-badge-status::before {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #8b8f87;
+    content: "";
+}
+.extension-badge.online .extension-badge-status::before {
+    background: var(--green);
+}
+.extension-badge.offline {
+    border-color: var(--coral);
+}
+.extension-badge.offline .extension-badge-status::before {
+    background: var(--coral);
+}
+.builder-extension-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.settings-heading p {
+    max-width: 640px;
+    margin: 6px 0 0;
+    color: var(--ink-soft);
+    font-size: 0.86rem;
+    line-height: 1.5;
+}

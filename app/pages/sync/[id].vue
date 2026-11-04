@@ -413,6 +413,7 @@ onUnmounted(() => {
                     <ArrowLeftRight v-else :size="15" />
                 </span>
                 <ProviderBadge v-if="destinationProvider" :provider="destinationProvider" />
+                <BrowserExtensionBadge v-if="task?.browserExtension" />
             </div>
 
             <div class="run-detail-filters">

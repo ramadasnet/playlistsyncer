@@ -5,7 +5,9 @@ import type {ObjectId} from "mongodb"
 import type {ProviderAccountDocument, UserDocument} from "~~/shared/types/domain"
 import {runningRunIsCurrent, syncLeaseDurationMs, syncTaskBusyMessage} from "../../shared/sync-task-activity"
 import {collections} from "../data/collections"
-import {getProviderAdapter} from "./providers"
+import {isExtensionProvider} from "~~/shared/types/extension"
+import {isExtensionOnline} from "./extension/bridge"
+import {getAccountAdapter} from "./providers"
 import {isProviderEnabled} from "../utils/provider-availability"
 import {withUserLock} from "../utils/user-lock"
 import logger from "../utils/logger"
@@ -23,14 +25,18 @@ export function isUserDeletionPending(user: Pick<UserDocument, "deletionStartedA
 
 // Resolve a playlist count without letting one provider failure hide the other accounts.
 export async function playlistCountForAccount(account: ProviderAccountDocument): Promise<number | undefined> {
-    if (!isProviderEnabled(account.provider)) {
+    if (account.connection === "extension") {
+        if (!isExtensionProvider(account.provider) || !isExtensionOnline(account.userId.toHexString(), account.provider, account.extensionAccountId)) {
+            return undefined
+        }
+    } else if (!isProviderEnabled(account.provider)) {
         return 0
     }
     if (needsAppleMusicAuthorization(account)) {
         return undefined
     }
     try {
-        return (await getProviderAdapter(account.provider).listPlaylists(account)).length
+        return (await getAccountAdapter(account).listPlaylists(account)).length
     } catch (error) {
         logger.warn("Accounts.playlistCount", account.provider, `Provider account ${account.externalAccountId}`, error)
         return undefined
@@ -42,6 +48,7 @@ function needsAppleMusicAuthorization(account: ProviderAccountDocument): boolean
     return account.provider === "apple" && !account.musicUserToken
 }
 
+// Shape connected provider accounts for the API.
 export async function serializeConnectedAccounts(accounts: ProviderAccountDocument[], includePlaylistCount: boolean) {
     return Promise.all(
         accounts.map(async (account) => ({
@@ -52,6 +59,7 @@ export async function serializeConnectedAccounts(accounts: ProviderAccountDocume
             playlistCount: includePlaylistCount ? await playlistCountForAccount(account) : undefined,
             connectedAt: account.connectedAt,
             tokenExpiresAt: account.tokenExpiresAt,
+            ...(account.connection === "extension" ? {connection: account.connection, online: isExtensionProvider(account.provider) && isExtensionOnline(account.userId.toHexString(), account.provider, account.extensionAccountId)} : {}),
             ...(needsAppleMusicAuthorization(account) ? {authorizationRequired: true} : {})
         }))
     )
@@ -71,7 +79,8 @@ export async function disconnectProviderAccount(userId: ObjectId, accountId: Obj
             logger.warn("Accounts.disconnect", account.provider, `User ${userId.toHexString()}`, `Used by ${taskCount} sync tasks`)
             throw createError({statusCode: 409, statusMessage: `Delete the ${taskCount === 1 ? "sync task" : `${taskCount} sync tasks`} that use this account first`})
         }
-        if ((await db.providerAccounts.countDocuments({userId})) <= 1) {
+        // Accounts linked through the browser extension cannot sign in, so they do not count as a way to sign in.
+        if (account.connection !== "extension" && (await db.providerAccounts.countDocuments({userId, connection: {$ne: "extension"}})) <= 1) {
             logger.warn("Accounts.disconnect", account.provider, `User ${userId.toHexString()}`, "Only connected account")
             throw createError({statusCode: 409, statusMessage: "You sign in with this account. Connect another music service first, or delete your PlaylistSyncer account instead."})
         }
@@ -138,6 +147,7 @@ export async function deleteUserAccount(user: UserDocument): Promise<void> {
             await db.syncTasks.deleteMany({userId})
             await db.providerAccounts.deleteMany({userId})
             await db.sessions.deleteMany({userId})
+            await db.extensionClients.deleteMany({userId})
             await db.users.deleteOne({_id: userId})
             removed = true
             logger.info("Accounts.deleteUser", `User ${userId.toHexString()}`, `Tasks ${taskIds.length}`)

@@ -38,8 +38,9 @@ export async function runSyncDue(limit = syncDueBatchSize) {
     const now = new Date()
     // A task that is still running would only return 409 and take a slot from a due task.
     // Reading several batches ahead lets other users' due tasks get a turn.
+    // Browser extension tasks run in the website process when the user's extension polls.
     const candidates = await db.syncTasks
-        .find({status: {$in: ["active", "needs_attention"]}, nextRunAt: {$lte: now}, ...idleLeaseFilter(now)})
+        .find({status: {$in: ["active", "needs_attention"]}, nextRunAt: {$lte: now}, browserExtension: {$ne: true}, ...idleLeaseFilter(now)})
         .sort({nextRunAt: 1})
         .limit(limit * 5)
         .toArray()
