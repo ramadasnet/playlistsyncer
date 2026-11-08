@@ -1,6 +1,6 @@
 {
     "name": "playlistsyncer",
-    "version": "26.437.11402",
+    "version": "26.445.12149",
     "type": "module",
     "private": true,
     "scripts": {
@@ -19,7 +19,9 @@
         "preview": "nuxt preview",
         "postinstall": "nuxt prepare",
         "test": "bun test",
-        "typecheck": "nuxt typecheck"
+        "typecheck": "nuxt typecheck",
+        "extension:build": "bun extension/build.ts",
+        "extension:typecheck": "tsc -p extension"
     },
     "dependencies": {
         "@pinia/nuxt": "^1.0.3",
@@ -37,6 +39,7 @@
         "zod": "^4.6.7"
     },
     "devDependencies": {
+        "@types/chrome": "^0.3.7",
         "@types/node": "^26.6.5",
         "@types/nodemailer": "^8.0.2",
         "prettier": "^3.9.10",

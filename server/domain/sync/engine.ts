@@ -21,7 +21,7 @@ import {resolveEntitlement} from "../billing/entitlement"
 import {applyTaskEntitlement} from "../billing/task-entitlement"
 import {isMissingPlaylistError, isQuotaExceededError, nextQuotaResetAt} from "../providers/http"
 import {findBestTrackMatch} from "../providers/matching"
-import {getProviderAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
+import {getAccountAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
 import {readSyncFailureReason, reverseSyncCaseFor, type ReverseSyncCase, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
 import {assertReverseSyncAvailable} from "./reverse-sync"
 import {proSyncIntervalMs} from "~~/shared/sync-cadence"
@@ -286,7 +286,7 @@ async function applyDesired(
     // Tracks an append-only provider had to keep although the desired state drops them.
     retained: ProviderTrack[]
 }> {
-    const adapter = getProviderAdapter(account.provider)
+    const adapter = getAccountAdapter(account)
     const safeMode = isSafeModeEnabled()
     // An unavailable entry with no snapshot identity is not a song we can reconcile, so it is not removed.
     current = withoutUnknownUnavailable(current)
@@ -472,7 +472,7 @@ type PlaylistRead = {missing: true} | {missing: false; items: ProviderTrack[]}
 // Read a playlist, treating a provider 404 as a missing playlist instead of an unknown failure.
 async function readPlaylistItems(account: ProviderAccountDocument, playlistId: string): Promise<PlaylistRead> {
     try {
-        return {missing: false, items: await getProviderAdapter(account.provider).getPlaylistItems(account, playlistId)}
+        return {missing: false, items: await getAccountAdapter(account).getPlaylistItems(account, playlistId)}
     } catch (error) {
         if (isMissingPlaylistError(error)) {
             return {missing: true}
@@ -544,7 +544,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
     const db = await collections()
     const sourceAccount = await loadAccount(task.source.providerAccountId, task.userId)
     const destinationAccount = await loadAccount(task.destination.providerAccountId, task.userId)
-    const destinationAdapter = getProviderAdapter(destinationAccount.provider)
+    const destinationAdapter = getAccountAdapter(destinationAccount)
     await assertPlaylistsNotOwnedElsewhere(task, sourceAccount, destinationAccount)
     const [sourceRead, destinationRead, snapshot] = await Promise.all([readPlaylistItems(sourceAccount, task.source.playlistId), readPlaylistItems(destinationAccount, task.destination.playlistId), db.syncSnapshots.findOne({taskId: task._id!})])
     const [sourceItems, destinationItems] = playlistItemsOrThrow(sourceAccount, sourceRead, destinationAccount, destinationRead)
@@ -695,8 +695,8 @@ async function mirrorPlaylist(
     manualAliases: PlaylistMapping["manualAliases"] = [],
     snapshot?: AccountSnapshotPlaylist
 ) {
-    const sourceAdapter = getProviderAdapter(sourceAccount.provider)
-    const destinationAdapter = getProviderAdapter(destinationAccount.provider)
+    const sourceAdapter = getAccountAdapter(sourceAccount)
+    const destinationAdapter = getAccountAdapter(destinationAccount)
     const [sourceItems, destinationItems] = await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylistId), destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylistId)])
     const manual: [string, string][] = (manualAliases || []).flatMap((alias) => [
         [alias.sourceTrackId, alias.canonicalKey],
@@ -776,8 +776,8 @@ function errorMessage(error: unknown): string {
 async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrackChanges, reportProgress: ReportProgress): Promise<SyncResult> {
     const sourceAccount = await loadAccount(task.source.providerAccountId, task.userId)
     const destinationAccount = await loadAccount(task.destination.providerAccountId, task.userId)
-    const sourceAdapter = getProviderAdapter(sourceAccount.provider)
-    const destinationAdapter = getProviderAdapter(destinationAccount.provider)
+    const sourceAdapter = getAccountAdapter(sourceAccount)
+    const destinationAdapter = getAccountAdapter(destinationAccount)
     const [sourcePlaylists, destinationPlaylists, snapshots, writtenElsewhere] = await Promise.all([
         sourceAdapter.listPlaylists(sourceAccount),
         destinationAdapter.listPlaylists(destinationAccount, {writableOnly: true}),
@@ -897,7 +897,7 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
 // Remove a playlist created for a restore that did not finish, so a retry can start again.
 async function discardCreatedPlaylist(account: ProviderAccountDocument, playlistId: string) {
     try {
-        await getProviderAdapter(account.provider).deletePlaylist(account, playlistId)
+        await getAccountAdapter(account).deletePlaylist(account, playlistId)
     } catch (error) {
         logger.error("Sync.reverse", account.provider, `Playlist ${playlistId}`, "Created playlist could not be removed", error)
     }
@@ -929,7 +929,7 @@ async function copyPlaylistOnce(task: SyncTaskDocument, recordChanges: RecordTra
                 logSafeModeCreatePlaylist(toAccount.provider, toRef.name)
                 throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
             }
-            const created = await getProviderAdapter(toAccount.provider).createPlaylist(toAccount, toRef.name)
+            const created = await getAccountAdapter(toAccount).createPlaylist(toAccount, toRef.name)
             createdPlaylistId = created.id
             toPlaylistId = created.id
             logger.info("Sync.reverse", `Task ${task._id!.toHexString()}`, syncCase.reason, toAccount.provider, `Created playlist ${created.id}`)

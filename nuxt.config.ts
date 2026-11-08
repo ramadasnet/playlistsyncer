@@ -9,7 +9,7 @@ const proSyncIntervalMinutes = Number(process.env.PLS_TASKSYNC_INTERVAL || defau
 
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
-    ignore: ["admin/**"],
+    ignore: ["admin/**", "extension/**"],
     app: {
         head: {
             htmlAttrs: {lang: "en"},
@@ -59,7 +59,7 @@ export default defineNuxtConfig({
     },
     typescript: {
         strict: true,
-        tsConfig: {exclude: ["../admin/**"]},
+        tsConfig: {exclude: ["../admin/**", "../extension/**"]},
         // Skip the persistent vue-tsc watcher during `nuxt dev` / `nuxt build`.
         // Typecheck with `bun run typecheck` or `bun run check` instead.
         typeCheck: false

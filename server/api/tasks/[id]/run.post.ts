@@ -3,6 +3,7 @@ import {collections} from "../../../data/collections"
 import {requireUser} from "../../../domain/auth/session"
 import {resolveEntitlement} from "../../../domain/billing/entitlement"
 import {manualSyncAvailableAt} from "../../../domain/sync/cooldown"
+import {assertExtensionAccountsOnline} from "../../../domain/extension/clients"
 import {beginSyncTask, completeSyncTask} from "../../../domain/sync/engine"
 import {assertSyncTaskIdle} from "../../../domain/sync/task-activity"
 import logger from "../../../utils/logger"
@@ -21,6 +22,9 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 404, statusMessage: "Sync task not found"})
     }
     await assertSyncTaskIdle(task)
+    if (task.browserExtension) {
+        assertExtensionAccountsOnline(await db.providerAccounts.find({_id: {$in: [task.source.providerAccountId, task.destination.providerAccountId]}, userId: user._id!}).toArray())
+    }
     const availableAt = manualSyncAvailableAt(resolveEntitlement(user).tier, task.lastSuccessAt)
     if (availableAt) {
         const retryAfterSeconds = Math.ceil((availableAt.getTime() - Date.now()) / 1000)

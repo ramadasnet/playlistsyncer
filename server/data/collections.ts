@@ -1,6 +1,18 @@
 // Provide typed MongoDB collections and create the indexes they require.
 import type {Collection} from "mongodb"
-import type {OAuthTransactionDocument, ProviderAccountDocument, SearchMissDocument, SessionDocument, SyncRunDocument, SyncSnapshotDocument, SyncTaskDocument, UserDocument, WebhookEventDocument} from "~~/shared/types/domain"
+import type {
+    ExtensionAuthCodeDocument,
+    ExtensionClientDocument,
+    OAuthTransactionDocument,
+    ProviderAccountDocument,
+    SearchMissDocument,
+    SessionDocument,
+    SyncRunDocument,
+    SyncSnapshotDocument,
+    SyncTaskDocument,
+    UserDocument,
+    WebhookEventDocument
+} from "~~/shared/types/domain"
 import {getDatabase} from "../utils/database"
 import logger from "../utils/logger"
 import {isTtlJobPrivilegeError} from "../utils/mongodb"
@@ -18,7 +30,9 @@ const collectionNames = {
     syncSnapshots: "syncSnapshots",
     syncRuns: "syncRuns",
     searchMisses: "searchMisses",
-    webhookEvents: "webhookEvents"
+    webhookEvents: "webhookEvents",
+    extensionClients: "extensionClients",
+    extensionAuthCodes: "extensionAuthCodes"
 } as const
 
 // Return the application's typed collection handles.
@@ -32,6 +46,8 @@ export async function collections(): Promise<{
     syncRuns: Collection<SyncRunDocument>
     searchMisses: Collection<SearchMissDocument>
     webhookEvents: Collection<WebhookEventDocument>
+    extensionClients: Collection<ExtensionClientDocument>
+    extensionAuthCodes: Collection<ExtensionAuthCodeDocument>
 }> {
     const database = await getDatabase()
     return {
@@ -43,7 +59,9 @@ export async function collections(): Promise<{
         syncSnapshots: database.collection<SyncSnapshotDocument>(collectionNames.syncSnapshots),
         syncRuns: database.collection<SyncRunDocument>(collectionNames.syncRuns),
         searchMisses: database.collection<SearchMissDocument>(collectionNames.searchMisses),
-        webhookEvents: database.collection<WebhookEventDocument>(collectionNames.webhookEvents)
+        webhookEvents: database.collection<WebhookEventDocument>(collectionNames.webhookEvents),
+        extensionClients: database.collection<ExtensionClientDocument>(collectionNames.extensionClients),
+        extensionAuthCodes: database.collection<ExtensionAuthCodeDocument>(collectionNames.extensionAuthCodes)
     }
 }
 
@@ -71,12 +89,16 @@ export async function ensureIndexes(): Promise<void> {
         db.syncSnapshots.createIndex({taskId: 1, batch: 1}, {unique: true}),
         db.syncRuns.createIndex({taskId: 1, startedAt: -1}),
         db.searchMisses.createIndex({providerAccountId: 1, key: 1}, {unique: true}),
-        db.webhookEvents.createIndex({eventId: 1}, {unique: true})
+        db.webhookEvents.createIndex({eventId: 1}, {unique: true}),
+        db.extensionClients.createIndex({tokenHash: 1}, {unique: true}),
+        db.extensionClients.createIndex({userId: 1}),
+        db.extensionAuthCodes.createIndex({codeHash: 1}, {unique: true})
     ])
     // expireAfterSeconds: 0 deletes a document when its indexed date is reached.
     await ensureTtlIndexes([
         db.sessions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.oauthTransactions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
+        db.extensionAuthCodes.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.searchMisses.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: syncRunRetentionSeconds}),
         db.webhookEvents.createIndex({processedAt: 1}, {expireAfterSeconds: webhookEventRetentionSeconds})

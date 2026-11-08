@@ -5,7 +5,8 @@ import {getServerConfig} from "../utils/config"
 
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
 // Sign in with Apple posts its callback from appleid.apple.com; the handler only redirects to the GET callback.
-const externalRoutes = ["/api/webhooks/", "/api/auth/apple/callback"]
+// The browser extension authenticates with a bearer token instead of cookies, so CSRF checks do not apply.
+const externalRoutes = ["/api/webhooks/", "/api/auth/apple/callback", "/api/extension/"]
 const csrfCookie = "ps_csrf"
 const csrfHeader = "x-csrf-token"
 

@@ -48,7 +48,7 @@ describe("connected account playlist counts", () => {
         const tidal = account("tidal", "68c2c0a0c0a0c0a0c0a0c0a3")
         const warn = spyOn(logger, "warn").mockImplementation(() => undefined)
         const enabled = spyOn(availability, "isProviderEnabled").mockReturnValue(true)
-        const adapters = spyOn(providers, "getProviderAdapter").mockImplementation((provider) =>
+        const adapters = spyOn(providers, "getAccountAdapter").mockImplementation(({provider}) =>
             adapter(async (connected) => {
                 if (connected.provider === "spotify") {
                     throw new Error("Spotify playlist count failed")

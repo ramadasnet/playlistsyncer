@@ -22,6 +22,17 @@ const emailList = z.preprocess(
             : value,
     z.array(z.email().transform((email) => email.toLowerCase())).default([])
 )
+// Exact redirect URIs of the published browser extensions, such as https://<extension-id>.chromiumapp.org/.
+const urlList = z.preprocess(
+    (value) =>
+        typeof value === "string"
+            ? value
+                  .split(",")
+                  .map((url) => url.trim())
+                  .filter(Boolean)
+            : value,
+    z.array(z.url({protocol: /^https$/})).default([])
+)
 const optionalPort = z.preprocess((value) => (value === "" || value === undefined || value === null ? 465 : value), z.coerce.number().int().min(1).max(65535))
 const optionalInstant = z.preprocess((value) => {
     if (value === "" || value === undefined || value === null) {
@@ -90,6 +101,7 @@ const serverConfigSchema = z.object({
     smtpPassword: optionalCredential,
     smtpFrom: optionalCredential,
     safeMode: booleanFlag,
+    extensionRedirectUris: urlList,
     // Seconds a stopping process waits for in-flight sync runs; keep it below the container's stop grace period.
     shutdownTimeoutSeconds: z.coerce.number().int().min(1).default(8)
 })
@@ -154,6 +166,7 @@ export function getServerConfig(): ServerConfig {
             smtpPassword: process.env.PLS_SMTP_PASSWORD,
             smtpFrom: process.env.PLS_SMTP_FROM,
             safeMode: process.env.PLS_SAFE_MODE,
+            extensionRedirectUris: process.env.PLS_EXTENSION_REDIRECT_URIS,
             shutdownTimeoutSeconds: process.env.PLS_SHUTDOWN_TIMEOUT_SECONDS
         })
     }

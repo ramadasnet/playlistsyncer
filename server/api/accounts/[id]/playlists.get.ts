@@ -1,7 +1,7 @@
 // List playlists from a connected provider account owned by the user.
 import {collections} from "../../../data/collections"
 import {requireUser} from "../../../domain/auth/session"
-import {getProviderAdapter} from "../../../domain/providers"
+import {getAccountAdapter} from "../../../domain/providers"
 import logger from "../../../utils/logger"
 import {parseObjectId} from "../../../utils/object-id"
 import {enforceProviderRequestLimit} from "../../../utils/user-rate-limit"
@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     }
     // Destination pickers ask for writable playlists. Source pickers keep followed playlists.
     const writableOnly = getQuery(event).writable === "1"
-    const playlists = await getProviderAdapter(account.provider).listPlaylists(account, writableOnly ? {writableOnly: true} : undefined)
+    const playlists = await getAccountAdapter(account).listPlaylists(account, writableOnly ? {writableOnly: true} : undefined)
     logger.info("Accounts.listPlaylists", account.provider, `Provider account ${account.externalAccountId}`, `Playlists ${playlists.length}`)
     return {playlists}
 })
