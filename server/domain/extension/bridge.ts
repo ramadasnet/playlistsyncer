@@ -55,6 +55,12 @@ function sweepGoneClients() {
             dropClient(client.clientId, "The browser extension went offline before it finished")
         }
     }
+    // A command that no poll claimed fails once no online client can serve it, instead of waiting for the full timeout.
+    for (const entry of [...pending.values()]) {
+        if (!entry.clientId && !isExtensionOnline(entry.userId, entry.command.provider, entry.command.accountId)) {
+            settle(entry.command.id, {id: entry.command.id, ok: false, error: {message: "The browser extension went offline before it picked up the request", code: "failed"}})
+        }
+    }
 }
 
 // Forget a client and fail the commands it holds.
