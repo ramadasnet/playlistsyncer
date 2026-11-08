@@ -16,6 +16,7 @@ import {extensionOfflineMessage, isExtensionOnline, unregisterExtensionClient} f
 const authorizationCodeTtlMs = 5 * 60 * 1000
 const lastSeenWriteIntervalMs = 60 * 1000
 const dueTaskCheckIntervalMs = extensionScheduledPollIntervalMs
+const maxDueTasksPerCheck = 10
 
 const lastSeenWrites = new Map<string, number>()
 const dueTaskChecks = new Map<string, number>()
@@ -196,12 +197,21 @@ export function runDueExtensionTasks(userId: ObjectId) {
             const tasks = await db.syncTasks
                 .find({userId, browserExtension: true, status: {$in: ["active", "needs_attention"]}, nextRunAt: {$lte: date}, ...idleLeaseFilter(date)})
                 .sort({nextRunAt: 1})
-                .limit(10)
                 .toArray()
+            let started = 0
             for (const task of tasks) {
+                if (started >= maxDueTasksPerCheck) {
+                    break
+                }
                 const accounts = await db.providerAccounts.find({_id: {$in: [task.source.providerAccountId, task.destination.providerAccountId]}, userId}).toArray()
+                // Tasks whose accounts are offline are skipped without using the batch limit, so they cannot starve the online ones.
                 try {
                     assertExtensionAccountsOnline(accounts)
+                } catch {
+                    continue
+                }
+                started++
+                try {
                     logger.info("Extension.dueTask", `Task ${task._id!.toHexString()}`, `User ${key}`)
                     const {finished} = await startTrackedSyncRun(() => beginSyncTask(task._id!, "scheduled"), completeSyncTask)
                     await finished
