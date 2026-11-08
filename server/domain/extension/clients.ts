@@ -139,6 +139,11 @@ export async function upsertExtensionAccounts(userId: ObjectId, accounts: Extens
         if (current && current.extensionAccountId === account.accountId && current.displayName === displayName) {
             continue
         }
+        // Tasks that use the account stay bound to the login they were created for, so a switched login never redirects them. The account stays offline until the original login is back.
+        if (current && current.extensionAccountId !== account.accountId && (await db.syncTasks.findOne({$or: [{"source.providerAccountId": current._id}, {"destination.providerAccountId": current._id}]}, {projection: {_id: 1}}))) {
+            logger.warn("Extension.account", account.provider, `User ${userId.toHexString()}`, "Ignored a different login because tasks use the linked one")
+            continue
+        }
         const now = new Date()
         await db.providerAccounts.updateOne(
             {provider: account.provider, externalAccountId},
