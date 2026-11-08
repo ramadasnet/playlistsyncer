@@ -3,8 +3,8 @@ import {ObjectId} from "mongodb"
 import type {SyncTaskDocument, UserDocument} from "../shared/types/domain"
 import * as collectionsModule from "../server/data/collections"
 import * as session from "../server/domain/auth/session"
-import * as entitlement from "../server/domain/billing/entitlement"
 import * as engine from "../server/domain/sync/engine"
+import * as activity from "../server/domain/sync/task-activity"
 
 const globals = globalThis as Record<string, unknown>
 globals.defineEventHandler ??= (handler: unknown) => handler
@@ -18,6 +18,7 @@ globals.setResponseStatus = (event: {statusCode?: number}, status: number) => {
 }
 
 const {default: createTask} = await import("../server/api/tasks/index.post")
+const {default: runTask} = await import("../server/api/tasks/[id]/run.post")
 
 type Doc = Record<string, unknown>
 
@@ -63,12 +64,11 @@ const db = {providerAccounts: fakeCollection(), syncTasks: fakeCollection(), use
 const userId = new ObjectId()
 const sourceAccountId = new ObjectId()
 const destinationAccountId = new ObjectId()
-const user = {_id: userId, email: "tester@example.com", tier: "pro", displayName: "Tester", createdAt: new Date(), updatedAt: new Date()} as UserDocument
+const user: UserDocument = {_id: userId, email: "tester@example.com", displayName: "Tester", createdAt: new Date(), updatedAt: new Date()}
 
 const previousCreateError = globals.createError
 let collectionsSpy: ReturnType<typeof spyOn>
 let userSpy: ReturnType<typeof spyOn>
-let entitlementSpy: ReturnType<typeof spyOn>
 let runSpy: ReturnType<typeof spyOn>
 
 afterAll(() => {
@@ -97,7 +97,6 @@ beforeEach(() => {
     globals.createError = (input: {statusCode?: number; statusMessage?: string}) => Object.assign(new Error(input.statusMessage || "Error"), input)
     collectionsSpy = spyOn(collectionsModule, "collections").mockResolvedValue(db as unknown as Awaited<ReturnType<typeof collectionsModule.collections>>)
     userSpy = spyOn(session, "requireUser").mockResolvedValue(user)
-    entitlementSpy = spyOn(entitlement, "resolveEntitlement").mockReturnValue({tier: "pro", developmentOverride: false, trialAccess: false})
     runSpy = spyOn(engine, "runSyncTask").mockResolvedValue({additions: 0, removals: 0, skipped: 0, conflicts: 0})
     db.providerAccounts.store.length = 0
     db.syncTasks.store.length = 0
@@ -114,7 +113,6 @@ beforeEach(() => {
 afterEach(() => {
     collectionsSpy.mockRestore()
     userSpy.mockRestore()
-    entitlementSpy.mockRestore()
     runSpy.mockRestore()
     globals.createError = previousCreateError
 })
@@ -174,6 +172,59 @@ describe("playlist task creation conflicts", () => {
         expect(event.statusCode).toBe(201)
         expect(result.id).toBe(created._id?.toHexString())
         expect(created.playlistWriteKeys).toEqual([`${destinationAccountId.toHexString()}:dst`])
+    })
+
+    test("allows whole-account sync without a plan", async () => {
+        const {event, result} = await post({
+            mode: "account",
+            direction: "two-way",
+            source: {accountId: sourceAccountId.toHexString(), playlistId: "__all__", name: "All playlists"},
+            destination: {accountId: destinationAccountId.toHexString(), playlistId: "__all__", name: "All playlists"}
+        })
+        const created = db.syncTasks.store.at(-1) as unknown as SyncTaskDocument
+
+        expect(event.statusCode).toBe(201)
+        expect(result.id).toBe(created._id?.toHexString())
+        expect(created.mode).toBe("account")
+        expect(created.direction).toBe("one-way")
+    })
+
+    test("allows repeated manual runs after a recent successful sync", async () => {
+        const taskId = new ObjectId()
+        const now = new Date()
+        const task: SyncTaskDocument = {
+            _id: taskId,
+            userId,
+            mode: "playlist",
+            direction: "one-way",
+            source: {providerAccountId: sourceAccountId, playlistId: "source", name: "Source"},
+            destination: {providerAccountId: destinationAccountId, playlistId: "destination", name: "Destination"},
+            status: "active",
+            lastSuccessAt: now,
+            nextRunAt: now,
+            createdAt: now,
+            updatedAt: now
+        }
+        db.syncTasks.store.push({...task})
+        const previousGetRouterParam = globals.getRouterParam
+        globals.getRouterParam = () => taskId.toHexString()
+        const idle = spyOn(activity, "assertSyncTaskIdle").mockResolvedValue(undefined)
+        const begin = spyOn(engine, "beginSyncTask").mockResolvedValue({task, taskId, runId: new ObjectId(), leaseId: "test", trigger: "manual", startedAt: now, taskLabel: "Source"})
+        const complete = spyOn(engine, "completeSyncTask").mockResolvedValue({additions: 0, removals: 0, skipped: 0, conflicts: 0})
+        try {
+            for (let index = 0; index < 2; index++) {
+                const pending: Promise<unknown>[] = []
+                const result = await runTask({waitUntil: (work: Promise<unknown>) => pending.push(work)} as never)
+                await Promise.all(pending)
+                expect(result.status).toBe("running")
+            }
+            expect(begin).toHaveBeenCalledTimes(2)
+        } finally {
+            idle.mockRestore()
+            begin.mockRestore()
+            complete.mockRestore()
+            globals.getRouterParam = previousGetRouterParam
+        }
     })
 
     test("rejects a concurrent insert that loses the playlist claim", async () => {

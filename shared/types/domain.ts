@@ -46,7 +46,6 @@ export function formatProviderNames(list: readonly Provider[]) {
     return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
 }
 
-export type AccountTier = "free" | "pro"
 export type SyncTaskMode = "playlist" | "account"
 export type SyncTaskDirection = "two-way" | "one-way"
 export type SyncTaskStatus = "active" | "paused" | "needs_attention"
@@ -86,7 +85,7 @@ export function allPairsBlockedMessage(tasks: readonly {sourceProvider: Provider
     return "All your connected providers are already covered by full syncs. Delete one of them if you want to create another sync task."
 }
 
-// Persisted user account and entitlement state.
+// Persisted user account and notification preferences.
 export interface UserDocument {
     _id?: ObjectId
     email?: string
@@ -96,21 +95,9 @@ export interface UserDocument {
     emailConfirmationSentAt?: Date
     displayName: string
     avatarUrl?: string
-    tier: AccountTier
     weeklySyncSummaryEnabled?: boolean
     weeklySyncSummarySentAt?: Date
     weeklySyncSummaryLeaseExpiresAt?: Date
-    creemCustomerId?: string
-    creemSubscriptionId?: string
-    creemSubscriptionStatus?: string
-    // Creem's updatedAt for the subscription last stored. A sync will not overwrite a newer one.
-    creemSubscriptionUpdatedAt?: Date
-    // Payment dates copied from Creem. Absent when that subscription has no such date.
-    creemLastTransactionDate?: Date
-    creemNextTransactionDate?: Date
-    creemCurrentPeriodStartDate?: Date
-    creemCurrentPeriodEndDate?: Date
-    creemCanceledAt?: Date
     lastLoginAt?: Date
     // Set when the inactive account warning was sent; cleared on the next login.
     inactivityWarningSentAt?: Date
@@ -235,7 +222,7 @@ export interface SyncTaskDocument {
     destination: PlaylistReference
     playlistMappings?: PlaylistMapping[]
     status: SyncTaskStatus
-    pauseReason?: "user" | "entitlement"
+    pauseReason?: "user"
     nextRunAt: Date
     lastRunAt?: Date
     lastSuccessAt?: Date
@@ -340,13 +327,4 @@ export interface SyncRunDocument {
     reverseSync?: ReverseSyncRequest
     startedAt: Date
     finishedAt?: Date
-}
-
-// Deduplication record for a verified billing webhook event.
-export interface WebhookEventDocument {
-    _id?: ObjectId
-    eventId: string
-    type: string
-    status?: "processing" | "processed" | "failed"
-    processedAt: Date
 }

@@ -2,7 +2,6 @@
 import {z} from "zod"
 import {collections} from "../../data/collections"
 import {requireUser, serializeUser} from "../../domain/auth/session"
-import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {evaluateWeeklySyncSummaryPreference} from "../../domain/mail/weekly-sync-summary"
 import logger from "../../utils/logger"
 
@@ -10,12 +9,11 @@ const bodySchema = z.object({
     weeklySyncSummaryEnabled: z.boolean()
 })
 
-// Validate the preference against the user's entitlement before saving it.
+// Require a confirmed email for notification mail before saving the preference.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     const body = bodySchema.parse(await readBody(event))
     const evaluation = evaluateWeeklySyncSummaryPreference({
-        tier: resolveEntitlement(user).tier,
         email: user.email,
         enabled: body.weeklySyncSummaryEnabled
     })

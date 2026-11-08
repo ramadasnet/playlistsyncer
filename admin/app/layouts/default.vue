@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Activity, ChartNoAxesCombined, CreditCard, LogOut, Users} from "lucide-vue-next"
+import {Activity, ChartNoAxesCombined, LogOut, Users} from "lucide-vue-next"
 import {errorLabel} from "../utils/format"
 
 const {data: session, refresh} = await useFetch("/api/session", {key: "admin-session"})
@@ -34,11 +34,9 @@ async function logout() {
         <nav class="primary-nav" aria-label="Administration">
             <NuxtLink to="/"><ChartNoAxesCombined :size="18" />Overview</NuxtLink>
             <NuxtLink to="/users"><Users :size="18" />Users</NuxtLink>
-            <NuxtLink to="/subscriptions"><CreditCard :size="18" />Subscriptions</NuxtLink>
             <NuxtLink to="/tasks"><Activity :size="18" />Sync tasks</NuxtLink>
         </nav>
         <main class="workspace">
-            <p v-if="session?.creemServer && session.creemServer !== 'prod'" class="notice warning">Creem is in test mode. Subscriptions and billing data shown here are sandbox data, not live payments.</p>
             <p v-if="logoutError" role="alert" class="notice error">{{ logoutError }}</p>
             <slot />
         </main>

@@ -1,6 +1,6 @@
 {
     "name": "playlistsyncer",
-    "version": "26.445.12149",
+    "version": "26.457.11820",
     "type": "module",
     "private": true,
     "scripts": {
@@ -12,6 +12,7 @@
         "check": "bun run typecheck && bun test",
         "dev": "bun --preload ./server/preload.ts ./node_modules/.bin/nuxt dev --no-fork --host 0.0.0.0 --port 3007",
         "jobs": "bun --preload ./server/preload.ts server/jobs/main.ts",
+        "migrate": "bun --preload ./server/preload.ts scripts/migrate.ts",
         "start": "bun --preload ./server/preload.ts .output/server/index.mjs",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
@@ -26,7 +27,6 @@
     "dependencies": {
         "@pinia/nuxt": "^1.0.3",
         "anyhow": "^3.4.0",
-        "creem": "^1.13.0",
         "lucide-vue-next": "^1.0.0",
         "mongodb": "^7.7.0",
         "nodemailer": "^10.2.1",

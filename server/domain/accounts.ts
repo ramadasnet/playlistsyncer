@@ -12,9 +12,6 @@ import {isProviderEnabled} from "../utils/provider-availability"
 import {withUserLock} from "../utils/user-lock"
 import logger from "../utils/logger"
 
-// Subscription states that still renew and charge the customer.
-export const renewingSubscriptionStatuses = new Set(["active", "trialing"])
-
 // A deletion flag this old means the deleting process died, so it must not block the user forever.
 export const userDeletionFlagTtlMs = 10 * 60 * 1000
 
@@ -121,13 +118,9 @@ async function releaseTaskReservation(userId: ObjectId, leaseId: string): Promis
     await db.syncTasks.updateMany({userId, leaseId}, {$unset: {leaseId: "", leaseExpiresAt: ""}})
 }
 
-// Delete the user with every task, run, snapshot, provider account, and session, unless a subscription would keep charging them.
+// Delete the user with every task, run, snapshot, provider account, and session.
 export async function deleteUserAccount(user: UserDocument): Promise<void> {
     const userId = user._id!
-    if (user.creemSubscriptionStatus && renewingSubscriptionStatuses.has(user.creemSubscriptionStatus)) {
-        logger.warn("Accounts.deleteUser", `User ${userId.toHexString()}`, "Subscription is still active")
-        throw createError({statusCode: 409, statusMessage: "Cancel your PRO subscription from Manage billing before deleting your account"})
-    }
     // Hold the task-creation lock for the whole deletion so a new task cannot appear after the reservation.
     await withUserLock(userId, async () => {
         const db = await collections()

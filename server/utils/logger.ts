@@ -20,8 +20,6 @@ const maskedFields = new Set(
         "sessionSecret",
         "tokenEncryptionKey",
         "schedulerSecret",
-        "creemApiKey",
-        "creemWebhookSecret",
         "smtpPassword",
         "emailVerificationTokenHash",
         "confirmationToken"

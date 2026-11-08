@@ -1,10 +1,10 @@
 // Delete old sync runs, expired documents, and inactive users without sync tasks, warning those users by email first.
 import type {Filter} from "mongodb"
 import type {UserDocument} from "~~/shared/types/domain"
-import {collections, syncRunRetentionSeconds, webhookEventRetentionSeconds} from "../data/collections"
+import {collections, syncRunRetentionSeconds} from "../data/collections"
 import logger from "../utils/logger"
 import {isShuttingDown} from "../utils/shutdown"
-import {deleteUserAccount, renewingSubscriptionStatuses} from "./accounts"
+import {deleteUserAccount} from "./accounts"
 import type {OutboundEmail} from "./mail/send"
 import {escapeHtml} from "./mail/weekly-sync-summary"
 
@@ -78,7 +78,6 @@ export function buildInactiveAccountEmail(input: {to: string; displayName?: stri
 
 /**
  * Deletes old sync runs and other expired documents, deletes inactive users without tasks, then warns the users who will be deleted next.
- * Users with a renewing subscription are never warned or deleted.
  * Expired sessions, OAuth transactions, extension authorization codes, and search misses are deleted here as well as by TTL indexes, so a database that cannot create those indexes still drops them.
  * @param input.send Delivers one email, and returns false when mail is not configured.
  */
@@ -86,29 +85,25 @@ export async function runSyncCleanup(input: {options?: Partial<SyncCleanupOption
     const options = {...syncCleanupDefaults, ...input.options}
     const now = input.now ?? new Date()
     const db = await collections()
-    const result = {runsDeleted: 0, sessionsDeleted: 0, oauthTransactionsDeleted: 0, searchMissesDeleted: 0, webhookEventsDeleted: 0, usersDeleted: 0, usersWarned: 0, failed: 0}
+    const result = {runsDeleted: 0, sessionsDeleted: 0, oauthTransactionsDeleted: 0, searchMissesDeleted: 0, usersDeleted: 0, usersWarned: 0, failed: 0}
 
-    const [runs, sessions, oauthTransactions, searchMisses, webhookEvents] = await Promise.all([
+    const [runs, sessions, oauthTransactions, searchMisses] = await Promise.all([
         db.syncRuns.deleteMany({startedAt: {$lt: syncRunDeletionCutoff(now, options.runRetentionMonths)}}),
         db.sessions.deleteMany({expiresAt: {$lt: now}}),
         db.oauthTransactions.deleteMany({expiresAt: {$lt: now}}),
         db.searchMisses.deleteMany({expiresAt: {$lt: now}}),
-        db.webhookEvents.deleteMany({processedAt: {$lt: new Date(now.getTime() - webhookEventRetentionSeconds * 1000)}}),
         db.extensionAuthCodes.deleteMany({expiresAt: {$lt: now}})
     ])
     result.runsDeleted = runs.deletedCount
     result.sessionsDeleted = sessions.deletedCount
     result.oauthTransactionsDeleted = oauthTransactions.deletedCount
     result.searchMissesDeleted = searchMisses.deletedCount
-    result.webhookEventsDeleted = webhookEvents.deletedCount
 
-    const notRenewing = {creemSubscriptionStatus: {$nin: [...renewingSubscriptionStatuses]}}
     const hasTasks = async (user: UserDocument) => Boolean(await db.syncTasks.countDocuments({userId: user._id!}, {limit: 1}))
 
     // A user with an email is deleted only after the grace period that follows the warning.
     const deletable: Filter<UserDocument> = {
         lastLoginAt: {$lt: addMonths(now, -options.deleteAfterMonths)},
-        ...notRenewing,
         $or: [{inactivityWarningSentAt: {$lte: new Date(now.getTime() - options.deletionGraceDays * dayMs)}}, {email: {$exists: false}}, {email: ""}]
     }
     for await (const user of db.users.find(deletable).sort({lastLoginAt: 1})) {
@@ -126,8 +121,7 @@ export async function runSyncCleanup(input: {options?: Partial<SyncCleanupOption
     const warnable: Filter<UserDocument> = {
         lastLoginAt: {$lt: addMonths(now, -options.warnAfterMonths)},
         inactivityWarningSentAt: {$exists: false},
-        email: {$type: "string", $ne: ""},
-        ...notRenewing
+        email: {$type: "string", $ne: ""}
     }
     for await (const user of db.users.find(warnable).sort({lastLoginAt: 1})) {
         if (result.usersWarned >= options.limit || isShuttingDown()) break

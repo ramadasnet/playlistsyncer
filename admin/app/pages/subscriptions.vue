@@ -1,1 +1,0 @@
-<template><UserDirectory subscriptions /></template>

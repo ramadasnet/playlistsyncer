@@ -3,9 +3,8 @@ import {createHmac, randomBytes} from "node:crypto"
 import type {H3Event} from "h3"
 import {ObjectId} from "mongodb"
 import {collections} from "../../data/collections"
-import {getServerConfig, requireConfig} from "../../utils/config"
+import {requireConfig} from "../../utils/config"
 import logger from "../../utils/logger"
-import {resolveEntitlement} from "../billing/entitlement"
 
 const sessionCookie = "ps_session"
 const sessionDurationSeconds = 60 * 60 * 24 * 30
@@ -75,18 +74,12 @@ export async function destroySession(event: H3Event): Promise<void> {
 
 // Convert the database user into the public session payload.
 export function serializeUser(user: Awaited<ReturnType<typeof requireUser>>) {
-    const entitlement = resolveEntitlement(user)
     return {
         id: user._id?.toHexString(),
         email: user.email,
         tempEmail: user.tempEmail,
         displayName: user.displayName,
         avatarUrl: user.avatarUrl,
-        tier: entitlement.tier,
-        developmentProOverride: entitlement.developmentOverride,
-        trialAccess: entitlement.trialAccess,
-        proSubscriptionRequiredAt: getServerConfig().proSubscriptionRequiredAt?.toISOString(),
-        weeklySyncSummaryEnabled: Boolean(user.weeklySyncSummaryEnabled),
-        creemSubscriptionStatus: user.creemSubscriptionStatus
+        weeklySyncSummaryEnabled: Boolean(user.weeklySyncSummaryEnabled)
     }
 }

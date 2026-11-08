@@ -19,7 +19,6 @@ export async function runSyncCleanup(options: Partial<SyncCleanupOptions> = {}) 
         `Sessions deleted ${result.sessionsDeleted}`,
         `OAuth transactions deleted ${result.oauthTransactionsDeleted}`,
         `Search misses deleted ${result.searchMissesDeleted}`,
-        `Webhook events deleted ${result.webhookEventsDeleted}`,
         `Users deleted ${result.usersDeleted}`,
         `Users warned ${result.usersWarned}`,
         `Failed ${result.failed}`

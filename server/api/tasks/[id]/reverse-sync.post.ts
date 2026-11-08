@@ -16,7 +16,6 @@ const reverseSyncSchema = z.object({
     reason: z.enum(reverseSyncReasons)
 })
 
-// Recovery is not a routine manual run, so the free-tier success cooldown does not apply.
 // A restore can outlast the HTTP idle timeout, so it finishes in the background like a manual run.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)

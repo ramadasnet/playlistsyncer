@@ -48,9 +48,7 @@ const runs = computed(() => data.value?.runs || [])
 const taskIsRunning = computed(() => Boolean(task.value && isSyncInProgress(task.value)))
 const sourceProvider = computed(() => data.value?.sourceProvider || undefined)
 const destinationProvider = computed(() => data.value?.destinationProvider || undefined)
-const canBrowseHistory = computed(() => Boolean(data.value?.canBrowseHistory))
-const showRunPicker = computed(() => runs.value.length > 1 && (canBrowseHistory.value || runs.value.some((run) => run.availableReverseSync)))
-const canViewHistory = computed(() => useAuthStore().user?.tier === "pro")
+const showRunPicker = computed(() => runs.value.length > 1)
 const selectedRun = computed(() => runs.value.find((run) => run.id === selectedRunId.value) || runs.value[0])
 const pageTitle = computed(() => {
     const current = task.value
@@ -504,11 +502,6 @@ onUnmounted(() => {
                     <RunTrackTable v-if="filteredUnavailable.length" :rows="filteredUnavailable" :show-playlist="showPlaylistColumn" />
                 </section>
             </div>
-
-            <p v-if="!canViewHistory" class="task-history-locked">
-                Past run history is on PRO.
-                <NuxtLink to="/account">See PRO <ArrowRight :size="14" /></NuxtLink>
-            </p>
 
             <OverlayDialog v-model="showMatchDialog" :title="matchTarget ? formatTrack(matchTarget.track) : 'Find a similar track'" wide>
                 <div v-if="matchTarget" class="match-dialog">

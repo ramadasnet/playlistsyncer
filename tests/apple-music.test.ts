@@ -92,7 +92,7 @@ describe("Apple tokens", () => {
         }
         clearServerConfigCache()
         const userId = new ObjectId()
-        const user = {_id: userId, email: "listener@example.com", displayName: "Apple Music user", tier: "free" as const, createdAt: new Date(), updatedAt: new Date()}
+        const user = {_id: userId, email: "listener@example.com", displayName: "Apple Music user", createdAt: new Date(), updatedAt: new Date()}
         const db = {
             oauthTransactions: {findOneAndDelete: async () => undefined as unknown},
             providerAccounts: {

@@ -4,7 +4,6 @@ import {z} from "zod"
 import {collections} from "../../data/collections"
 import {isUserDeletionPending} from "../../domain/accounts"
 import {requireUser} from "../../domain/auth/session"
-import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {getAccountAdapter} from "../../domain/providers"
 import {accountSyncPairField} from "../../domain/sync/account-sync-pair"
 import {assertExtensionAccountsOnline} from "../../domain/extension/clients"
@@ -33,11 +32,10 @@ const taskSchema = z.object({
 
 const playlistWriteConflictMessage = "Another sync task already writes to this playlist. Pick another playlist or delete that task first."
 
-// Enforce ownership and plan limits before persisting the task.
+// Enforce ownership and playlist writer constraints before persisting the task.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     enforceProviderRequestLimit(event, user._id!)
-    const entitlement = resolveEntitlement(user)
     const body = taskSchema.parse(await readBody(event))
     const sourceAccountId = parseObjectId(body.source.accountId, "source account")
     const destinationAccountId = parseObjectId(body.destination.accountId, "destination account")
@@ -75,14 +73,6 @@ export default defineEventHandler(async (event) => {
                 logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, `Account sync already exists from ${conflictingFullSync.sourceProvider} to ${conflictingFullSync.destinationProvider}`)
                 throw createError({statusCode: 409, statusMessage: accountSyncConflictMessage(conflictingFullSync)})
             }
-        }
-        if (body.mode === "account" && entitlement.tier === "free") {
-            logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Free tier account sync rejected")
-            throw createError({statusCode: 403, statusMessage: "Synchronizing all playlists requires a PRO account"})
-        }
-        if (entitlement.tier === "free" && (await db.syncTasks.countDocuments({userId: user._id!})) >= 1) {
-            logger.warn("Tasks.create", `User ${user._id!.toHexString()}`, "Free tier task limit reached")
-            throw createError({statusCode: 403, statusMessage: "Free accounts can synchronize one playlist pair"})
         }
         if (body.mode === "playlist") {
             // Two tasks writing one playlist would undo each other's changes on every run.

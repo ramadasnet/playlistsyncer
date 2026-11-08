@@ -1,11 +1,11 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import {resolveAppUrl} from "./shared/app-url"
 import {resolvePublicSafeMode} from "./shared/env-flag"
-import {defaultProSyncIntervalMinutes} from "./shared/sync-cadence"
+import {defaultSyncIntervalMinutes} from "./shared/sync-cadence"
 
 const appUrl = resolveAppUrl(process.env)
 const appHost = new URL(appUrl).hostname
-const proSyncIntervalMinutes = Number(process.env.PLS_TASKSYNC_INTERVAL || defaultProSyncIntervalMinutes)
+const syncIntervalMinutes = Number(process.env.PLS_TASKSYNC_INTERVAL || defaultSyncIntervalMinutes)
 
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
@@ -47,13 +47,10 @@ export default defineNuxtConfig({
     runtimeConfig: {
         public: {
             appName: process.env.PLS_APP_NAME || "PlaylistSyncer",
-            // Fallback display price. Startup replaces this with the configured Creem PRO product price when billing is configured.
-            proPrice: "9.99 EUR",
             supportEmail: process.env.PLS_SUPPORT_EMAIL,
             chatlabHelpUrl: process.env.PLS_CHATLAB_HELP_URL,
             siteUrl: appUrl,
-            proSubscriptionRequiredAt: process.env.PLS_PRO_SUBSCRIPTION_REQUIRED_AT || "",
-            proSyncIntervalMinutes: Number.isInteger(proSyncIntervalMinutes) && proSyncIntervalMinutes > 0 ? proSyncIntervalMinutes : defaultProSyncIntervalMinutes,
+            syncIntervalMinutes: Number.isInteger(syncIntervalMinutes) && syncIntervalMinutes > 0 ? syncIntervalMinutes : defaultSyncIntervalMinutes,
             safeMode: resolvePublicSafeMode(process.env)
         }
     },

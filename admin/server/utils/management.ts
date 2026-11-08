@@ -2,17 +2,12 @@ import {createError, getQuery, type H3Event} from "h3"
 import {ObjectId, type Filter} from "mongodb"
 import {z} from "zod"
 import {collections} from "../../../server/data/collections"
-import {deleteUserAccount, renewingSubscriptionStatuses} from "../../../server/domain/accounts"
+import {deleteUserAccount} from "../../../server/domain/accounts"
 import type {MailMetrics} from "../../../server/domain/mail/send"
-import {applySubscription, getCreem} from "../../../server/domain/billing/creem"
-import {syncCreemSubscriptions} from "../../../server/domain/billing/subscription-sync"
-import {revertExpiredPromotionalAccess} from "../../../server/domain/billing/task-entitlement"
-import {resolveEntitlement} from "../../../server/domain/billing/entitlement"
-import {isPlanLockedTask} from "../../../server/domain/billing/task-entitlement"
 import {assertSyncTaskIdle, idleLeaseFilter} from "../../../server/domain/sync/task-activity"
 import {playlistWriteKey, storedPlaylistWriteKeys, writtenPlaylistRefs} from "../../../server/domain/sync/playlist-writes"
 import {getDatabase} from "../../../server/utils/database"
-import {requireConfig} from "../../../server/utils/config"
+import {evaluateWeeklySyncSummaryPreference} from "../../../server/domain/mail/weekly-sync-summary"
 import {maxDisplayNameLength, normalizeDisplayName} from "../../../shared/display-name"
 import {providers, type SyncTaskDocument, type UserDocument} from "../../../shared/types/domain"
 
@@ -29,21 +24,10 @@ export function userView(user: UserDocument) {
         displayName: user.displayName,
         email: user.email || "",
         pendingEmail: user.tempEmail || "",
-        tier: user.tier,
-        effectiveTier: resolveEntitlement(user).tier,
         weeklySyncSummaryEnabled: Boolean(user.weeklySyncSummaryEnabled),
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
-        updatedAt: user.updatedAt,
-        customerId: user.creemCustomerId,
-        subscriptionId: user.creemSubscriptionId,
-        subscriptionStatus: user.creemSubscriptionStatus,
-        subscriptionUpdatedAt: user.creemSubscriptionUpdatedAt,
-        lastPaymentAt: user.creemLastTransactionDate,
-        nextPaymentAt: user.creemNextTransactionDate,
-        periodStart: user.creemCurrentPeriodStartDate,
-        periodEnd: user.creemCurrentPeriodEndDate,
-        canceledAt: user.creemCanceledAt
+        updatedAt: user.updatedAt
     }
 }
 
@@ -82,8 +66,6 @@ export async function listUsers(event: H3Event) {
         const expression = {$regex: query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i"}
         filter.$or = [{email: expression}, {displayName: expression}]
     }
-    if (query.status === "pro" || query.status === "free") filter.tier = query.status
-    else if (query.status) filter.creemSubscriptionStatus = query.status
     if (query.provider) filter._id = {$in: await db.providerAccounts.distinct("userId", {provider: query.provider})}
     const [users, total] = await Promise.all([
         db.users
@@ -99,7 +81,7 @@ export async function listUsers(event: H3Event) {
     return {items: users.map((user) => ({...userView(user), providers: [...new Set(accounts.filter((account) => account.userId.equals(user._id!)).map((account) => account.provider))]})), total, page: query.page, pageSize}
 }
 
-/** Return an account with its safe provider profile, tasks, and billing snapshot. */
+/** Return an account with its safe provider profiles. */
 export async function getUser(id: string) {
     const db = await collections()
     const user = await db.users.findOne({_id: adminObjectId(id)})
@@ -135,7 +117,7 @@ const userUpdateSchema = z
     })
     .strict()
 
-/** Update user profile fields without allowing local entitlement or payment edits. */
+/** Update user profile fields and notification preferences. */
 export async function updateUser(event: H3Event, id: string, input: unknown) {
     const body = userUpdateSchema.parse(input)
     const db = await collections()
@@ -144,7 +126,8 @@ export async function updateUser(event: H3Event, id: string, input: unknown) {
     // Keep a missing confirmed email unset. An empty string would occupy the sparse unique index.
     const email = body.email || undefined
     if (!email && user.email) throw createError({statusCode: 400, statusMessage: "Confirmed email is required"})
-    if (body.weeklySyncSummaryEnabled && resolveEntitlement({...user, email: email ?? user.email}).tier !== "pro") throw createError({statusCode: 409, statusMessage: "Weekly summaries require PRO access"})
+    const preference = evaluateWeeklySyncSummaryPreference({email: email ?? user.email, enabled: body.weeklySyncSummaryEnabled})
+    if (!preference.ok) throw createError({statusCode: preference.statusCode, statusMessage: preference.statusMessage})
     if (email && (await db.users.findOne({_id: {$ne: user._id!}, $or: [{email}, {tempEmail: email}]}))) throw createError({statusCode: 409, statusMessage: "Email is already used by another account"})
     const changes = {displayName: body.displayName, weeklySyncSummaryEnabled: body.weeklySyncSummaryEnabled, ...(email ? {email} : {})}
     const emailChanged = email !== undefined && email !== user.email
@@ -155,13 +138,11 @@ export async function updateUser(event: H3Event, id: string, input: unknown) {
     })
 }
 
-/** Delete a user with all their data, unless a renewing subscription would keep charging them. */
+/** Delete a user with all their data, unless a sync task is running. */
 export async function deleteUser(event: H3Event, id: string) {
     const db = await collections()
     const user = await db.users.findOne({_id: adminObjectId(id)})
     if (!user) throw createError({statusCode: 404, statusMessage: "User not found"})
-    if (user.creemSubscriptionStatus && renewingSubscriptionStatuses.has(user.creemSubscriptionStatus))
-        throw createError({statusCode: 409, statusMessage: "Cancel this user's subscription (Cancel immediately under Subscription) before deleting the account"})
     return audited(event, "user.delete", id, {email: user.email, displayName: user.displayName}, async () => {
         await deleteUserAccount(user)
         return {ok: true}
@@ -223,7 +204,7 @@ export async function getTask(id: string) {
 
 const taskUpdateSchema = z.object({status: z.enum(["active", "paused"]), direction: z.enum(["one-way", "two-way"]), nextRunAt: z.iso.datetime({offset: true}).transform((value) => new Date(value))}).strict()
 
-/** Change scheduling only while idle; preserve all plan restrictions and history. */
+/** Change scheduling only while idle; preserve playlist writer constraints and history. */
 export async function updateTask(event: H3Event, id: string, input: unknown, cancel = false) {
     const db = await collections()
     const task = await db.syncTasks.findOne({_id: adminObjectId(id)})
@@ -234,7 +215,6 @@ export async function updateTask(event: H3Event, id: string, input: unknown, can
     const user = await db.users.findOne({_id: task.userId})
     if (!user) throw createError({statusCode: 404, statusMessage: "Task owner not found"})
     const tasks = await db.syncTasks.find({userId: user._id!}).toArray()
-    if (body.status === "active" && isPlanLockedTask(task, tasks, resolveEntitlement(user).tier === "pro")) throw createError({statusCode: 409, statusMessage: "The owner's plan does not permit this task"})
     const playlistWriteKeys = storedPlaylistWriteKeys({...task, direction: body.direction})
     if (body.direction !== task.direction && playlistWriteKeys) {
         const claimed = new Set(tasks.filter((other) => !other._id!.equals(task._id!)).flatMap((other) => writtenPlaylistRefs(other).map((ref) => playlistWriteKey(ref.providerAccountId, ref.playlistId))))
@@ -264,54 +244,13 @@ export async function deleteTask(event: H3Event, id: string) {
     })
 }
 
-const subscriptionSchema = z.object({action: z.enum(["reconcile", "pause", "resume", "cancel", "cancel-now"])}).strict()
-
-/** Discover missing subscriptions using the same source-of-truth reconciliation as scheduled jobs. */
-export async function discoverSubscriptions(event: H3Event) {
-    return audited(event, "subscription.discover", "all", {}, async () => {
-        await revertExpiredPromotionalAccess()
-        const client = getCreem().subscriptions
-        return syncCreemSubscriptions({
-            productId: requireConfig("creemProProductId"),
-            source: {
-                async search(page, size) {
-                    return (await client.search(page, size)).result
-                },
-                get: (id) => client.get(id)
-            }
-        })
-    })
-}
-
-/** Write to Creem first, then apply a fresh provider snapshot with existing entitlement reconciliation. */
-export async function updateSubscription(event: H3Event, id: string, input: unknown) {
-    const {action} = subscriptionSchema.parse(input)
-    const db = await collections()
-    const user = await db.users.findOne({_id: adminObjectId(id)})
-    if (!user?.creemSubscriptionId || !user.creemCustomerId) throw createError({statusCode: 409, statusMessage: "No linked Creem subscription; run subscription discovery first"})
-    return audited(event, `subscription.${action}`, id, {subscriptionId: user.creemSubscriptionId}, async () => {
-        const client = getCreem().subscriptions
-        const current = await client.get(user.creemSubscriptionId!)
-        const customer = typeof current.customer === "string" ? current.customer : current.customer.id
-        const product = typeof current.product === "string" ? current.product : current.product.id
-        if (customer !== user.creemCustomerId || product !== requireConfig("creemProProductId")) throw createError({statusCode: 409, statusMessage: "Creem customer or product does not match this account"})
-        if (action === "pause") await client.pause(current.id)
-        if (action === "resume") await client.resume(current.id)
-        if (action === "cancel" || action === "cancel-now") await client.cancel(current.id, {mode: action === "cancel-now" ? "immediate" : "scheduled", onExecute: "cancel"})
-        const fresh = await client.get(current.id)
-        await applySubscription(fresh, fresh.status, {userId: user._id, replaceDates: true, ifNotNewerThan: fresh.updatedAt})
-        return getUser(id)
-    })
-}
-
 /** Count distinct tracked playlists, users per provider, and operational health at the database. */
 export async function statistics() {
     const db = await collections()
     const database = await getDatabase()
     const since = new Date(Date.now() - 86_400_000)
-    const [users, storedPro, tasks, activeTasks, attentionTasks, runningTasks, failedRuns, succeededRuns, partialRuns, newUsers, paid, summaryUsers, providerUsers, playlists, mail, lastAudit] = await Promise.all([
+    const [users, tasks, activeTasks, attentionTasks, runningTasks, failedRuns, succeededRuns, partialRuns, newUsers, summaryUsers, providerUsers, playlists, mail, lastAudit] = await Promise.all([
         db.users.countDocuments(),
-        db.users.countDocuments({tier: "pro"}),
         db.syncTasks.countDocuments(),
         db.syncTasks.countDocuments({status: "active"}),
         db.syncTasks.countDocuments({status: "needs_attention"}),
@@ -320,7 +259,6 @@ export async function statistics() {
         db.syncRuns.countDocuments({status: "succeeded", startedAt: {$gte: since}}),
         db.syncRuns.countDocuments({status: "partial", startedAt: {$gte: since}}),
         db.users.countDocuments({createdAt: {$gte: since}}),
-        db.users.countDocuments({creemSubscriptionStatus: {$in: ["active", "trialing", "scheduled_cancel"]}}),
         db.users.countDocuments({weeklySyncSummaryEnabled: true}),
         Promise.all(
             providers.map(async (provider) => {
@@ -371,12 +309,8 @@ export async function statistics() {
             .limit(12)
             .toArray()
     ])
-    const trial = resolveEntitlement({tier: "free"}).trialAccess
     return {
         users,
-        storedPro,
-        effectivePro: trial ? users : storedPro,
-        paidSubscriptions: paid,
         tasks,
         activeTasks,
         pausedTasks: tasks - activeTasks - attentionTasks,

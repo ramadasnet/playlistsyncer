@@ -14,7 +14,7 @@ const mongoUri = process.env.PLS_MONGODB_URI
 
 describe.skipIf(!mongoUri)("task list against MongoDB", () => {
     const now = new Date("2001-01-01T00:00:00.000Z")
-    const user: UserDocument = {_id: new ObjectId(), displayName: "Task list test", tier: "free", createdAt: now, updatedAt: now}
+    const user: UserDocument = {_id: new ObjectId(), displayName: "Task list test", createdAt: now, updatedAt: now}
     const taskIds: ObjectId[] = []
 
     afterAll(async () => {

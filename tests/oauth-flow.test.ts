@@ -108,7 +108,7 @@ class Browser {
 async function createUser(fields: {email?: string} = {}): Promise<ObjectId> {
     const db = await collections()
     const now = new Date()
-    const {insertedId} = await db.users.insertOne({...fields, displayName: "OAuth flow", tier: "free", createdAt: now, updatedAt: now})
+    const {insertedId} = await db.users.insertOne({...fields, displayName: "OAuth flow", createdAt: now, updatedAt: now})
     createdUserIds.push(insertedId)
     return insertedId
 }

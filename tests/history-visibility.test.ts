@@ -1,7 +1,9 @@
-import {describe, expect, test} from "bun:test"
+import {describe, expect, spyOn, test} from "bun:test"
 import {ObjectId} from "mongodb"
-import {canViewRunHistory, runHistoryLimitFor, selectVisibleRuns, serializeSyncRun, serializeSyncTask, unmatchedTracksFromSnapshot, withTrackDurations} from "../server/domain/sync/history-visibility"
+import {serializeSyncRun, serializeSyncTask, unmatchedTracksFromSnapshot, withTrackDurations} from "../server/domain/sync/history-visibility"
 import type {CanonicalTrack, SyncRunDocument, SyncTaskDocument} from "../shared/types/domain"
+import * as data from "../server/data/collections"
+import {loadSyncTaskDetail} from "../server/domain/sync/task-detail"
 
 const now = new Date("2026-09-11T12:00:00.000Z")
 const task: SyncTaskDocument = {
@@ -29,35 +31,40 @@ const latestRun = {
 }
 
 describe("run history visibility", () => {
-    test("is a PRO entitlement", () => {
-        expect(canViewRunHistory("pro")).toBe(true)
-        expect(canViewRunHistory("free")).toBe(false)
-        expect(runHistoryLimitFor("pro")).toBe(50)
-        expect(runHistoryLimitFor("free")).toBe(1)
-    })
-
-    test("keeps a deleted-source restore visible when a free account's latest run failed for another reason", () => {
-        const deleted = {status: "failed" as const, failureReason: "deleted-source" as const}
-        const later = {status: "failed" as const}
-        const succeeded = {status: "succeeded" as const}
-        expect(selectVisibleRuns([later, deleted], "free")).toEqual([later, deleted])
-        expect(selectVisibleRuns([deleted], "free")).toEqual([deleted])
-        expect(selectVisibleRuns([succeeded, deleted], "free")).toEqual([succeeded])
-        expect(selectVisibleRuns([later, deleted], "pro")).toEqual([later, deleted])
+    test("shows past runs without an account tier", async () => {
+        const runs: SyncRunDocument[] = [0, 1].map((index) => ({
+            _id: new ObjectId(),
+            taskId: task._id!,
+            trigger: "manual",
+            status: "succeeded",
+            additions: 0,
+            removals: 0,
+            conflicts: 0,
+            skipped: 0,
+            addedTracks: [],
+            removedTracks: [],
+            unmatchedTracks: [],
+            startedAt: new Date(now.getTime() - index * 60_000)
+        }))
+        const db = spyOn(data, "collections").mockResolvedValue({
+            syncTasks: {findOne: async () => task},
+            providerAccounts: {findOne: async () => ({provider: "spotify"})},
+            syncRuns: {find: () => ({sort: () => ({limit: (limit: number) => ({toArray: async () => runs.slice(0, limit)})})})}
+        } as never)
+        try {
+            const detail = await loadSyncTaskDetail(task.userId, task._id!)
+            expect(detail?.runs.map((run) => run.id)).toEqual(runs.map((run) => run._id!.toHexString()))
+        } finally {
+            db.mockRestore()
+        }
     })
 
     test("includes latest-run counts for every account", () => {
-        expect(serializeSyncTask(task, latestRun, "pro").latestRun).toEqual(latestRun)
-        expect(serializeSyncTask(task, latestRun, "free").latestRun).toEqual(latestRun)
-        expect(serializeSyncTask({...task, pauseReason: "entitlement"}, latestRun, "free", true)).toMatchObject({
-            pauseReason: "entitlement",
-            entitlementLocked: true,
-            latestRun
-        })
+        expect(serializeSyncTask(task, latestRun).latestRun).toEqual(latestRun)
     })
 
-    test("still exposes last-run timestamps to Free accounts", () => {
-        const summary = serializeSyncTask(task, latestRun, "free")
+    test("exposes last-run timestamps", () => {
+        const summary = serializeSyncTask(task, latestRun)
 
         expect(summary.lastSuccessAt).toEqual(now)
         expect(summary.lastError).toBe("Needs a human ear")

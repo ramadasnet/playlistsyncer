@@ -4,7 +4,6 @@ import logger from "../utils/logger"
 import {isShuttingDown} from "../utils/shutdown"
 import {beginNonSyncRequest} from "./requests"
 import health from "./routes/health"
-import subscriptionSync from "./routes/subscription-sync"
 import syncCleanup from "./routes/sync-cleanup"
 import syncDue from "./routes/sync-due"
 import syncTask from "./routes/sync-task"
@@ -36,7 +35,6 @@ export function createJobsApp(): App {
     })
     const router = createRouter()
     router.get("/api/health", health)
-    router.post("/api/jobs/subscription-sync", subscriptionSync)
     router.post("/api/jobs/sync-due", syncDue)
     router.post("/api/jobs/sync-task/:id", syncTask)
     router.post("/api/jobs/weekly-sync-summary", weeklySyncSummary)

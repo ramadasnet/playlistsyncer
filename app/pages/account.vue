@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import {ArrowUpRight, CircleAlert, CreditCard, KeyRound, Link2, LoaderCircle, Mail, Plus, Puzzle, Sparkles, Trash2, Unlink} from "lucide-vue-next"
+import {CircleAlert, KeyRound, Link2, LoaderCircle, Mail, Plus, Puzzle, Trash2, Unlink} from "lucide-vue-next"
 import type {ConnectedAccount, LinkedBrowser, SessionUser} from "~/types/api"
 import {providerDisplayNames, type Provider} from "~~/shared/types/domain"
-import {complimentaryTrialEndsAt, formatTrialDate, planBadgeClass, planBadgeLabel} from "~/utils/plan"
 import {maxDisplayNameLength, normalizeDisplayName} from "~~/shared/display-name"
 import {normalizeRedirect} from "~~/shared/redirect"
 
@@ -11,8 +10,6 @@ usePageSeo({title: "Account", robots: "noindex"})
 
 const auth = useAuthStore()
 const route = useRoute()
-const runtimeConfig = useRuntimeConfig()
-const {everyLabel} = useProSyncCadence()
 const {enabledProviders, extensionProviders} = await useEnabledProviders()
 const {data, refresh} = await useFetch<{accounts: ConnectedAccount[]}>("/api/accounts", {
     query: {includePlaylistCount: "true"}
@@ -21,7 +18,6 @@ const {data: extensionData, refresh: refreshExtension} = await useFetch<{enabled
 // Providers with a server connection come first, then those only the browser extension can connect.
 const listedProviders = computed(() => [...enabledProviders.value, ...extensionProviders.value.filter((provider) => !enabledProviders.value.includes(provider))])
 const browserBusy = ref("")
-const busy = ref(false)
 const emailBusy = ref(false)
 const emailCancelBusy = ref(false)
 const preferenceBusy = ref(false)
@@ -32,8 +28,6 @@ const errorMessage = ref("")
 const emailError = ref("")
 const displayNameError = ref("")
 const successMessage = ref(route.query.email === "confirmed" ? "Your email address is confirmed." : "")
-const proWelcome = ref(false)
-let checkoutRefreshTimer: ReturnType<typeof setTimeout> | undefined
 const emailInput = ref(auth.user?.tempEmail || "")
 const devConfirmationUrl = ref("")
 const emailDialogTitle = computed(() => (auth.user?.email ? "Change email address" : "Add email address"))
@@ -55,34 +49,7 @@ const continuingAppleMusicLogin = ref(route.query.appleMusic === "authorize")
 const needsEmail = computed(() => Boolean(auth.user) && !auth.user?.email && !auth.user?.tempEmail)
 const pendingEmail = computed(() => Boolean(auth.user?.tempEmail))
 const isCurrentConfirmedEmail = computed(() => Boolean(auth.user?.email && emailInput.value.trim().toLowerCase() === auth.user.email))
-const canEditWeeklySummary = computed(() => auth.user?.tier === "pro" && Boolean(auth.user.email))
-const isPaidPro = computed(() => Boolean(auth.user?.tier === "pro" && !auth.user.developmentProOverride && !auth.user.trialAccess))
-const trialEndsAt = computed(() => complimentaryTrialEndsAt(auth.user?.proSubscriptionRequiredAt || String(runtimeConfig.public.proSubscriptionRequiredAt || "")))
-const billingCopy = computed(() => {
-    if (auth.user?.developmentProOverride) {
-        return "PRO features are enabled by a local development override. No paid subscription is active."
-    }
-    if (auth.user?.trialAccess && trialEndsAt.value) {
-        const promotion = `Your PRO account is free of charge until ${formatTrialDate(trialEndsAt.value)}. You will need to subscribe to keep PRO after that date.`
-        return auth.user.email ? promotion : `${promotion} Confirm an email address before subscribing.`
-    }
-    if (!auth.user?.email) {
-        return "Confirm an email address before upgrading."
-    }
-    if (auth.user.tier === "pro") {
-        return `Unlimited pairs · sync ${everyLabel.value} · run history`
-    }
-    return "One pair · sync every week"
-})
-const billingTitle = computed(() => {
-    if (auth.user?.developmentProOverride) {
-        return "Development PRO access"
-    }
-    if (auth.user?.trialAccess) {
-        return "Promotional PRO access"
-    }
-    return auth.user?.tier === "pro" ? "PRO plan" : "Free plan"
-})
+const canEditWeeklySummary = computed(() => Boolean(auth.user?.email))
 const resendSameEmail = computed(() => pendingEmail.value && emailInput.value.trim().toLowerCase() === auth.user?.tempEmail)
 
 watch(
@@ -110,19 +77,6 @@ function statusMessage(error: unknown, fallback: string): string {
         return error.message
     }
     return fallback
-}
-
-async function openBilling(path: "checkout" | "portal") {
-    busy.value = true
-    errorMessage.value = ""
-    try {
-        const result = await api<{url: string}>(`/api/billing/${path}`, {method: "POST"})
-        await navigateTo(result.url, {external: true})
-    } catch (error) {
-        errorMessage.value = statusMessage(error, "Billing could not be opened")
-    } finally {
-        busy.value = false
-    }
 }
 
 async function setWeeklySyncSummary(enabled: boolean) {
@@ -413,20 +367,6 @@ async function confirmDeleteAccount() {
     }
 }
 
-// A direct Creem return can arrive before the webhook writes PRO, so re-read the account after a short delay.
-async function refreshAfterCheckout() {
-    try {
-        const result = await api<{user: SessionUser | null}>("/api/me")
-        if (!result.user) {
-            return
-        }
-        auth.setUser(result.user)
-        proWelcome.value = result.user.tier === "pro" && !result.user.developmentProOverride && !result.user.trialAccess
-    } catch {
-        // Keep the session already shown if the refresh fails.
-    }
-}
-
 onMounted(() => {
     refresh()
     if (appleMusicNeedsAuthorization.value) {
@@ -437,25 +377,13 @@ onMounted(() => {
     if (route.query.appleMusic === "authorize") {
         runAppleMusicLoginContinuation(continueAppleMusicLogin)
     }
-    if (route.query.checkout !== "success") {
-        return
-    }
-    checkoutRefreshTimer = setTimeout(() => {
-        void refreshAfterCheckout()
-    }, 4000)
 })
-
-onUnmounted(() => clearTimeout(checkoutRefreshTimer))
 </script>
 
 <template>
     <div class="shell page-shell">
         <PageHeading title="Account" description="Manage your music provider connections and account preferences." />
 
-        <div v-if="proWelcome" class="notice pro-welcome" role="status">
-            <Sparkles :size="18" aria-hidden="true" />
-            <strong>Thank you, welcome to PRO!</strong>
-        </div>
         <div v-if="needsEmail" class="notice" role="status">Your music service did not share an email address. Add one to finish setting up your account.</div>
         <div v-else-if="pendingEmail" class="notice" role="status">
             Confirm {{ auth.user?.tempEmail }} from the link we sent.{{ auth.user?.email ? " Your current address stays active until then." : " You can send another confirmation from Add email." }}
@@ -475,7 +403,6 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                 <div>
                     <h2 id="profile-heading">My Details</h2>
                 </div>
-                <span class="plan-badge" :class="auth.user ? planBadgeClass(auth.user) : 'plan-free'">{{ auth.user ? planBadgeLabel(auth.user) : "" }}</span>
             </div>
             <div class="profile-line">
                 <img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="" />
@@ -640,7 +567,6 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                 <div>
                     <p>
                         {{ auth.user?.email ? "Get a weekly summary of playlist updates via email." : "Set your email address first before enabling the weekly summary." }}
-                        <span v-if="auth.user?.tier != 'pro'">(PRO only)</span>
                     </p>
                 </div>
                 <button
@@ -658,26 +584,6 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
             </div>
         </section>
 
-        <section class="settings-section billing-section" aria-labelledby="billing-heading">
-            <div class="settings-heading">
-                <div>
-                    <h2 id="billing-heading">Subscription</h2>
-                </div>
-                <CreditCard :size="22" />
-            </div>
-            <div class="billing-copy">
-                <div>
-                    <strong>{{ billingTitle }}</strong>
-                    <p>{{ billingCopy }}</p>
-                </div>
-                <button v-if="isPaidPro" class="button button-secondary" type="button" :disabled="busy" @click="openBilling('portal')">Manage billing <ArrowUpRight :size="17" /></button>
-                <button v-else class="button button-primary" type="button" :disabled="busy || !auth.user?.email" @click="openBilling('checkout')">
-                    <LoaderCircle v-if="busy" class="spin" :size="17" />
-                    {{ auth.user?.trialAccess ? "Keep PRO" : "Upgrade to PRO" }}
-                </button>
-            </div>
-        </section>
-
         <section class="settings-section" aria-labelledby="delete-account-heading">
             <div class="settings-heading">
                 <div>
@@ -685,7 +591,7 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                 </div>
                 <Trash2 :size="22" />
             </div>
-            <div class="billing-copy">
+            <div class="account-action-row">
                 <p>Permanently delete your PlaylistSyncer account, sync tasks, run history, and access to your music services.</p>
                 <button class="button button-danger" type="button" aria-haspopup="dialog" @click="openDeleteDialog">Delete account</button>
             </div>

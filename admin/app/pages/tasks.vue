@@ -160,7 +160,6 @@ async function remove() {
             <p v-if="failure" role="alert" class="notice error">{{ failure }}</p>
             <p v-if="notice" role="status" class="notice">{{ notice }}</p>
             <p v-if="detail.task.busy" class="notice">This task holds an active lease. Changes are blocked until it is idle.</p>
-            <p v-if="detail.task.pauseReason === 'entitlement'" class="notice">This task is restricted by the owner's subscription.</p>
             <form class="edit-form" @submit.prevent="update()">
                 <label
                     >Status<select v-model="form.status">

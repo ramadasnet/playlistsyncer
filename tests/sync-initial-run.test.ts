@@ -227,7 +227,7 @@ const adapter: ProviderAdapter = {
 }
 
 const db = {
-    users: fakeCollection<UserDocument>([{_id: userId, tier: "free"} as UserDocument]),
+    users: fakeCollection<UserDocument>([{_id: userId, displayName: "Tester", createdAt: new Date(), updatedAt: new Date()}]),
     providerAccounts: fakeCollection<ProviderAccountDocument>([sourceAccount, destAccount]),
     syncTasks: fakeCollection<SyncTaskDocument>([task]),
     syncSnapshots: fakeCollection([]),
@@ -293,8 +293,6 @@ describe("whole-account playlist mappings", () => {
             createdAt: new Date(),
             updatedAt: new Date()
         }
-        const user = (await db.users.findOne({_id: userId}))!
-        const originalTier = user.tier
         const originalListPlaylists = adapter.listPlaylists
         const originalCreatePlaylist = adapter.createPlaylist
         const originalDeletePlaylist = adapter.deletePlaylist
@@ -306,7 +304,6 @@ describe("whole-account playlist mappings", () => {
         let created = 0
         let fullSyncLeaseMs = 0
 
-        user.tier = "pro"
         adapter.listPlaylists = async (account) => (account._id?.equals(sourceAccountId) ? [...sources] : [...destinations])
         adapter.createPlaylist = async (_account, name) => {
             const destination = {id: `created-${++created}`, name, itemCount: 0}
@@ -354,7 +351,6 @@ describe("whole-account playlist mappings", () => {
             expect(snapshots[0]?.batch).toBe(0)
             expect(snapshots[0]?.playlists?.map((playlist) => playlist.sourcePlaylistId)).toEqual(["old-source", "new-source"])
         } finally {
-            user.tier = originalTier
             adapter.listPlaylists = originalListPlaylists
             adapter.createPlaylist = originalCreatePlaylist
             adapter.deletePlaylist = originalDeletePlaylist

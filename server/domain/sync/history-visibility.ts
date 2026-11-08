@@ -1,10 +1,10 @@
-// Control which synchronization history is visible at each account tier.
-import type {AccountTier, CanonicalTrack, SyncRunDocument, SyncRunPlaylistIssue, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
-import {availableReverseSync, type ReverseSyncRequest, type ReverseSyncRunState, type SyncFailureReason} from "../../../shared/reverse-sync"
+// Serialize synchronization history and track details.
+import type {CanonicalTrack, SyncRunDocument, SyncRunPlaylistIssue, SyncRunTrackReference, SyncSnapshotDocument, SyncTaskDocument} from "../../../shared/types/domain"
+import {availableReverseSync, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
 
 export type LatestRunSummary = Pick<SyncRunDocument, "status" | "additions" | "removals" | "conflicts" | "skipped" | "startedAt" | "progress">
 
-export const proRunHistoryLimit = 50
+export const runHistoryLimit = 50
 
 export interface SerializedRunTrack {
     title: string
@@ -38,32 +38,6 @@ export interface SerializedSyncRun {
     unmatchedTracks: SerializedRunTrack[]
     failedPlaylists?: SyncRunPlaylistIssue[]
     missingSourcePlaylists?: SyncRunPlaylistIssue[]
-}
-
-// Only paid accounts can browse past synchronization runs.
-export function canViewRunHistory(tier: AccountTier): boolean {
-    return tier === "pro"
-}
-
-// Free accounts get the latest run; PRO accounts can page through recent history.
-export function runHistoryLimitFor(tier: AccountTier) {
-    return canViewRunHistory(tier) ? proRunHistoryLimit : 1
-}
-
-// Free accounts still need the failed run that can restore a deleted source, even when a later failure is newer.
-export function selectVisibleRuns<T extends ReverseSyncRunState>(runs: readonly T[], tier: AccountTier): T[] {
-    if (canViewRunHistory(tier)) {
-        return [...runs]
-    }
-    const latest = runs[0]
-    if (!latest) {
-        return []
-    }
-    const eligible = runs.find((run, index) => availableReverseSync(run, runs.slice(0, index)))
-    if (!eligible || eligible === latest) {
-        return [latest]
-    }
-    return [latest, eligible]
 }
 
 function trackSide(track: SyncRunTrackReference, task?: Pick<SyncTaskDocument, "source" | "destination">): SerializedRunTrack["side"] {
@@ -188,7 +162,7 @@ export function unmatchedTracksFromSnapshot(snapshot: Pick<SyncSnapshotDocument,
 }
 
 // Serialize a sync task. Latest-run counts are visible to every account.
-export function serializeSyncTask(task: SyncTaskDocument, latestRun: LatestRunSummary | undefined, _tier: AccountTier, entitlementLocked = false) {
+export function serializeSyncTask(task: SyncTaskDocument, latestRun: LatestRunSummary | undefined) {
     return {
         id: task._id?.toHexString(),
         mode: task.mode,
@@ -197,7 +171,6 @@ export function serializeSyncTask(task: SyncTaskDocument, latestRun: LatestRunSu
         destination: task.destination,
         status: task.status,
         pauseReason: task.pauseReason,
-        entitlementLocked,
         nextRunAt: task.nextRunAt,
         lastRunAt: task.lastRunAt,
         lastSuccessAt: task.lastSuccessAt,
