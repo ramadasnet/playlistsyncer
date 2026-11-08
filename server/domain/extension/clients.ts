@@ -116,8 +116,10 @@ export async function touchExtensionClient(client: ExtensionClientDocument, vers
 export async function revokeExtensionClient(userId: ObjectId, clientId: ObjectId) {
     const db = await collections()
     const result = await db.extensionClients.deleteOne({_id: clientId, userId})
-    unregisterExtensionClient(clientId.toHexString())
-    lastSeenWrites.delete(clientId.toHexString())
+    if (result.deletedCount) {
+        unregisterExtensionClient(clientId.toHexString())
+        lastSeenWrites.delete(clientId.toHexString())
+    }
     logger.info("Extension.revoke", `User ${userId.toHexString()}`, `Client ${clientId.toHexString()}`, result.deletedCount ? "Revoked" : "Already gone")
     return result.deletedCount > 0
 }
