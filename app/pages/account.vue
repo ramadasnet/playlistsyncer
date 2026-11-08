@@ -550,7 +550,7 @@ onUnmounted(() => clearTimeout(checkoutRefreshTimer))
                             <strong>{{ connectedAccount(provider)?.displayName }}</strong
                             ><BrowserExtensionBadge v-if="connectedAccount(provider)?.connection === 'extension'" :online="connectedAccount(provider)?.online" /><span v-else>{{ connectedAccount(provider)?.email || "Connected" }}</span
                             ><span v-if="connectedAccount(provider)?.authorizationRequired">Music library access needed</span
-                            ><span v-else>{{ connectedAccount(provider)?.playlistCount ?? 0 }} {{ connectedAccount(provider)?.playlistCount === 1 ? "playlist" : "playlists" }}</span>
+                            ><span v-else-if="connectedAccount(provider)?.connection !== 'extension'">{{ connectedAccount(provider)?.playlistCount ?? 0 }} {{ connectedAccount(provider)?.playlistCount === 1 ? "playlist" : "playlists" }}</span>
                         </div>
                         <div class="connection-actions">
                             <button

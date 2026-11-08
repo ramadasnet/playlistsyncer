@@ -26,9 +26,8 @@ export function isUserDeletionPending(user: Pick<UserDocument, "deletionStartedA
 // Resolve a playlist count without letting one provider failure hide the other accounts.
 export async function playlistCountForAccount(account: ProviderAccountDocument): Promise<number | undefined> {
     if (account.connection === "extension") {
-        if (!isExtensionProvider(account.provider) || !isExtensionOnline(account.userId.toHexString(), account.provider, account.extensionAccountId)) {
-            return undefined
-        }
+        // A count would need a round trip through the user's browser on every page load.
+        return undefined
     } else if (!isProviderEnabled(account.provider)) {
         return 0
     }
