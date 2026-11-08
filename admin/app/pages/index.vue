@@ -8,7 +8,6 @@ const metrics = computed(() =>
     data.value
         ? [
               {label: "Total users", value: data.value.users, note: `${data.value.newUsers24h} joined in 24h`},
-              {label: "Effective PRO users", value: data.value.effectivePro, note: `${data.value.paidSubscriptions} paid / trialing subscriptions`},
               {label: "Sync tasks", value: data.value.tasks, note: `${data.value.activeTasks} active / ${data.value.pausedTasks} paused`},
               {label: "Tracked playlists", value: data.value.trackedPlaylists, note: "Distinct known account / playlist pairs"},
               {label: "Emails accepted by SMTP", value: data.value.email?.accepted ?? "Not recorded", note: data.value.email ? "Since " : "Counting starts with the next send", since: data.value.email?.since},

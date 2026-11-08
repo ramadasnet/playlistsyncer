@@ -5,10 +5,9 @@ import * as database from "../server/utils/database"
 import * as data from "../server/data/collections"
 import * as accounts from "../server/domain/accounts"
 import * as activity from "../server/domain/sync/task-activity"
-import * as billing from "../server/domain/billing/creem"
 import {clearServerConfigCache} from "../server/utils/config"
 import {adminConfig, isAllowedAdmin, parseAdminConfig} from "../admin/server/utils/config"
-import {adminObjectId, deleteTask, deleteUser, taskView, updateSubscription, updateTask, userView} from "../admin/server/utils/management"
+import {adminObjectId, deleteTask, deleteUser, taskView, updateTask, userView} from "../admin/server/utils/management"
 import security from "../admin/server/middleware/security"
 import type {SyncTaskDocument, UserDocument} from "../shared/types/domain"
 
@@ -23,7 +22,7 @@ afterEach(() => {
     clearServerConfigCache()
 })
 
-const user: UserDocument = {_id: new ObjectId(), displayName: "Listener", email: "listener@example.com", tier: "pro", createdAt: new Date(), updatedAt: new Date(), creemCustomerId: "cus_1", creemSubscriptionId: "sub_1"}
+const user: UserDocument = {_id: new ObjectId(), displayName: "Listener", email: "listener@example.com", createdAt: new Date(), updatedAt: new Date()}
 const task: SyncTaskDocument = {
     _id: new ObjectId(),
     userId: user._id!,
@@ -60,7 +59,7 @@ describe("admin access boundary", () => {
     test("all management APIs deny anonymous requests without opening the database", async () => {
         const db = spyOn(database, "getDatabase").mockRejectedValue(new Error("Must not connect"))
         restorers.push(() => db.mockRestore())
-        for (const path of ["users", "tasks", "stats", "users/123/subscription", "subscriptions/discover"]) {
+        for (const path of ["users", "tasks", "stats"]) {
             const response = await protectedRequest()(new Request(`http://localhost:3009/api/${path}`))
             expect(response.status).toBe(401)
             expect(response.headers.get("cache-control")).toBe("no-store")
@@ -130,43 +129,6 @@ describe("privileged admin mutations", () => {
             () => idle.mockRestore()
         )
         await expect(updateTask({} as never, task._id!.toHexString(), {status: "active", direction: "two-way", nextRunAt: new Date().toISOString()})).rejects.toMatchObject({statusCode: 409})
-    })
-
-    test("subscription actions reject mismatched Creem ownership before any billing write", async () => {
-        process.env.PLS_CREEM_PRO_PRODUCT_ID = "prod_pro"
-        clearServerConfigCache()
-        const db = spyOn(data, "collections").mockResolvedValue({users: {findOne: async () => user}} as never)
-        const audit = spyOn(database, "getDatabase").mockResolvedValue({collection: () => ({insertOne: async () => ({insertedId: new ObjectId()}), updateOne: async () => ({})})} as never)
-        let paused = false
-        const client = spyOn(billing, "getCreem").mockReturnValue({
-            subscriptions: {
-                get: async () => ({customer: "cus_other", product: "prod_pro"}),
-                pause: async () => {
-                    paused = true
-                }
-            }
-        } as never)
-        restorers.push(
-            () => db.mockRestore(),
-            () => audit.mockRestore(),
-            () => client.mockRestore()
-        )
-        await expect(updateSubscription({context: {admin: {email: "igor@ramadas.net"}}} as never, user._id!.toHexString(), {action: "pause"})).rejects.toMatchObject({statusCode: 409})
-        expect(paused).toBe(false)
-    })
-
-    test("deleting a user with a renewing subscription is refused before any write", async () => {
-        const db = spyOn(data, "collections").mockResolvedValue({users: {findOne: async () => ({...user, creemSubscriptionStatus: "active"})}} as never)
-        const remove = spyOn(accounts, "deleteUserAccount").mockResolvedValue(undefined)
-        const audit = spyOn(database, "getDatabase").mockResolvedValue({collection: () => ({insertOne: async () => ({insertedId: new ObjectId()})})} as never)
-        restorers.push(
-            () => db.mockRestore(),
-            () => remove.mockRestore(),
-            () => audit.mockRestore()
-        )
-        await expect(deleteUser({context: {admin: {email: "igor@ramadas.net"}}} as never, user._id!.toHexString())).rejects.toMatchObject({statusCode: 409})
-        expect(remove).not.toHaveBeenCalled()
-        expect(audit).not.toHaveBeenCalled()
     })
 
     test("deleting an idle user reuses the consumer account deletion flow", async () => {

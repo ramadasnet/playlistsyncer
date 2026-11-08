@@ -62,7 +62,6 @@ usePageSeo({
                 </p>
                 <h3>Disclosure of information to third parties</h3>
                 <p>We do not disclose any of your personal information to unauthorized third parties or individuals, except when required by the EU law.</p>
-                <p>If you subscribe to PlaylistSyncer PRO, some of your personal details will be exchanged with our Merchant of Record, Creem.</p>
                 <h3>Controlling your personal information</h3>
                 <p>You always retain the right to withhold personal information from us, with the understanding that your experience of the Service may be affected.</p>
                 <p>
@@ -75,42 +74,11 @@ usePageSeo({
                 </p>
             </section>
 
-            <section class="legal-panel" aria-labelledby="terms-subscriptions">
-                <h2 id="terms-subscriptions">Subscriptions</h2>
-                <p>
-                    Some of our services are available only via a subscription plan named PlaylistSyncer PRO (the "Subscription"), billed on a yearly basis. Free accounts can sync one playlist pair with a weekly automatic sync, while the Subscription
-                    unlocks unlimited playlist pairs, more frequent automatic syncs, sync history, and weekly summaries.
-                </p>
-                <p>The yearly price of the Subscription is shown at checkout and may vary per country and date. The Subscription will automatically renew at the end of the billing cycle.</p>
-                <h3>Merchant of Record</h3>
-                <p>Creem acts as our Merchant of Record for Subscription payments.</p>
-                <h3>Payment processing</h3>
-                <p>
-                    All Subscription payments are handled by our Merchant of Record, Creem. We do not collect, process or store credit cards, debit cards, bank details, or other sensitive payment details. All the information related to payment are
-                    strictly stored and processed by our payment provider listed above.
-                </p>
-                <p>Questions about payment details should be sent directly to the payment provider, using their contact details that you received via email when the Subscription was made.</p>
-                <h3>Fee changes</h3>
-                <p>
-                    At our discretion, we might change the price of the Subscription. Existing subscribers might be affected by the new price, but not before the end of their current billing cycle. We will try, however, to honor existing prices so
-                    existing subscriptions are not affected by price changes, whenever possible.
-                </p>
-                <h3>Updates to the Subscription</h3>
-                <p>
-                    New features and integration with new services are not guaranteed in the future. Features that are currently available to Free accounts, might be removed and restricted to users paying for the Subscription. We do not guarantee
-                    that existing features of the Subscription will be available in the future. We do, however, remove features only when strictly necessary, for example due to requests made by a music provider, or due to legal reasons.
-                </p>
-                <p>We might release special features that require additional payments in the future.</p>
-                <h3>Cancellation of the Subscription</h3>
-                <p>
-                    Users are free to cancel their existing Subscription at any time, through the "Account" page of the Service, or by cancelling the payment for the next billing cycle directly on the payment platform. Cancellations are effective
-                    immediately, unless stated otherwise during the cancellation process.
-                </p>
-                <h3>Suspension of the Subscription</h3>
-                <p>
-                    We reserve the right to suspend and cancel any existing Subscription, if we find that it is not being used in accordance with the Terms and Conditions of the Service, or due to legal reasons and sanctions. This applies to all
-                    subscriptions, regardless of their payment date or payment method.
-                </p>
+            <section class="legal-panel" aria-labelledby="terms-access">
+                <h2 id="terms-access">Free access</h2>
+                <p>All PlaylistSyncer features are available to everyone free of charge, including unlimited playlist pairs, full-account sync, automatic scheduling, run history, and optional weekly summaries.</p>
+                <p>We do not collect or process payment details. Access to a music provider's own service remains subject to that provider's terms.</p>
+                <p>New features and integrations are not guaranteed. We may remove features when necessary, for example due to restrictions imposed by a music provider or legal requirements.</p>
             </section>
 
             <section class="legal-panel" aria-labelledby="terms-termination">
@@ -122,18 +90,8 @@ usePageSeo({
                 </p>
                 <p>
                     We may terminate or suspend your access to our Service immediately, with prior notice, if you breach the Terms and Conditions or if we are presented with a request from law enforcement. Upon termination, your right to use the
-                    Service will immediately cease. If you have an active subscription at the time of termination, it will be cancelled.
+                    Service will immediately cease.
                 </p>
-            </section>
-
-            <section class="legal-panel" aria-labelledby="terms-refunds">
-                <h2 id="terms-refunds">Refunds</h2>
-                <p>
-                    We do not guarantee refunds for any Subscription payments that have already been made. We do not guarantee refunds for a Subscription made by mistake. We do not issue refunds for subscriptions that were terminated due to breach of
-                    the Terms, or due to law enforcement requests. We might, however, give partial refunds, at our discretion, on a per-case basis.
-                </p>
-                <p>It's your responsibility to cancel your Subscription before the next billing cycle, if you decide that you do not want to keep using the Subscription.</p>
-                <p>All refunds are processed by our payment provider directly.</p>
             </section>
 
             <section class="legal-panel" aria-labelledby="terms-providers">

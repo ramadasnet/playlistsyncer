@@ -31,7 +31,7 @@ const createdUserIds: ObjectId[] = []
 async function createUser(fields: Partial<UserDocument> = {}): Promise<ObjectId> {
     const db = await collections()
     const now = new Date()
-    const {insertedId} = await db.users.insertOne({displayName: "Deletion test", tier: "free", createdAt: now, updatedAt: now, ...fields})
+    const {insertedId} = await db.users.insertOne({displayName: "Deletion test", createdAt: now, updatedAt: now, ...fields})
     createdUserIds.push(insertedId)
     return insertedId
 }
@@ -144,7 +144,7 @@ describe.skipIf(!mongoUri)("disconnecting providers and deleting accounts agains
     })
 
     test("deletes the user with every task, run, snapshot, account, and session", async () => {
-        const userId = await createUser({creemSubscriptionStatus: "canceled"})
+        const userId = await createUser()
         const spotify = await connect(userId, "spotify")
         const youtube = await connect(userId, "youtube")
         const taskId = await createTask(userId, spotify, youtube)
@@ -167,14 +167,6 @@ describe.skipIf(!mongoUri)("disconnecting providers and deleting accounts agains
         expect(await db.users.countDocuments({_id: otherUser})).toBe(1)
         expect(await db.providerAccounts.countDocuments({userId: otherUser})).toBe(2)
         expect(await db.syncRuns.countDocuments({taskId: otherTaskId})).toBe(1)
-    })
-
-    test("refuses to delete a user whose subscription still renews", async () => {
-        const userId = await createUser({tier: "pro", creemSubscriptionStatus: "active"})
-        const db = await collections()
-
-        await expect(deleteUserAccount((await db.users.findOne({_id: userId}))!)).rejects.toMatchObject({statusCode: 409})
-        expect(await db.users.countDocuments({_id: userId})).toBe(1)
     })
 
     test("refuses to delete a user while one of their syncs is running", async () => {

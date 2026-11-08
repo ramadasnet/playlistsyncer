@@ -4,7 +4,7 @@ import {BlockList, isIP} from "node:net"
 import {z} from "zod"
 import {resolveAppUrl} from "../../shared/app-url"
 import {parseBooleanEnvFlag} from "../../shared/env-flag"
-import {defaultProSyncIntervalMinutes} from "../../shared/sync-cadence"
+import {defaultSyncIntervalMinutes} from "../../shared/sync-cadence"
 import logger from "./logger"
 
 export {resolveAppUrl} from "../../shared/app-url"
@@ -12,16 +12,6 @@ export {resolveAppUrl} from "../../shared/app-url"
 const optionalCredential = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional())
 // A PEM key kept on one line in .env or a secret store uses literal \n separators.
 const optionalPrivateKey = optionalCredential.transform((value) => value?.replace(/\\n/g, "\n"))
-const emailList = z.preprocess(
-    (value) =>
-        typeof value === "string"
-            ? value
-                  .split(",")
-                  .map((email) => email.trim())
-                  .filter(Boolean)
-            : value,
-    z.array(z.email().transform((email) => email.toLowerCase())).default([])
-)
 // Exact redirect URIs of the published browser extensions, such as https://<extension-id>.chromiumapp.org/.
 const urlList = z.preprocess(
     (value) =>
@@ -34,16 +24,6 @@ const urlList = z.preprocess(
     z.array(z.url({protocol: /^https$/})).default([])
 )
 const optionalPort = z.preprocess((value) => (value === "" || value === undefined || value === null ? 465 : value), z.coerce.number().int().min(1).max(65535))
-const optionalInstant = z.preprocess((value) => {
-    if (value === "" || value === undefined || value === null) {
-        return undefined
-    }
-    const parsed = value instanceof Date ? value : new Date(String(value))
-    if (Number.isNaN(parsed.getTime())) {
-        return value
-    }
-    return parsed
-}, z.date().optional())
 const booleanFlag = z.preprocess((value) => {
     const parsed = parseBooleanEnvFlag(value)
     return parsed === undefined ? value : parsed
@@ -88,13 +68,7 @@ const serverConfigSchema = z.object({
     appleMaxRequestsPerMinute: requestsPerMinute(120),
     amazonMaxRequestsPerMinute: requestsPerMinute(60),
     userProviderRequestsPerMinute: requestsPerMinute(40),
-    creemApiKey: optionalCredential,
-    creemWebhookSecret: optionalCredential,
-    creemProProductId: optionalCredential,
-    creemServer: z.enum(["test", "prod"]).default("test"),
-    developmentProUserEmails: emailList,
-    proSubscriptionRequiredAt: optionalInstant,
-    proSyncIntervalMinutes: z.coerce.number().int().min(1).default(defaultProSyncIntervalMinutes),
+    syncIntervalMinutes: z.coerce.number().int().min(1).default(defaultSyncIntervalMinutes),
     smtpHost: optionalCredential.default("smtp.mx.cloudflare.net"),
     smtpPort: optionalPort,
     smtpUser: optionalCredential.default("api_token"),
@@ -152,14 +126,7 @@ export function getServerConfig(): ServerConfig {
             appleMaxRequestsPerMinute: process.env.PLS_APPLE_MAX_REQUESTS_PER_MINUTE,
             amazonMaxRequestsPerMinute: process.env.PLS_AMAZON_MAX_REQUESTS_PER_MINUTE,
             userProviderRequestsPerMinute: process.env.PLS_USER_PROVIDER_REQUESTS_PER_MINUTE,
-            creemApiKey: process.env.PLS_CREEM_API_KEY,
-            creemWebhookSecret: process.env.PLS_CREEM_WEBHOOK_SECRET,
-            creemProProductId: process.env.PLS_CREEM_PRO_PRODUCT_ID,
-            // Production bills live unless the sandbox is chosen explicitly.
-            creemServer: process.env.PLS_CREEM_SERVER || (process.env.NODE_ENV === "production" ? "prod" : "test"),
-            developmentProUserEmails: process.env.PLS_DEVELOPMENT_PRO_USER_EMAILS,
-            proSubscriptionRequiredAt: process.env.PLS_PRO_SUBSCRIPTION_REQUIRED_AT,
-            proSyncIntervalMinutes: process.env.PLS_TASKSYNC_INTERVAL,
+            syncIntervalMinutes: process.env.PLS_TASKSYNC_INTERVAL,
             smtpHost: process.env.PLS_SMTP_HOST,
             smtpPort: process.env.PLS_SMTP_PORT,
             smtpUser: process.env.PLS_SMTP_USER,
@@ -222,13 +189,6 @@ function isNonPublicHostname(hostname: string): boolean {
 export function checkStartupConfig(config: ServerConfig, role: "website" | "jobs", production = process.env.NODE_ENV === "production"): {errors: string[]; warnings: string[]} {
     const errors: string[] = []
     const warnings: string[] = []
-    const creem = {PLS_CREEM_API_KEY: config.creemApiKey, PLS_CREEM_PRO_PRODUCT_ID: config.creemProProductId, PLS_CREEM_WEBHOOK_SECRET: config.creemWebhookSecret}
-    const missingCreem = Object.keys(creem).filter((name) => !creem[name as keyof typeof creem])
-    // A partial Creem setup takes payments that the webhook can never turn into PRO access.
-    if (missingCreem.length && missingCreem.length < Object.keys(creem).length) {
-        const problems = production ? errors : warnings
-        problems.push(`Creem billing is partially configured; also set ${missingCreem.join(", ")}`)
-    }
     if (!production) {
         return {errors, warnings}
     }
@@ -245,13 +205,10 @@ export function checkStartupConfig(config: ServerConfig, role: "website" | "jobs
     if (appUrl.protocol !== "https:" || isNonPublicHostname(appUrl.hostname)) {
         errors.push(`PLS_APP_URL must be the public https origin, not ${config.appUrl}`)
     }
-    if (config.creemApiKey && config.creemServer === "test") {
-        warnings.push("PLS_CREEM_SERVER is test; checkout uses the Creem sandbox")
-    }
     if (!config.smtpHost) {
         warnings.push(
             role === "website"
-                ? "PLS_SMTP_HOST is not set; no email is sent, so users whose provider shares no email (all SoundCloud users) cannot confirm one, subscribe to PRO, or enable weekly summaries"
+                ? "PLS_SMTP_HOST is not set; no email is sent, so users whose provider shares no email (all SoundCloud users) cannot confirm one or enable weekly summaries"
                 : "PLS_SMTP_HOST is not set; weekly sync summaries are not sent"
         )
     }

@@ -9,7 +9,6 @@ import {z} from "zod"
 import logger from "../utils/logger"
 import {isShuttingDown} from "../utils/shutdown"
 import {cronMatches, delayUntilNextMinute, parseCron, type ParsedCron} from "./cron"
-import {runSubscriptionSync} from "./routes/subscription-sync"
 import {runSyncCleanup} from "./routes/sync-cleanup"
 import {runSyncDue} from "./routes/sync-due"
 import {runSyncTask} from "./routes/sync-task"
@@ -31,13 +30,12 @@ const parameterSchemas = {
             deletionGraceDays: z.number().int().min(1).max(365).optional(),
             limit: limitParameter
         })
-        .strict(),
-    "subscription-sync": z.object({}).strict()
+        .strict()
 }
 
 const scheduledJobSchema = z
     .object({
-        name: z.enum(["sync-due", "sync-task", "weekly-sync-summary", "sync-cleanup", "subscription-sync"]),
+        name: z.enum(["sync-due", "sync-task", "weekly-sync-summary", "sync-cleanup"]),
         schedule: z.string().trim().min(1),
         parameters: z.record(z.string(), z.unknown()).optional()
     })
@@ -103,8 +101,6 @@ export async function runConfiguredJob(job: ScheduledJob): Promise<unknown> {
             return runWeeklySyncSummary(job.parameters.limit)
         case "sync-cleanup":
             return runSyncCleanup(job.parameters)
-        case "subscription-sync":
-            return runSubscriptionSync()
     }
 }
 

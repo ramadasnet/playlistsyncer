@@ -176,7 +176,8 @@ async function pathfinder(operationName: string, variables: Record<string, unkno
             delete liveHashes[operationName]
             continue
         }
-        if (body?.errors?.length && !body.data) throw new ProviderError(`Spotify ${operationName}: ${body.errors[0]?.message ?? "failed"}`)
+        const incomplete = !body?.data || Object.values(body.data).some((value) => value === null)
+        if (body?.errors?.length && incomplete) throw new ProviderError(`Spotify ${operationName}: ${body.errors[0]?.message ?? "failed"}`)
         return body?.data
     }
 }

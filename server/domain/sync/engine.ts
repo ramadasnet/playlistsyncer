@@ -17,14 +17,12 @@ import {
 } from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
-import {resolveEntitlement} from "../billing/entitlement"
-import {applyTaskEntitlement} from "../billing/task-entitlement"
 import {isMissingPlaylistError, isQuotaExceededError, nextQuotaResetAt} from "../providers/http"
 import {findBestTrackMatch} from "../providers/matching"
 import {getAccountAdapter, type ProviderPlaylist, type ProviderTrack} from "../providers"
 import {readSyncFailureReason, reverseSyncCaseFor, type ReverseSyncCase, type ReverseSyncRequest, type SyncFailureReason} from "../../../shared/reverse-sync"
 import {assertReverseSyncAvailable} from "./reverse-sync"
-import {proSyncIntervalMs} from "~~/shared/sync-cadence"
+import {syncIntervalMs} from "~~/shared/sync-cadence"
 import {extendedLeaseExpiry, leaseIsActive, syncLeaseDurationMs, syncLeaseExtensionMs} from "../../../shared/sync-task-activity"
 import {getServerConfig} from "../../utils/config"
 import {formatSafeModeTrack, isSafeModeEnabled, logSafeModeCreatePlaylist, logSafeModePlaylistUpdate, playlistAfterChanges, safeModeWriteBlockedMessage} from "./safe-mode"
@@ -1024,13 +1022,6 @@ export async function failInterruptedRuns(now = new Date()) {
     return failed
 }
 
-// Interval between scheduled runs on the task owner's plan.
-async function scheduledIntervalMs(userId: ObjectId): Promise<number> {
-    const db = await collections()
-    const user = await db.users.findOne({_id: userId})
-    return user && resolveEntitlement(user).tier === "pro" ? proSyncIntervalMs(getServerConfig().proSyncIntervalMinutes) : 7 * 24 * 60 * 60 * 1000
-}
-
 /**
  * Next run of a successful sync, kept on the cadence of its due time so scheduler ticks and run time do not push it later every cycle.
  * A run that started late still waits at least half an interval, so a backlog does not run tasks back to back.
@@ -1060,12 +1051,6 @@ function failedPlaylistsMessage(failed: SyncRunPlaylistIssue[]): string {
 export async function beginSyncTask(taskId: ObjectId, trigger: "created" | "manual" | "scheduled", reverseSync?: ReverseSyncRequest): Promise<SyncRunContext> {
     const db = await collections()
     const current = await db.syncTasks.findOne({_id: taskId})
-    if (current) {
-        const owner = await db.users.findOne({_id: current.userId})
-        if (owner) {
-            await applyTaskEntitlement(owner)
-        }
-    }
     const leaseId = randomUUID()
     const now = new Date()
     const taskLabel = current ? await describeTask(current) : ""
@@ -1142,11 +1127,11 @@ export async function completeSyncTask(context: SyncRunContext) {
         const result: SyncResult = isSafeModeEnabled() ? executed : {...executed, additions: recorded?.additions ?? 0, removals: recorded?.removals ?? 0}
         const failedPlaylists = recorded?.failedPlaylists || []
         const missingSourcePlaylists = recorded?.missingSourcePlaylists || []
-        const nextRunMs = await scheduledIntervalMs(task.userId)
+        const nextRunMs = syncIntervalMs(getServerConfig().syncIntervalMinutes)
         const finishedAt = new Date()
         const warning = failedPlaylists.length ? failedPlaylistsMessage(failedPlaylists) : undefined
         const completed = await db.syncTasks.updateOne(
-            {_id: taskId, leaseId, pauseReason: {$ne: "entitlement"}},
+            {_id: taskId, leaseId},
             {
                 $set: {
                     status: result.conflicts ? "needs_attention" : "active",
@@ -1194,7 +1179,7 @@ export async function completeSyncTask(context: SyncRunContext) {
         // A used-up quota waits for its reset. Other failures back off so failing tasks do not hold the head of the scheduler queue.
         const quotaExceeded = isQuotaExceededError(error)
         const consecutiveFailures = (task.consecutiveFailures || 0) + (quotaExceeded ? 0 : 1)
-        const nextRunAt = quotaExceeded ? nextQuotaResetAt(finishedAt) : new Date(finishedAt.getTime() + failureBackoffMs(consecutiveFailures, await scheduledIntervalMs(task.userId).catch(() => failureBackoffBaseMs)))
+        const nextRunAt = quotaExceeded ? nextQuotaResetAt(finishedAt) : new Date(finishedAt.getTime() + failureBackoffMs(consecutiveFailures, syncIntervalMs(getServerConfig().syncIntervalMinutes)))
         const failed = await db.syncTasks.updateOne(
             {_id: taskId, leaseId},
             {

@@ -1,5 +1,5 @@
 // Client-side representations returned by the server API.
-import type {AccountTier, Provider, SyncRunStatus, SyncTaskDirection, SyncTaskMode, SyncTaskStatus} from "~~/shared/types/domain"
+import type {Provider, SyncRunStatus, SyncTaskDirection, SyncTaskMode, SyncTaskStatus} from "~~/shared/types/domain"
 import type {ReverseSyncRequest, SyncFailureReason} from "~~/shared/reverse-sync"
 
 // Public authenticated session data.
@@ -9,12 +9,7 @@ export interface SessionUser {
     tempEmail?: string
     displayName: string
     avatarUrl?: string
-    tier: AccountTier
-    developmentProOverride: boolean
-    trialAccess: boolean
-    proSubscriptionRequiredAt?: string
     weeklySyncSummaryEnabled: boolean
-    creemSubscriptionStatus?: string
 }
 
 // Connected provider account summary.
@@ -61,8 +56,7 @@ export interface SyncTaskSummary {
     source: {providerAccountId: string; playlistId: string; name: string}
     destination: {providerAccountId: string; playlistId: string; name: string}
     status: SyncTaskStatus
-    pauseReason?: "user" | "entitlement"
-    entitlementLocked?: boolean
+    pauseReason?: "user"
     nextRunAt: string
     lastRunAt?: string
     lastSuccessAt?: string
@@ -113,7 +107,6 @@ export interface SyncTaskDetail {
     sourceProvider: Provider | null
     destinationProvider: Provider | null
     playlistMappings: {sourcePlaylistId: string; destinationPlaylistId: string; name: string}[]
-    canBrowseHistory: boolean
     runs: SyncRunDetail[]
 }
 

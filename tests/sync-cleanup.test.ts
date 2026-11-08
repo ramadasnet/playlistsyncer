@@ -48,7 +48,7 @@ describe("sync cleanup dates and email", () => {
 describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
     async function createUser(fields: Partial<UserDocument>): Promise<ObjectId> {
         const db = await collections()
-        const {insertedId} = await db.users.insertOne({displayName: "Cleanup test", tier: "free", createdAt: now, updatedAt: now, ...fields})
+        const {insertedId} = await db.users.insertOne({displayName: "Cleanup test", createdAt: now, updatedAt: now, ...fields})
         createdUserIds.push(insertedId)
         return insertedId
     }
@@ -123,7 +123,6 @@ describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
         const warnedRecently = await createUser({email: `recent-${new ObjectId()}@example.com`, lastLoginAt: longAgo, inactivityWarningSentAt: new Date(now.getTime() - 5 * dayMs)})
         const noEmail = await createUser({lastLoginAt: longAgo})
         const toWarn = await createUser({email: `warn-${new ObjectId()}@example.com`, lastLoginAt: longAgo})
-        const subscribed = await createUser({email: `pro-${new ObjectId()}@example.com`, lastLoginAt: longAgo, creemSubscriptionStatus: "active"})
         const loggedInRecently = await createUser({email: `active-${new ObjectId()}@example.com`, lastLoginAt: recent})
 
         const sent: OutboundEmail[] = []
@@ -137,7 +136,7 @@ describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
         const remaining = (await db.users.find({_id: {$in: createdUserIds}}).toArray()).map((user) => user._id.toHexString())
         expect(remaining).not.toContain(warnedLongAgo.toHexString())
         expect(remaining).not.toContain(noEmail.toHexString())
-        for (const kept of [activeOwner, warnedRecently, toWarn, subscribed, loggedInRecently]) {
+        for (const kept of [activeOwner, warnedRecently, toWarn, loggedInRecently]) {
             expect(remaining).toContain(kept.toHexString())
         }
         expect(result.usersDeleted).toBe(2)
@@ -148,7 +147,7 @@ describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
 
         // A second run inside the grace period neither warns again nor deletes the warned user.
         const again = await runSyncCleanup({now, send: async (message) => (sent.push(message), true)})
-        expect(again).toEqual({runsDeleted: 0, sessionsDeleted: 0, oauthTransactionsDeleted: 0, searchMissesDeleted: 0, webhookEventsDeleted: 0, usersDeleted: 0, usersWarned: 0, failed: 0})
+        expect(again).toEqual({runsDeleted: 0, sessionsDeleted: 0, oauthTransactionsDeleted: 0, searchMissesDeleted: 0, usersDeleted: 0, usersWarned: 0, failed: 0})
         expect(sent).toHaveLength(1)
     })
 
@@ -187,9 +186,6 @@ describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
         ).insertedId
         const expiredMiss = (await db.searchMisses.insertOne({providerAccountId: userId, key: `expired-${suffix}`, expiresAt: new Date(now.getTime() - 1000)})).insertedId
         const liveMiss = (await db.searchMisses.insertOne({providerAccountId: userId, key: `live-${suffix}`, expiresAt: new Date(now.getTime() + 60_000)})).insertedId
-        const webhookCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
-        const expiredWebhook = (await db.webhookEvents.insertOne({eventId: `expired-${suffix}`, type: "test", processedAt: new Date(webhookCutoff.getTime() - 1000)})).insertedId
-        const liveWebhook = (await db.webhookEvents.insertOne({eventId: `live-${suffix}`, type: "test", processedAt: new Date(webhookCutoff.getTime() + 60_000)})).insertedId
 
         try {
             await runSyncCleanup({now, options: {runRetentionMonths: 24}, send: async () => false})
@@ -201,15 +197,8 @@ describe.skipIf(!mongoUri)("sync cleanup against MongoDB", () => {
             expect(await db.oauthTransactions.findOne({_id: liveOauth})).not.toBeNull()
             expect(await db.searchMisses.findOne({_id: expiredMiss})).toBeNull()
             expect(await db.searchMisses.findOne({_id: liveMiss})).not.toBeNull()
-            expect(await db.webhookEvents.findOne({_id: expiredWebhook})).toBeNull()
-            expect(await db.webhookEvents.findOne({_id: liveWebhook})).not.toBeNull()
         } finally {
-            await Promise.all([
-                db.sessions.deleteMany({_id: {$in: [expiredSession, liveSession]}}),
-                db.oauthTransactions.deleteMany({_id: {$in: [expiredOauth, liveOauth]}}),
-                db.searchMisses.deleteMany({_id: {$in: [expiredMiss, liveMiss]}}),
-                db.webhookEvents.deleteMany({_id: {$in: [expiredWebhook, liveWebhook]}})
-            ])
+            await Promise.all([db.sessions.deleteMany({_id: {$in: [expiredSession, liveSession]}}), db.oauthTransactions.deleteMany({_id: {$in: [expiredOauth, liveOauth]}}), db.searchMisses.deleteMany({_id: {$in: [expiredMiss, liveMiss]}})])
         }
     })
 

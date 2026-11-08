@@ -7,7 +7,6 @@ import * as collectionsModule from "../server/data/collections"
 import * as providers from "../server/domain/providers"
 import * as schedulerAuth from "../server/utils/scheduler-auth"
 import {nextQuotaResetAt} from "../server/domain/providers/http"
-import {applyTaskEntitlement} from "../server/domain/billing/task-entitlement"
 import {beginSyncTask, completeSyncTask, failInterruptedRuns, failureBackoffMs, nextScheduledRunAt, runSyncTask, syncLeaseHeartbeat} from "../server/domain/sync/engine"
 import {linkSnapshotRow} from "../server/domain/sync/manual-match"
 import {withTaskLease} from "../server/domain/sync/task-activity"
@@ -289,7 +288,7 @@ beforeEach(() => {
     calls.removed.length = 0
     beforeSearch = () => undefined
     beforeRead = () => undefined
-    db.users.store.push({_id: userId, tier: "pro", displayName: "Tester", createdAt: new Date(), updatedAt: new Date()})
+    db.users.store.push({_id: userId, displayName: "Tester", createdAt: new Date(), updatedAt: new Date()})
 })
 
 describe("failed runs back off", () => {
@@ -320,7 +319,7 @@ describe("failed runs back off", () => {
         expect(((await syncDue({} as H3Event)) as {processed: number}).processed).toBe(0)
     })
 
-    test("doubles the delay for each consecutive failure up to the plan interval and resets after a success", async () => {
+    test("doubles the delay for each consecutive failure up to the sync interval and resets after a success", async () => {
         const interval = 12 * 60 * 60 * 1000
         expect([1, 2, 3, 4, 5, 6].map((failures) => failureBackoffMs(failures, interval) / 3600000)).toEqual([1, 2, 4, 8, 12, 12])
 
@@ -388,7 +387,7 @@ describe("scheduled cadence", () => {
 
     test("one user's backlog does not fill the whole batch", async () => {
         const other = new ObjectId()
-        db.users.store.push({_id: other, tier: "pro", displayName: "Other", createdAt: new Date(), updatedAt: new Date()})
+        db.users.store.push({_id: other, displayName: "Other", createdAt: new Date(), updatedAt: new Date()})
         const old = Date.now() - hour
         for (let index = 0; index < 12; index++) {
             await insertTask({source: {providerAccountId: new ObjectId(), playlistId: "gone", name: `Mine ${index}`}, destination: side("tidal", "dst"), nextRunAt: new Date(old + index)})
@@ -865,20 +864,6 @@ describe("user action leases", () => {
             db.syncTasks.updateOne = updateOne
             errorLog.mockRestore()
         }
-    })
-
-    test("an entitlement pause keeps a live action lease", async () => {
-        const user = db.users.store[0] as {tier: string}
-        user.tier = "free"
-        const retained = await insertTask({source: side("spotify", "kept"), destination: side("tidal", "kept"), createdAt: new Date(Date.now() - 60_000)})
-        const leased = await insertTask({source: side("spotify", "src"), destination: side("tidal", "dst"), leaseId: "match", leaseExpiresAt: new Date(Date.now() + 60_000)})
-
-        await applyTaskEntitlement({_id: userId, email: "tester@example.com", tier: "free", displayName: "Tester", createdAt: new Date(), updatedAt: new Date()})
-
-        expect((await storedTask(leased)).leaseId).toBe("match")
-        expect((await storedTask(leased)).status).toBe("paused")
-        expect((await storedTask(retained)).status).toBe("active")
-        expect((await storedTask(retained)).leaseId).toBeUndefined()
     })
 
     test("renews the lease while the action runs and releases it afterwards", async () => {

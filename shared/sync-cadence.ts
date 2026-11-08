@@ -1,14 +1,14 @@
-// PRO automatic sync interval helpers shared by server scheduling and marketing copy.
+// Automatic sync interval helpers shared by server scheduling and public copy.
 
-export const defaultProSyncIntervalMinutes = 720
+export const defaultSyncIntervalMinutes = 720
 
-// Convert a PRO sync interval in minutes to milliseconds.
-export function proSyncIntervalMs(minutes: number) {
+// Convert a sync interval in minutes to milliseconds.
+export function syncIntervalMs(minutes: number) {
     return minutes * 60 * 1000
 }
 
-// Format a minute-based cadence for plan and account copy.
-export function formatProSyncIntervalEvery(minutes: number, options?: {capitalize?: boolean}) {
+// Format a minute-based cadence for public and account copy.
+export function formatSyncIntervalEvery(minutes: number, options?: {capitalize?: boolean}) {
     const amount = minutes % 60 === 0 ? minutes / 60 : minutes
     const unit = minutes % 60 === 0 ? (amount === 1 ? "hour" : "hours") : amount === 1 ? "minute" : "minutes"
     const phrase = `every ${amount} ${unit}`
@@ -16,7 +16,7 @@ export function formatProSyncIntervalEvery(minutes: number, options?: {capitaliz
 }
 
 // Short headline for hero callouts when the interval divides a day evenly.
-export function formatProSyncCadenceHeadline(minutes: number) {
+export function formatSyncCadenceHeadline(minutes: number) {
     if (1440 % minutes === 0) {
         const timesPerDay = 1440 / minutes
         if (timesPerDay === 1) {
@@ -27,5 +27,5 @@ export function formatProSyncCadenceHeadline(minutes: number) {
         }
         return `${timesPerDay} times a day`
     }
-    return formatProSyncIntervalEvery(minutes, {capitalize: true})
+    return formatSyncIntervalEvery(minutes, {capitalize: true})
 }

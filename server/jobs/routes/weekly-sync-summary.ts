@@ -1,7 +1,6 @@
 // Send due weekly synchronization summaries from a scheduler request.
 import {defineEventHandler} from "h3"
 import {collections} from "../../data/collections"
-import {resolveEntitlement} from "../../domain/billing/entitlement"
 import {sendMail} from "../../domain/mail/send"
 import {createWeeklySummaryStore, sendDueWeeklySyncSummaries, weeklySyncSummaryBatchSize} from "../../domain/mail/weekly-sync-summary"
 import {getServerConfig} from "../../utils/config"
@@ -16,7 +15,6 @@ export async function runWeeklySyncSummary(limit = weeklySyncSummaryBatchSize) {
     const db = await collections()
     const result = await sendDueWeeklySyncSummaries({
         store: createWeeklySummaryStore(db),
-        resolveTier: (user) => resolveEntitlement(user).tier,
         send: sendMail,
         appUrl: getServerConfig().appUrl,
         limit

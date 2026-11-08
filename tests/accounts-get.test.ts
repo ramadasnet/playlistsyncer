@@ -18,7 +18,6 @@ function user() {
     return {
         _id: new ObjectId(),
         displayName: "List",
-        tier: "free" as const,
         createdAt: new Date(),
         updatedAt: new Date()
     }

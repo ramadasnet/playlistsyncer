@@ -75,9 +75,8 @@ function run(overrides: Partial<SyncRunDocument> = {}): SyncRunDocument {
 function user(overrides: Partial<UserDocument> = {}): UserDocument {
     return {
         _id: userId,
-        email: "pro@example.com",
+        email: "listener@example.com",
         displayName: "Alex",
-        tier: "pro",
         weeklySyncSummaryEnabled: true,
         createdAt: now,
         updatedAt: now,
@@ -85,10 +84,9 @@ function user(overrides: Partial<UserDocument> = {}): UserDocument {
     }
 }
 
-function memoryStore(input: {users?: UserDocument[]; tasks?: SyncTaskDocument[]; runs?: SyncRunDocument[]}): WeeklySummaryStore & {processedAt?: Date; disabled: ObjectId[]; released: ObjectId[]} {
+function memoryStore(input: {users?: UserDocument[]; tasks?: SyncTaskDocument[]; runs?: SyncRunDocument[]}): WeeklySummaryStore & {processedAt?: Date; released: ObjectId[]} {
     const queue = [...(input.users || [])]
-    const store: WeeklySummaryStore & {processedAt?: Date; disabled: ObjectId[]; released: ObjectId[]} = {
-        disabled: [],
+    const store: WeeklySummaryStore & {processedAt?: Date; released: ObjectId[]} = {
         released: [],
         async claimDueUser() {
             return queue.shift() ?? null
@@ -102,9 +100,6 @@ function memoryStore(input: {users?: UserDocument[]; tasks?: SyncTaskDocument[];
         async markProcessed(_userId, processedAt) {
             store.processedAt = processedAt
         },
-        async disablePreference(userId) {
-            store.disabled.push(userId)
-        },
         async releaseClaim(userId) {
             store.released.push(userId)
         }
@@ -113,27 +108,19 @@ function memoryStore(input: {users?: UserDocument[]; tasks?: SyncTaskDocument[];
 }
 
 describe("weekly sync summary preference", () => {
-    test("rejects Free accounts", () => {
-        expect(evaluateWeeklySyncSummaryPreference({tier: "free", email: "free@example.com", enabled: true})).toEqual({
-            ok: false,
-            statusCode: 403,
-            statusMessage: "Weekly sync summaries require a PRO account"
-        })
-    })
-
     test("requires a confirmed email before enabling", () => {
-        expect(evaluateWeeklySyncSummaryPreference({tier: "pro", enabled: true})).toEqual({
+        expect(evaluateWeeklySyncSummaryPreference({enabled: true})).toEqual({
             ok: false,
             statusCode: 400,
             statusMessage: "Confirm an email address before enabling weekly sync summaries"
         })
     })
 
-    test("allows PRO users with an email to opt in or out", () => {
-        expect(evaluateWeeklySyncSummaryPreference({tier: "pro", email: "pro@example.com", enabled: true})).toEqual({
+    test("allows users with an email to opt in or out", () => {
+        expect(evaluateWeeklySyncSummaryPreference({email: "listener@example.com", enabled: true})).toEqual({
             ok: true
         })
-        expect(evaluateWeeklySyncSummaryPreference({tier: "pro", email: "pro@example.com", enabled: false})).toEqual({
+        expect(evaluateWeeklySyncSummaryPreference({email: "listener@example.com", enabled: false})).toEqual({
             ok: true
         })
     })
@@ -141,7 +128,7 @@ describe("weekly sync summary preference", () => {
 
 describe("weekly sync summary cadence", () => {
     test("is due when the preference is on and no summary has been sent", () => {
-        expect(isWeeklySyncSummaryDue({weeklySyncSummaryEnabled: true, email: "pro@example.com"}, now)).toBe(true)
+        expect(isWeeklySyncSummaryDue({weeklySyncSummaryEnabled: true, email: "listener@example.com"}, now)).toBe(true)
     })
 
     test("is not due until a week after the last send", () => {
@@ -149,7 +136,7 @@ describe("weekly sync summary cadence", () => {
             isWeeklySyncSummaryDue(
                 {
                     weeklySyncSummaryEnabled: true,
-                    email: "pro@example.com",
+                    email: "listener@example.com",
                     weeklySyncSummarySentAt: new Date(now.getTime() - weeklySyncSummaryIntervalMs + 1)
                 },
                 now
@@ -159,7 +146,7 @@ describe("weekly sync summary cadence", () => {
             isWeeklySyncSummaryDue(
                 {
                     weeklySyncSummaryEnabled: true,
-                    email: "pro@example.com",
+                    email: "listener@example.com",
                     weeklySyncSummarySentAt: new Date(now.getTime() - weeklySyncSummaryIntervalMs)
                 },
                 now
@@ -254,7 +241,7 @@ describe("weekly sync summary email", () => {
             [task()]
         )
         const message = buildWeeklySyncSummaryEmail({
-            to: "pro@example.com",
+            to: "listener@example.com",
             displayName: "Alex",
             summary,
             appUrl: "http://localhost:3007"
@@ -288,7 +275,6 @@ describe("weekly sync summary email", () => {
             await sendDueWeeklySyncSummaries({
                 now,
                 store: withChanges,
-                resolveTier: () => "pro",
                 send: async (outbound) => {
                     sent.push(outbound)
                     return true
@@ -302,7 +288,6 @@ describe("weekly sync summary email", () => {
             await sendDueWeeklySyncSummaries({
                 now,
                 store: withoutChanges,
-                resolveTier: () => "pro",
                 send: async () => {
                     throw new Error("should not send")
                 }
@@ -311,10 +296,9 @@ describe("weekly sync summary email", () => {
         expect(withoutChanges.processedAt).toEqual(now)
     })
 
-    test("does not send for Free accounts even when they have track changes", async () => {
-        const proUser = user()
+    test("sends track changes for every opted-in account", async () => {
         const store = memoryStore({
-            users: [user({_id: new ObjectId(), tier: "free"}), proUser],
+            users: [user({_id: new ObjectId()}), user()],
             tasks: [task()],
             runs: [run({addedTracks: [track("dst-1", "t1", {title: "New Song", artists: ["Ada"]})]})]
         })
@@ -324,22 +308,20 @@ describe("weekly sync summary email", () => {
             await sendDueWeeklySyncSummaries({
                 now,
                 store,
-                resolveTier: (candidate) => candidate.tier,
                 send: async (outbound) => {
                     sent.push(outbound)
                     return true
                 }
             })
-        ).toEqual({processed: 2, sent: 1, skipped: 1, failed: 0})
-        expect(store.disabled).toHaveLength(1)
+        ).toEqual({processed: 2, sent: 2, skipped: 0, failed: 0})
         expect(store.processedAt).toEqual(now)
-        expect(sent).toHaveLength(1)
+        expect(sent).toHaveLength(2)
     })
 
-    test("does not let downgraded accounts fill the batch and starve later PRO summaries", async () => {
+    test("does not let accounts without a confirmed email fill the batch", async () => {
         const sent: OutboundEmail[] = []
         const store = memoryStore({
-            users: [user({_id: new ObjectId(), tier: "free"}), user({_id: new ObjectId(), tier: "free"}), user()],
+            users: [user({_id: new ObjectId(), email: undefined}), user({_id: new ObjectId(), email: undefined}), user()],
             tasks: [task()],
             runs: [run({addedTracks: [track("dst-1", "t1", {title: "New Song", artists: ["Ada"]})]})]
         })
@@ -349,14 +331,13 @@ describe("weekly sync summary email", () => {
                 now,
                 limit: 1,
                 store,
-                resolveTier: (candidate) => candidate.tier,
                 send: async (outbound) => {
                     sent.push(outbound)
                     return true
                 }
             })
         ).toEqual({processed: 3, sent: 1, skipped: 2, failed: 0})
-        expect(store.disabled).toHaveLength(2)
+        expect(store.released).toHaveLength(2)
         expect(sent).toHaveLength(1)
     })
 
@@ -371,7 +352,6 @@ describe("weekly sync summary email", () => {
             await sendDueWeeklySyncSummaries({
                 now,
                 store,
-                resolveTier: () => "pro",
                 send: async () => false
             })
         ).toEqual({processed: 1, sent: 0, skipped: 1, failed: 0})
@@ -390,7 +370,6 @@ describe("weekly sync summary email", () => {
             await sendDueWeeklySyncSummaries({
                 now,
                 store,
-                resolveTier: () => "pro",
                 send: async () => {
                     throw new Error("535 Authentication failed")
                 }
@@ -412,7 +391,6 @@ describe("weekly sync summary email", () => {
             await sendDueWeeklySyncSummaries({
                 now,
                 store,
-                resolveTier: () => "pro",
                 send: async (outbound) => {
                     sent.push(outbound)
                     return true
@@ -423,7 +401,6 @@ describe("weekly sync summary email", () => {
             await sendDueWeeklySyncSummaries({
                 now,
                 store,
-                resolveTier: () => "pro",
                 send: async () => {
                     throw new Error("should not send")
                 }

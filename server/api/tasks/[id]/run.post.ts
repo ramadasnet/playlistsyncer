@@ -1,8 +1,6 @@
-// Manually run a task after applying ownership and free-tier cooldown rules.
+// Manually run an owned, idle task.
 import {collections} from "../../../data/collections"
 import {requireUser} from "../../../domain/auth/session"
-import {resolveEntitlement} from "../../../domain/billing/entitlement"
-import {manualSyncAvailableAt} from "../../../domain/sync/cooldown"
 import {assertExtensionAccountsOnline} from "../../../domain/extension/clients"
 import {beginSyncTask, completeSyncTask} from "../../../domain/sync/engine"
 import {assertSyncTaskIdle} from "../../../domain/sync/task-activity"
@@ -11,7 +9,7 @@ import {parseObjectId} from "../../../utils/object-id"
 import {startTrackedSyncRun} from "../../../utils/shutdown"
 import {enforceProviderRequestLimit} from "../../../utils/user-rate-limit"
 
-// Reject runs during the cooldown, start the run immediately, and finish it in the background.
+// Start the run immediately and finish it in the background.
 export default defineEventHandler(async (event) => {
     const user = await requireUser(event)
     enforceProviderRequestLimit(event, user._id!)
@@ -24,16 +22,6 @@ export default defineEventHandler(async (event) => {
     await assertSyncTaskIdle(task)
     if (task.browserExtension) {
         assertExtensionAccountsOnline(await db.providerAccounts.find({_id: {$in: [task.source.providerAccountId, task.destination.providerAccountId]}, userId: user._id!}).toArray())
-    }
-    const availableAt = manualSyncAvailableAt(resolveEntitlement(user).tier, task.lastSuccessAt)
-    if (availableAt) {
-        const retryAfterSeconds = Math.ceil((availableAt.getTime() - Date.now()) / 1000)
-        setResponseHeader(event, "Retry-After", retryAfterSeconds)
-        logger.warn("Tasks.run", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`, `Free tier cooldown ${retryAfterSeconds}s`)
-        throw createError({
-            statusCode: 429,
-            statusMessage: "Free accounts can manually synchronize once every 24 hours"
-        })
     }
     logger.info("Tasks.run", `Task ${taskId.toHexString()}`, `User ${user._id!.toHexString()}`)
     const {context, finished} = await startTrackedSyncRun(() => beginSyncTask(taskId, "manual"), completeSyncTask)

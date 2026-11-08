@@ -8,7 +8,6 @@ import {accountSyncConflictMessage, accountSyncsBlockingAllPairs, allPairsBlocke
 definePageMeta({middleware: "auth"})
 usePageSeo({title: "My Sync Tasks", robots: "noindex"})
 
-const auth = useAuthStore()
 const {isProviderEnabled} = await useEnabledProviders()
 const {data: accountData} = await useFetch<{accounts: ConnectedAccount[]}>("/api/accounts")
 const {data: taskData, refresh: refreshTasks} = await useFetch<{tasks: SyncTaskSummary[]}>("/api/tasks")
@@ -57,7 +56,7 @@ const blockingFullSyncs = computed(() =>
         accounts.value.map((account) => account.provider)
     )
 )
-const canCreate = computed(() => accounts.value.length >= 2 && (auth.user?.tier === "pro" || tasks.value.length === 0))
+const canCreate = computed(() => accounts.value.length >= 2)
 const syncAllPlaylists = computed(() => sourcePlaylistId.value === allPlaylistsId)
 const effectiveDirection = computed<SyncTaskDirection>({
     get: () => (syncAllPlaylists.value ? "one-way" : syncDirection.value),
@@ -82,9 +81,7 @@ const conflictingFullSync = computed(() => {
     return findAccountSyncBetweenProviders(taskProviderPairs.value, sourceProvider, destinationProvider)
 })
 const fullSyncConflictMessage = computed(() => (conflictingFullSync.value ? accountSyncConflictMessage(conflictingFullSync.value) : ""))
-const canSubmit = computed(
-    () => !conflictingFullSync.value && !!sourceAccountId.value && !!destinationAccountId.value && (syncAllPlaylists.value ? auth.user?.tier === "pro" : !!sourcePlaylist.value && (!!destinationPlaylist.value || createDestinationPlaylist.value))
-)
+const canSubmit = computed(() => !conflictingFullSync.value && !!sourceAccountId.value && !!destinationAccountId.value && (syncAllPlaylists.value || (!!sourcePlaylist.value && (!!destinationPlaylist.value || createDestinationPlaylist.value))))
 
 // Online when every extension account of the task has a running extension.
 function extensionOnline(task: SyncTaskSummary) {
@@ -214,17 +211,6 @@ function formatDate(value?: string) {
     return value ? new Intl.DateTimeFormat(undefined, {dateStyle: "medium", timeStyle: "short"}).format(new Date(value)) : "Not run yet"
 }
 
-function manualSyncAvailableAt(task: SyncTaskSummary) {
-    if (auth.user?.tier !== "free" || !task.lastSuccessAt) return undefined
-    const availableAt = new Date(task.lastSuccessAt).getTime() + 24 * 60 * 60 * 1000
-    return availableAt > Date.now() ? new Date(availableAt) : undefined
-}
-
-function runTitle(task: SyncTaskSummary) {
-    const availableAt = manualSyncAvailableAt(task)
-    return availableAt ? `Run available ${formatDate(availableAt.toISOString())}` : "Run now"
-}
-
 function isOneWay(task: SyncTaskSummary) {
     return task.direction === "one-way"
 }
@@ -245,10 +231,6 @@ function taskStatus(task: SyncTaskSummary) {
 
 function hasSharedName(task: SyncTaskSummary) {
     return task.source.name === task.destination.name
-}
-
-function isEntitlementLocked(task: SyncTaskSummary) {
-    return Boolean(task.entitlementLocked) || task.pauseReason === "entitlement"
 }
 
 function taskPairLabel(task: SyncTaskSummary) {
@@ -330,7 +312,7 @@ onUnmounted(() => {
 
 <template>
     <div class="shell page-shell sync-page">
-        <PageHeading title="My Sync Tasks" description="Pair playlists, keep them aligned on a schedule, and inspect run history on PRO.">
+        <PageHeading title="My Sync Tasks" description="Pair playlists, keep them aligned on a schedule, and inspect run history.">
             <template #actions
                 ><button class="button button-primary" type="button" :disabled="!canCreate" @click="toggleCreate"><X v-if="showCreate" :size="17" /><Plus v-else :size="17" />{{ showCreate ? "Close" : "New sync task" }}</button></template
             >
@@ -339,9 +321,6 @@ onUnmounted(() => {
         <div v-if="errorMessage" class="notice notice-error" role="alert"><AlertTriangle :size="18" />{{ errorMessage }}</div>
         <div v-if="!canCreate && accounts.length < 2" class="notice">
             <span>Connect at least two music services before creating a pair.</span><NuxtLink to="/account">Open connections <ArrowRight :size="16" /></NuxtLink>
-        </div>
-        <div v-else-if="!canCreate && auth.user?.tier === 'free'" class="notice">
-            <span>Your Free plan includes one active playlist pair.</span><NuxtLink to="/account">See PRO <ArrowRight :size="16" /></NuxtLink>
         </div>
         <div v-else-if="showCreate && canCreate && blockingFullSyncs.length" class="notice notice-warning" role="alert"><AlertTriangle :size="18" />{{ allPairsBlockedMessage(blockingFullSyncs) }}</div>
 
@@ -365,7 +344,7 @@ onUnmounted(() => {
                     ><span>{{ oneWayLabels ? "Master playlist" : "Source playlist" }}</span
                     ><select v-model="sourcePlaylistId" :disabled="!sourceAccountId || loadingPlaylists">
                         <option value="">Choose playlist</option>
-                        <option :value="allPlaylistsId" :disabled="auth.user?.tier !== 'pro'">ALL Playlists{{ auth.user?.tier === "pro" ? "" : " (PRO)" }}</option>
+                        <option :value="allPlaylistsId">ALL Playlists</option>
                         <option v-for="playlist in sourcePlaylists" :key="playlist.id" :value="playlist.id">{{ playlistLabel(playlist) }}</option>
                     </select></label
                 >
@@ -450,17 +429,15 @@ onUnmounted(() => {
                             <ListMusic :size="18" />
                         </NuxtLink>
                         <button
-                            v-if="!isEntitlementLocked(task)"
                             class="icon-button"
                             type="button"
-                            :title="isSyncInProgress(task) ? syncTaskBusyMessage : runTitle(task)"
-                            :disabled="busyTask === task.id || isSyncInProgress(task) || task.status === 'paused' || !!manualSyncAvailableAt(task)"
+                            :title="isSyncInProgress(task) ? syncTaskBusyMessage : 'Run now'"
+                            :disabled="busyTask === task.id || isSyncInProgress(task) || task.status === 'paused'"
                             @click="taskAction(task, 'run')"
                         >
                             <LoaderCircle v-if="busyTask === task.id || isSyncInProgress(task)" class="spin" :size="18" /><Play v-else :size="18" />
                         </button>
                         <button
-                            v-if="!isEntitlementLocked(task)"
                             class="icon-button"
                             type="button"
                             :title="isSyncInProgress(task) ? syncTaskBusyMessage : task.status === 'paused' ? 'Resume' : 'Pause'"
@@ -496,10 +473,6 @@ onUnmounted(() => {
                     </template>
                     <span v-if="!isSyncInProgress(task) && task.latestRun?.skipped" class="task-unmatched">{{ task.latestRun.skipped }} unmatched</span>
                 </div>
-                <p v-if="isEntitlementLocked(task)" class="task-entitlement-note">
-                    A PRO subscription is needed to enable this sync task.
-                    <NuxtLink to="/account">See PRO <ArrowRight :size="14" /></NuxtLink>
-                </p>
                 <p v-if="task.lastError" class="task-error">{{ task.lastError }}</p>
             </article>
         </section>

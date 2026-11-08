@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test"
 import {isPublicSafeMode, parseBooleanEnvFlag, resolvePublicSafeMode} from "../shared/env-flag"
-import {checkStartupConfig, clearServerConfigCache, getServerConfig, parseServerConfig, resolveAppUrl} from "../server/utils/config"
+import {checkStartupConfig, parseServerConfig, resolveAppUrl} from "../server/utils/config"
 
 const productionValues = {
     appUrl: "https://playlistsyncer.com",
@@ -17,11 +17,10 @@ describe("server configuration", () => {
         expect(config.spotifyClientId).toBeUndefined()
         expect(config.tokenEncryptionKey).toBeUndefined()
         expect(config.mongodbDatabase).toBe("playlistsyncer")
-        expect(config.creemServer).toBe("test")
         expect(config.smtpHost).toBe("smtp.mx.cloudflare.net")
         expect(config.smtpUser).toBe("api_token")
         expect(config.smtpPort).toBe(465)
-        expect(config.proSyncIntervalMinutes).toBe(720)
+        expect(config.syncIntervalMinutes).toBe(720)
     })
 
     test("defaults SMTP to Cloudflare and preserves explicit overrides", () => {
@@ -37,10 +36,10 @@ describe("server configuration", () => {
         expect(parseServerConfig({mongodbDatabase: "custom-database"}).mongodbDatabase).toBe("custom-database")
     })
 
-    test("parses the PRO automatic sync interval in minutes", () => {
-        expect(parseServerConfig({proSyncIntervalMinutes: "90"}).proSyncIntervalMinutes).toBe(90)
-        expect(() => parseServerConfig({proSyncIntervalMinutes: 0})).toThrow()
-        expect(() => parseServerConfig({proSyncIntervalMinutes: 1.5})).toThrow()
+    test("parses the automatic sync interval in minutes", () => {
+        expect(parseServerConfig({syncIntervalMinutes: "90"}).syncIntervalMinutes).toBe(90)
+        expect(() => parseServerConfig({syncIntervalMinutes: 0})).toThrow()
+        expect(() => parseServerConfig({syncIntervalMinutes: 1.5})).toThrow()
     })
 
     test("parses provider request limits per minute with defaults", () => {
@@ -57,32 +56,6 @@ describe("server configuration", () => {
         expect(parseServerConfig({}).userProviderRequestsPerMinute).toBe(40)
         expect(parseServerConfig({userProviderRequestsPerMinute: "0"}).userProviderRequestsPerMinute).toBe(0)
         expect(() => parseServerConfig({userProviderRequestsPerMinute: "-1"})).toThrow()
-    })
-
-    test("accepts Creem production configuration", () => {
-        const config = parseServerConfig({
-            creemApiKey: "creem_live_key",
-            creemWebhookSecret: "webhook_secret",
-            creemProProductId: "prod_123",
-            creemServer: "prod"
-        })
-
-        expect(config.creemApiKey).toBe("creem_live_key")
-        expect(config.creemServer).toBe("prod")
-    })
-
-    test("parses development PRO users as normalized email addresses", () => {
-        const config = parseServerConfig({developmentProUserEmails: " Alice@example.com,BOB@example.com "})
-
-        expect(config.developmentProUserEmails).toEqual(["alice@example.com", "bob@example.com"])
-    })
-
-    test("parses the PRO subscription-required instant", () => {
-        expect(parseServerConfig({}).proSubscriptionRequiredAt).toBeUndefined()
-        expect(parseServerConfig({proSubscriptionRequiredAt: ""}).proSubscriptionRequiredAt).toBeUndefined()
-        expect(parseServerConfig({proSubscriptionRequiredAt: "2027-01-01"}).proSubscriptionRequiredAt).toEqual(new Date("2027-01-01"))
-        expect(parseServerConfig({proSubscriptionRequiredAt: "2027-01-01T00:00:00.000Z"}).proSubscriptionRequiredAt).toEqual(new Date("2027-01-01T00:00:00.000Z"))
-        expect(() => parseServerConfig({proSubscriptionRequiredAt: "not-a-date"})).toThrow()
     })
 
     test("uses the configured application origin", () => {
@@ -161,44 +134,6 @@ describe("server configuration", () => {
         expect(website.warnings).toEqual([])
         expect(jobs.warnings).toEqual([])
         expect(checkStartupConfig(parseServerConfig({...productionValues, smtpHost: "smtp.example.com"}), "website", true).warnings).toEqual([])
-    })
-
-    test("rejects partial Creem billing in production and only warns in development", () => {
-        const partial = parseServerConfig({...productionValues, creemApiKey: "creem_key", creemProProductId: "prod_123", smtpHost: "smtp.example.com"})
-
-        expect(checkStartupConfig(partial, "website", true).errors).toEqual(["Creem billing is partially configured; also set PLS_CREEM_WEBHOOK_SECRET"])
-        expect(checkStartupConfig(partial, "website", false)).toEqual({errors: [], warnings: ["Creem billing is partially configured; also set PLS_CREEM_WEBHOOK_SECRET"]})
-        expect(checkStartupConfig(parseServerConfig({}), "website", false)).toEqual({errors: [], warnings: []})
-    })
-
-    test("warns when production billing explicitly uses the Creem sandbox", () => {
-        const creem = {creemApiKey: "creem_key", creemProProductId: "prod_123", creemWebhookSecret: "whsec", smtpHost: "smtp.example.com"}
-
-        expect(checkStartupConfig(parseServerConfig({...productionValues, ...creem, creemServer: "test"}), "website", true)).toEqual({errors: [], warnings: ["PLS_CREEM_SERVER is test; checkout uses the Creem sandbox"]})
-        expect(checkStartupConfig(parseServerConfig({...productionValues, ...creem, creemServer: "prod"}), "website", true)).toEqual({errors: [], warnings: []})
-    })
-
-    test("defaults the Creem server to prod only in production", () => {
-        const environment = {NODE_ENV: process.env.NODE_ENV, PLS_CREEM_SERVER: process.env.PLS_CREEM_SERVER}
-        try {
-            delete process.env.PLS_CREEM_SERVER
-            process.env.NODE_ENV = "production"
-            clearServerConfigCache()
-            expect(getServerConfig().creemServer).toBe("prod")
-            process.env.NODE_ENV = "development"
-            clearServerConfigCache()
-            expect(getServerConfig().creemServer).toBe("test")
-            process.env.PLS_CREEM_SERVER = "test"
-            process.env.NODE_ENV = "production"
-            clearServerConfigCache()
-            expect(getServerConfig().creemServer).toBe("test")
-        } finally {
-            for (const [name, value] of Object.entries(environment)) {
-                if (value === undefined) delete process.env[name]
-                else process.env[name] = value
-            }
-            clearServerConfigCache()
-        }
     })
 
     test("parses the shutdown timeout in seconds", () => {

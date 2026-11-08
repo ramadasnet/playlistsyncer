@@ -1,5 +1,5 @@
 import type {ObjectId} from "mongodb"
-import type {AccountTier, SyncRunDocument, SyncRunTrackReference, SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
+import type {SyncRunDocument, SyncRunTrackReference, SyncTaskDocument, UserDocument} from "~~/shared/types/domain"
 import {collections} from "../../data/collections"
 import logger from "../../utils/logger"
 import type {OutboundEmail} from "./send"
@@ -28,14 +28,10 @@ export interface WeeklySummaryStore {
     findTasks(userId: ObjectId): Promise<SyncTaskDocument[]>
     findRuns(taskIds: ObjectId[], since: Date, until: Date, exclusiveStart: boolean): Promise<SyncRunDocument[]>
     markProcessed(userId: ObjectId, processedAt: Date): Promise<void>
-    disablePreference(userId: ObjectId, processedAt: Date): Promise<void>
     releaseClaim(userId: ObjectId): Promise<void>
 }
 
-export function evaluateWeeklySyncSummaryPreference(input: {tier: AccountTier; email?: string; enabled: boolean}): {ok: true} | {ok: false; statusCode: number; statusMessage: string} {
-    if (input.tier !== "pro") {
-        return {ok: false, statusCode: 403, statusMessage: "Weekly sync summaries require a PRO account"}
-    }
+export function evaluateWeeklySyncSummaryPreference(input: {email?: string; enabled: boolean}): {ok: true} | {ok: false; statusCode: number; statusMessage: string} {
     if (input.enabled && !input.email) {
         return {
             ok: false,
@@ -229,15 +225,6 @@ export function createWeeklySummaryStore(db: Awaited<ReturnType<typeof collectio
                 }
             )
         },
-        async disablePreference(userId, processedAt) {
-            await db.users.updateOne(
-                {_id: userId},
-                {
-                    $set: {weeklySyncSummaryEnabled: false, updatedAt: processedAt},
-                    $unset: {weeklySyncSummaryLeaseExpiresAt: ""}
-                }
-            )
-        },
         async releaseClaim(userId) {
             await db.users.updateOne({_id: userId}, {$unset: {weeklySyncSummaryLeaseExpiresAt: ""}})
         }
@@ -248,7 +235,6 @@ export async function sendDueWeeklySyncSummaries(input: {
     now?: Date
     limit?: number
     store: WeeklySummaryStore
-    resolveTier: (user: UserDocument) => AccountTier
     send: (message: OutboundEmail) => Promise<boolean>
     appUrl?: string
 }): Promise<{processed: number; sent: number; skipped: number; failed: number}> {
@@ -274,11 +260,6 @@ export async function sendDueWeeklySyncSummaries(input: {
         }
         seen.add(userId)
         processed++
-        if (input.resolveTier(user) !== "pro") {
-            await input.store.disablePreference(user._id, now)
-            skipped++
-            continue
-        }
         if (!isWeeklySyncSummaryDue(user, now)) {
             await input.store.releaseClaim(user._id)
             skipped++

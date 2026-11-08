@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {LoaderCircle, LogIn, LogOut, Menu, X} from "lucide-vue-next"
-import {planBadgeClass, planBadgeLabel} from "~/utils/plan"
 
 const auth = useAuthStore()
 const {safeMode} = useSafeMode()
@@ -54,9 +53,8 @@ watch(
                     <NuxtLink to="/sync">My Sync Tasks</NuxtLink>
                     <NuxtLink to="/account">Account</NuxtLink>
                 </template>
-                <span v-if="safeMode" class="plan-badge plan-safe-mode">SAFE MODE</span>
+                <span v-if="safeMode" class="safe-mode-badge">SAFE MODE</span>
                 <template v-if="auth.user">
-                    <span class="plan-badge" :class="planBadgeClass(auth.user)">{{ planBadgeLabel(auth.user, true) }}</span>
                     <button class="icon-button" type="button" title="Log out" aria-label="Log out" aria-haspopup="dialog" @click="openLogoutDialog">
                         <LogOut :size="18" />
                     </button>

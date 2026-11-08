@@ -25,7 +25,6 @@ describe("OAuth registration without a provider email", () => {
 
         expect(user).not.toHaveProperty("email")
         expect(user.displayName).toBe("Tidal Listener")
-        expect(user.tier).toBe("free")
     })
 
     test("does not trust an unverified provider email", () => {

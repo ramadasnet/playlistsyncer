@@ -138,7 +138,6 @@ export function newUserFromOAuthProfile(profile: OAuthProfile, now: Date): UserD
         ...(email ? {email} : {}),
         displayName: truncateDisplayName(profile.displayName) || "Anonymous",
         avatarUrl: profile.avatarUrl,
-        tier: "free",
         createdAt: now,
         updatedAt: now
     }

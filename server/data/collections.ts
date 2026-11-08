@@ -10,16 +10,14 @@ import type {
     SyncRunDocument,
     SyncSnapshotDocument,
     SyncTaskDocument,
-    UserDocument,
-    WebhookEventDocument
+    UserDocument
 } from "~~/shared/types/domain"
 import {getDatabase} from "../utils/database"
 import logger from "../utils/logger"
 import {isTtlJobPrivilegeError} from "../utils/mongodb"
 
-// TTL indexes remove sync runs and webhook events after these ages. sync-cleanup uses the same limits.
+// TTL indexes remove sync runs after this age. sync-cleanup uses the same limit.
 export const syncRunRetentionSeconds = 60 * 60 * 24 * 180
-export const webhookEventRetentionSeconds = 60 * 60 * 24 * 90
 
 const collectionNames = {
     users: "users",
@@ -30,7 +28,6 @@ const collectionNames = {
     syncSnapshots: "syncSnapshots",
     syncRuns: "syncRuns",
     searchMisses: "searchMisses",
-    webhookEvents: "webhookEvents",
     extensionClients: "extensionClients",
     extensionAuthCodes: "extensionAuthCodes"
 } as const
@@ -45,7 +42,6 @@ export async function collections(): Promise<{
     syncSnapshots: Collection<SyncSnapshotDocument>
     syncRuns: Collection<SyncRunDocument>
     searchMisses: Collection<SearchMissDocument>
-    webhookEvents: Collection<WebhookEventDocument>
     extensionClients: Collection<ExtensionClientDocument>
     extensionAuthCodes: Collection<ExtensionAuthCodeDocument>
 }> {
@@ -59,7 +55,6 @@ export async function collections(): Promise<{
         syncSnapshots: database.collection<SyncSnapshotDocument>(collectionNames.syncSnapshots),
         syncRuns: database.collection<SyncRunDocument>(collectionNames.syncRuns),
         searchMisses: database.collection<SearchMissDocument>(collectionNames.searchMisses),
-        webhookEvents: database.collection<WebhookEventDocument>(collectionNames.webhookEvents),
         extensionClients: database.collection<ExtensionClientDocument>(collectionNames.extensionClients),
         extensionAuthCodes: database.collection<ExtensionAuthCodeDocument>(collectionNames.extensionAuthCodes)
     }
@@ -89,7 +84,6 @@ export async function ensureIndexes(): Promise<void> {
         db.syncSnapshots.createIndex({taskId: 1, batch: 1}, {unique: true}),
         db.syncRuns.createIndex({taskId: 1, startedAt: -1}),
         db.searchMisses.createIndex({providerAccountId: 1, key: 1}, {unique: true}),
-        db.webhookEvents.createIndex({eventId: 1}, {unique: true}),
         db.extensionClients.createIndex({tokenHash: 1}, {unique: true}),
         db.extensionClients.createIndex({userId: 1}),
         db.extensionAuthCodes.createIndex({codeHash: 1}, {unique: true})
@@ -100,8 +94,7 @@ export async function ensureIndexes(): Promise<void> {
         db.oauthTransactions.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.extensionAuthCodes.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
         db.searchMisses.createIndex({expiresAt: 1}, {expireAfterSeconds: 0}),
-        db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: syncRunRetentionSeconds}),
-        db.webhookEvents.createIndex({processedAt: 1}, {expireAfterSeconds: webhookEventRetentionSeconds})
+        db.syncRuns.createIndex({startedAt: 1}, {expireAfterSeconds: syncRunRetentionSeconds})
     ])
 }
 
