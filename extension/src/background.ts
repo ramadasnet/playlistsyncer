@@ -34,6 +34,7 @@ type AccountCache = Partial<Record<ExtensionProvider, ProviderStatus>>
 const serverUrl = PLS_EXTENSION_SERVER_URL.replace(/\/+$/, "")
 const sitePatterns = [`${new URL(serverUrl).origin}/*`]
 const detectIntervalMs = 15 * 60_000
+const commandTrustMs = 30_000
 const idleThresholdSec = 60
 const interactiveWindowMs = 60_000
 const scheduledPollAlarm = "playlistsyncer-scheduled"
@@ -42,6 +43,7 @@ const maxPerProvider = 2
 const activeCommands = new Set<string>()
 const slots: Partial<Record<ExtensionProvider, {active: number; waiting: (() => void)[]}>> = {}
 const detecting = new Map<ExtensionProvider, Promise<ProviderStatus>>()
+const verifiedAt: Partial<Record<ExtensionProvider, number>> = {}
 let accountCache: AccountCache | undefined
 let polling = false
 let interactiveUntil = 0
@@ -148,6 +150,7 @@ function detect(connector: ProviderConnector): Promise<ProviderStatus> {
         let status: ProviderStatus
         try {
             status = {account: (await connector.detectAccount()) ?? undefined, checkedAt: Date.now()}
+            verifiedAt[connector.provider] = status.checkedAt
         } catch (err) {
             // Keep the previous account on unexpected errors, so a provider API change does not unlink it.
             status = {account: err instanceof ProviderError && err.code === "auth" ? undefined : previous?.account, error: errorMessage(err), checkedAt: Date.now()}
@@ -204,7 +207,8 @@ async function execute(command: ExtensionCommand): Promise<unknown> {
     const method = connector?.[command.method] as ((args: unknown) => Promise<unknown>) | undefined
     if (!connector || !method) throw new ProviderError(`${command.provider}.${command.method} is not supported`, "unsupported")
     let status = (await accounts())[command.provider]
-    if (status?.account?.accountId !== command.accountId) status = await detect(connector)
+    // The cached account may describe a login that was switched since, so commands trust it only right after a real detection.
+    if (status?.account?.accountId !== command.accountId || Date.now() - (verifiedAt[command.provider] ?? 0) > commandTrustMs) status = await detect(connector)
     if (!status.account) throw new ProviderError(`Not signed in to ${connector.name}`, "auth")
     if (status.account.accountId !== command.accountId) throw new ProviderError(`Signed in to ${connector.name} as ${status.account.displayName}, not the linked account`, "auth")
     return method.call(connector, command.args)
