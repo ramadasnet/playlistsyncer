@@ -27,6 +27,8 @@ const originalRetryDefaults = {...fetchRetryDefaults}
 const runId = new ObjectId().toHexString()
 const createdUserIds: ObjectId[] = []
 let spotifyProfile: Record<string, unknown> = {}
+const webhookCalls: {url: string; payload: Record<string, any>}[] = []
+const tokenExchangeAuthorizations: string[] = []
 
 const app = h3.createApp()
 app.use(
@@ -80,9 +82,15 @@ class Browser {
 
     // Start a Spotify login or link and return the state the provider would send back.
     async begin(): Promise<string> {
+        return (await this.beginDetails()).state
+    }
+
+    // Start a Spotify login or link and return the state and the picked app credentials.
+    async beginDetails(): Promise<{state: string; clientId: string}> {
         const response = await this.get("/api/auth/spotify")
         expect(response.status).toBe(302)
-        return new URL(response.headers.get("location")!).searchParams.get("state")!
+        const location = new URL(response.headers.get("location")!)
+        return {state: location.searchParams.get("state")!, clientId: location.searchParams.get("client_id")!}
     }
 
     callback(state: string): Promise<Response> {
@@ -122,14 +130,30 @@ async function trackSessionUser(browser: Browser): Promise<ObjectId | undefined>
 describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
     beforeEach(async () => {
         await ensureIndexes()
-        Object.assign(config, {appUrl: baseUrl, spotifyClientId: "spotify-client", spotifyClientSecret: "spotify-secret", sessionSecret: config.sessionSecret || "oauth-flow-session", tokenEncryptionKey: config.tokenEncryptionKey || "oauth-flow-key"})
+        Object.assign(config, {
+            appUrl: baseUrl,
+            spotifyClientId: "spotify-client",
+            spotifyClientSecret: "spotify-secret",
+            spotifyCredentials: [],
+            spotifyMaxUsersPerApp: 5,
+            userWebhookUrls: [],
+            sessionSecret: config.sessionSecret || "oauth-flow-session",
+            tokenEncryptionKey: config.tokenEncryptionKey || "oauth-flow-key"
+        })
+        webhookCalls.length = 0
+        tokenExchangeAuthorizations.length = 0
         Object.assign(fetchRetryDefaults, {baseDelayMs: 0, maxDelayMs: 0})
         providerRateLimiters.set("spotify", new ProviderRateLimiter("spotify", 0, {cooldownMs: 0}))
         spotifyProfile = {id: `listener-${new ObjectId().toHexString()}`, display_name: "Listener"}
         globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
             const url = String(input instanceof Request ? input.url : input)
             if (url === "https://accounts.spotify.com/api/token") {
+                tokenExchangeAuthorizations.push(new Headers(init?.headers).get("authorization") || "")
                 return new Response(JSON.stringify({access_token: "access-token", refresh_token: "refresh-token", expires_in: 3600}))
+            }
+            if (url.startsWith("https://webhook.example.test/")) {
+                webhookCalls.push({url, payload: JSON.parse(typeof init?.body === "string" ? init.body : "{}")})
+                return new Response("{}", {status: 200})
             }
             if (url === "https://api.spotify.com/v1/me") {
                 return new Response(JSON.stringify(spotifyProfile))
@@ -350,5 +374,81 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
             continueLookup()
             collectionsSpy.mockRestore()
         }
+    })
+
+    test("registers new users under the first Spotify app until its limit, then rotates", async () => {
+        Object.assign(config, {spotifyCredentials: [{clientId: "spotify-client-2", clientSecret: "spotify-secret-2"}], spotifyMaxUsersPerApp: 1})
+        const db = await collections()
+        // Users from earlier tests already hold the first app; drop the field so the limit starts clean.
+        await db.users.updateMany({}, {$unset: {spotifyClientId: ""}})
+        const first = new Browser()
+        const second = new Browser()
+
+        const firstBegin = await first.beginDetails()
+        expect(firstBegin.clientId).toBe("spotify-client")
+        expect((await first.callback(firstBegin.state)).status).toBe(200)
+        const firstUser = await trackSessionUser(first)
+        expect((await db.users.findOne({_id: firstUser}))?.spotifyClientId).toBe("spotify-client")
+        expect((await db.providerAccounts.findOne({userId: firstUser}))?.oauthClientId).toBe("spotify-client")
+        // The browser cookie binds the user to its app even after the app filled up.
+        expect(first.cookies.get("ps_spotify_client")).toBe("spotify-client")
+
+        spotifyProfile = {...spotifyProfile, id: `listener-${new ObjectId().toHexString()}`}
+        const secondBegin = await second.beginDetails()
+        expect(secondBegin.clientId).toBe("spotify-client-2")
+        expect((await second.callback(secondBegin.state)).status).toBe(200)
+        const secondUser = await trackSessionUser(second)
+        expect((await db.users.findOne({_id: secondUser}))?.spotifyClientId).toBe("spotify-client-2")
+
+        const basic = (clientId: string, clientSecret: string) => `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`
+        expect(tokenExchangeAuthorizations).toEqual([basic("spotify-client", "spotify-secret"), basic("spotify-client-2", "spotify-secret-2")])
+    })
+
+    test("reuses the browser's Spotify app on the next login and the linking user's app", async () => {
+        Object.assign(config, {spotifyCredentials: [{clientId: "spotify-client-2", clientSecret: "spotify-secret-2"}], spotifyMaxUsersPerApp: 1})
+        const db = await collections()
+        await db.users.updateMany({}, {$unset: {spotifyClientId: ""}})
+        const first = new Browser()
+        await first.callback(await first.begin())
+        expect((await first.beginDetails()).clientId).toBe("spotify-client")
+
+        // A signed-in user that already belongs to the second app keeps it when linking again.
+        const linkedUser = await createUser()
+        await db.users.updateOne({_id: linkedUser}, {$set: {spotifyClientId: "spotify-client-2"}})
+        const linking = new Browser()
+        await linking.signIn(linkedUser)
+        expect((await linking.beginDetails()).clientId).toBe("spotify-client-2")
+    })
+
+    test("posts registration, login, and deletion events to the configured webhooks", async () => {
+        config.userWebhookUrls = ["https://webhook.example.test/hook"]
+        const browser = new Browser()
+
+        expect((await browser.callback(await browser.begin())).status).toBe(200)
+        expect(webhookCalls.map((call) => call.payload.event)).toEqual(["user.registered", "user.login"])
+        expect(webhookCalls[0]!.payload.user).toMatchObject({displayName: "Listener", spotifyClientId: "spotify-client"})
+        const userId = await trackSessionUser(browser)
+
+        // A returning login notifies only the login event.
+        webhookCalls.length = 0
+        const again = new Browser()
+        expect((await again.callback(await again.begin())).status).toBe(200)
+        expect(webhookCalls.map((call) => call.payload.event)).toEqual(["user.login"])
+
+        // Linking an account from an existing session is not a fresh login.
+        webhookCalls.length = 0
+        const linkingUser = await createUser()
+        const linking = new Browser()
+        await linking.signIn(linkingUser)
+        spotifyProfile = {...spotifyProfile, id: `listener-${new ObjectId().toHexString()}`}
+        expect((await linking.callback(await linking.begin())).status).toBe(200)
+        expect(webhookCalls).toHaveLength(0)
+
+        // Account deletion posts the removed user's details.
+        const {deleteUserAccount} = await import("../server/domain/accounts")
+        const db = await collections()
+        await deleteUserAccount((await db.users.findOne({_id: userId}))!)
+        expect(webhookCalls.map((call) => call.payload.event)).toEqual(["user.deleted"])
+        expect(webhookCalls[0]!.payload.user.id).toBe(userId!.toHexString())
     })
 })

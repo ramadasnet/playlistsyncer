@@ -11,13 +11,16 @@ import {fetchWithRetry} from "../../utils/fetch-retry"
 import logger from "../../utils/logger"
 import {isDuplicateKeyError} from "../../utils/mongodb"
 import {decryptSecret, encryptSecret} from "../../utils/secrets"
-import {getOAuthProvider, type OAuthProfile} from "./providers"
+import {getOAuthProvider, spotifyCredentialPool, type OAuthProfile, type SpotifyAppCredentials} from "./providers"
+import {sendUserEventWebhooks} from "../user-webhooks"
 import {isProviderEnabled} from "../../utils/provider-availability"
 import {createSession, getCurrentUser, hashOpaqueToken} from "./session"
 import {withUserLock} from "../../utils/user-lock"
 
 const oauthTransactionSeconds = 10 * 60
 const oauthCookieOptions = {httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const, path: "/api/auth"}
+// Remembers which Spotify app served this browser, so returning users keep the app they are whitelisted under.
+const spotifyClientCookie = "ps_spotify_client"
 
 // Name the browser cookie after the transaction state so each tab keeps its own nonce.
 function oauthBrowserCookie(state: string): string {
@@ -34,6 +37,27 @@ function callbackUrl(provider: Provider): string {
     return `${getServerConfig().appUrl}/api/auth/${provider}/callback`
 }
 
+// Pick the Spotify app for a new authorization: a known client ID wins, else the first app still under its user limit.
+async function pickSpotifyCredentials(preferredClientId?: string): Promise<SpotifyAppCredentials> {
+    const config = getServerConfig()
+    const pool = spotifyCredentialPool(config)
+    if (!pool.length) {
+        throw createError({statusCode: 503, statusMessage: "Missing required configuration: spotifyClientId"})
+    }
+    const preferred = preferredClientId ? pool.find((entry) => entry.clientId === preferredClientId) : undefined
+    if (preferred) {
+        return preferred
+    }
+    const db = await collections()
+    for (const entry of pool) {
+        if ((await db.users.countDocuments({spotifyClientId: entry.clientId})) < config.spotifyMaxUsersPerApp) {
+            return entry
+        }
+    }
+    // A fully loaded pool still serves logins of users already whitelisted in the first app.
+    return pool[0]!
+}
+
 // Create a PKCE OAuth transaction and return the provider authorization URL.
 export async function beginOAuth(event: H3Event, provider: Provider): Promise<string> {
     if (!isProviderEnabled(provider)) {
@@ -44,15 +68,17 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
         startUrl.searchParams.set("redirect", normalizeRedirect(getQuery(event).redirect))
         return startUrl.toString()
     }
-    const definition = getOAuthProvider(provider)
+    const currentUser = await getCurrentUser(event)
+    const db = await collections()
+    // A signed-in or returning user keeps its Spotify app; new registrations rotate to an app under the user limit.
+    const credentials = provider === "spotify" ? await pickSpotifyCredentials(currentUser?.spotifyClientId || getCookie(event, spotifyClientCookie)) : undefined
+    const definition = getOAuthProvider(provider, credentials?.clientId)
     const state = randomBytes(32).toString("base64url")
     const codeVerifier = randomBytes(48).toString("base64url")
     const challenge = codeChallenge(codeVerifier)
     // The callback must arrive in the browser that started the flow, so a leaked authorize URL or callback URL is useless elsewhere.
     // A separate cookie per state lets a second tab start a flow without erasing the first one.
     const browserNonce = randomBytes(32).toString("base64url")
-    const currentUser = await getCurrentUser(event)
-    const db = await collections()
     const now = new Date()
     await db.oauthTransactions.insertOne({
         provider,
@@ -62,6 +88,7 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
         codeVerifier: await encryptSecret(codeVerifier),
         linkingUserId: currentUser?._id,
         redirectAfter: normalizeRedirect(getQuery(event).redirect),
+        ...(credentials ? {oauthClientId: credentials.clientId} : {}),
         createdAt: now,
         expiresAt: new Date(now.getTime() + oauthTransactionSeconds * 1000)
     })
@@ -94,8 +121,8 @@ export async function beginOAuth(event: H3Event, provider: Provider): Promise<st
 }
 
 // Exchange an authorization code for provider access tokens.
-async function exchangeCode(provider: Provider, code: string, codeVerifier: string) {
-    const definition = getOAuthProvider(provider)
+async function exchangeCode(provider: Provider, code: string, codeVerifier: string, oauthClientId?: string) {
+    const definition = getOAuthProvider(provider, oauthClientId)
     const body = new URLSearchParams({
         grant_type: "authorization_code",
         code,
@@ -149,7 +176,7 @@ export function oauthRedirectAfterLogin(user: Pick<UserDocument, "email" | "temp
 }
 
 // Reuse a matching user or create one for a first-time provider login.
-async function findOrCreateUser(profile: OAuthProfile, linkingUserId?: ObjectId) {
+async function findOrCreateUser(profile: OAuthProfile, linkingUserId?: ObjectId, spotifyClientId?: string): Promise<{user: UserDocument; created: boolean}> {
     const db = await collections()
     if (linkingUserId) {
         const linkedUser = await db.users.findOne({_id: linkingUserId})
@@ -158,22 +185,26 @@ async function findOrCreateUser(profile: OAuthProfile, linkingUserId?: ObjectId)
             throw createError({statusCode: 401, statusMessage: "Linking session is no longer valid"})
         }
         logger.info("OAuth.findOrCreateUser", `Linking existing user ${linkingUserId.toHexString()}`)
-        return linkedUser
+        return {user: linkedUser, created: false}
     }
     if (hasVerifiedProviderEmail(profile)) {
         const email = profile.email!.trim().toLowerCase()
         const existingUser = await db.users.findOne({email})
         if (existingUser) {
             logger.info("OAuth.findOrCreateUser", `Matched existing user ${existingUser._id!.toHexString()}`)
-            return existingUser
+            return {user: existingUser, created: false}
         }
     } else {
         logger.info("OAuth.findOrCreateUser", `Provider account ${profile.id}`, "Provider email unavailable")
     }
     const now = new Date()
-    const result = await db.users.insertOne(newUserFromOAuthProfile(profile, now))
+    const document = newUserFromOAuthProfile(profile, now)
+    if (spotifyClientId) {
+        document.spotifyClientId = spotifyClientId
+    }
+    const result = await db.users.insertOne(document)
     logger.info("OAuth.findOrCreateUser", `Created user ${result.insertedId.toHexString()}`, hasVerifiedProviderEmail(profile) ? "Login completed" : "Email capture required")
-    return db.users.findOne({_id: result.insertedId}).then((user) => user!)
+    return {user: await db.users.findOne({_id: result.insertedId}).then((user) => user!), created: true}
 }
 
 // Attach a newly verified provider email to an account that lacks one.
@@ -239,7 +270,7 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         }
     }
     const codeVerifier = await decryptSecret(transaction.codeVerifier)
-    const {token, definition} = await exchangeCode(provider, code, codeVerifier)
+    const {token, definition} = await exchangeCode(provider, code, codeVerifier, transaction.oauthClientId)
     const profile = await definition.fetchProfile(token.access_token, {idToken: token.id_token, nonce: codeChallenge(codeVerifier), displayNameHint: transaction.displayNameHint})
     const accountIds = [profile.id, ...(profile.previousIds || [])]
     const storedAccounts = await db.providerAccounts.find({provider, externalAccountId: {$in: accountIds}}).toArray()
@@ -248,7 +279,10 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         logger.warn("OAuth.finish", provider, `Provider account ${profile.id}`, "Account is already linked to another user")
         throw createError({statusCode: 409, statusMessage: "This provider account is already linked to another user"})
     }
-    let user: UserDocument = conflictingAccount ? await db.users.findOne({_id: conflictingAccount.userId}).then((value) => value!) : await findOrCreateUser(profile, transaction.linkingUserId)
+    const resolved = conflictingAccount
+        ? {user: await db.users.findOne({_id: conflictingAccount.userId}).then((value) => value!), created: false}
+        : await findOrCreateUser(profile, transaction.linkingUserId, provider === "spotify" ? transaction.oauthClientId : undefined)
+    let user: UserDocument = resolved.user
     const anotherProviderAccount = await db.providerAccounts.findOne({userId: user._id!, provider, externalAccountId: {$nin: accountIds}})
     if (anotherProviderAccount) {
         logger.warn("OAuth.finish", provider, `User ${user._id!.toHexString()}`, "Another account from this provider is already linked")
@@ -269,6 +303,11 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         }
         // Apple posts the person's name only on the first authorization. A later login has no new name, so the generic fallback must not replace the saved one.
         const displayName = provider === "apple" && !normalizeDisplayName(transaction.displayNameHint || "") && conflictingAccount?.displayName ? conflictingAccount.displayName : profile.displayName
+        // Save the Spotify app the account was authorized under, both for token refreshes and for the user limit.
+        if (provider === "spotify" && transaction.oauthClientId && !user.spotifyClientId) {
+            await db.users.updateOne({_id: user._id}, {$set: {spotifyClientId: transaction.oauthClientId, updatedAt: now}})
+            user.spotifyClientId = transaction.oauthClientId
+        }
         // Updating the stored account by _id re-keys an account stored under a previous provider id.
         await db.providerAccounts.updateOne(
             conflictingAccount ? {_id: conflictingAccount._id} : {provider, externalAccountId: profile.id},
@@ -284,6 +323,7 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
                     ...(refreshToken ? {refreshToken} : {}),
                     tokenExpiresAt: keepsProviderSession && token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
                     scopes: token.scope?.split(" ").filter(Boolean) || definition.scopes,
+                    ...(transaction.oauthClientId ? {oauthClientId: transaction.oauthClientId} : {}),
                     connectedAt: now,
                     updatedAt: now
                 }
@@ -292,7 +332,17 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         )
         await createSession(event, user._id!)
     })
+    if (provider === "spotify" && transaction.oauthClientId) {
+        // Repeat visits from this browser keep the app the user is whitelisted under.
+        setCookie(event, spotifyClientCookie, transaction.oauthClientId, {...oauthCookieOptions, maxAge: 60 * 60 * 24 * 365})
+    }
     logger.info("OAuth.finish", provider, `User ${user._id!.toHexString()}`, `Provider account ${profile.id}`, transaction.linkingUserId ? "Account linked" : "Login completed")
+    if (resolved.created) {
+        await sendUserEventWebhooks("user.registered", user)
+    }
+    if (!transaction.linkingUserId) {
+        await sendUserEventWebhooks("user.login", user)
+    }
     // Sign in with Apple returns identity only. The account page continues into MusicKit for the music user token.
     if (provider === "apple" && !conflictingAccount?.musicUserToken) {
         const next = oauthRedirectAfterLogin(user, normalizeRedirect(transaction.redirectAfter))

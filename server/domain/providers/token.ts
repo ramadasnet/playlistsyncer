@@ -21,7 +21,7 @@ async function refreshAccessToken(account: ProviderAccountDocument): Promise<str
         throw createError({statusCode: 409, statusMessage: `${account.provider} must be reconnected`})
     }
     logger.info("Provider.refreshToken", account.provider, `Provider account ${account.externalAccountId}`)
-    const definition = getOAuthProvider(account.provider)
+    const definition = getOAuthProvider(account.provider, account.oauthClientId)
     const body = new URLSearchParams({
         grant_type: "refresh_token",
         refresh_token: await decryptSecret(account.refreshToken)

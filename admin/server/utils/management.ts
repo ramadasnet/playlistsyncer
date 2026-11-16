@@ -25,6 +25,7 @@ export function userView(user: UserDocument) {
         email: user.email || "",
         pendingEmail: user.tempEmail || "",
         weeklySyncSummaryEnabled: Boolean(user.weeklySyncSummaryEnabled),
+        spotifyClientId: user.spotifyClientId || "",
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
         updatedAt: user.updatedAt

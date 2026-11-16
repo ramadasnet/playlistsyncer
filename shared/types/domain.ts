@@ -99,6 +99,8 @@ export interface UserDocument {
     weeklySyncSummarySentAt?: Date
     weeklySyncSummaryLeaseExpiresAt?: Date
     lastLoginAt?: Date
+    // Spotify app client ID under which this user registered or linked, so its slot is counted against the app limit.
+    spotifyClientId?: string
     // Set when the inactive account warning was sent; cleared on the next login.
     inactivityWarningSentAt?: Date
     // Set while an account deletion runs so a task insert from another process can refuse; cleared on failure.
@@ -131,6 +133,8 @@ export interface ProviderAccountDocument {
     musicUserToken?: EncryptedValue
     storefront?: string
     scopes: string[]
+    // OAuth client ID that issued the tokens, needed because Spotify rotates through a pool of app credentials.
+    oauthClientId?: string
     // "extension" when the browser extension runs this account's provider requests. Such accounts use externalAccountId "browser:<userId>:<provider>" so they never match a provider login.
     connection?: "extension"
     // The provider's own user ID reported by the browser extension.
@@ -182,6 +186,8 @@ export interface OAuthTransactionDocument {
     redirectAfter: string
     // Sign in with Apple posts the user's name once, to the callback, and never puts it in the ID token.
     displayNameHint?: string
+    // Spotify credentials picked for this flow must be used again on the callback's code exchange.
+    oauthClientId?: string
     expiresAt: Date
     createdAt: Date
 }
