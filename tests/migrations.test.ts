@@ -125,6 +125,17 @@ describe("database maintenance", () => {
         expect(locked).toMatchObject({status: "paused", pauseReason: "user"})
     })
 
+    test("stays pending while Spotify accounts need an app and none is configured", async () => {
+        const store = fixture()
+        Object.assign(getServerConfig(), {spotifyCredentials: []})
+        await expect(runMigrations(store.database as never)).rejects.toThrow("PLS_SPOTIFY_CREDENTIALS")
+        expect(store.completed.documents.map((entry) => entry._id)).not.toContain("backfill-spotify-client-id")
+
+        Object.assign(getServerConfig(), {spotifyCredentials: [{clientId: "primary-client", clientSecret: "primary-secret"}]})
+        await runMigrations(store.database as never)
+        expect(store.completed.documents.map((entry) => entry._id)).toContain("backfill-spotify-client-id")
+    })
+
     test("does not record a failed cleanup and can retry it", async () => {
         const store = fixture()
         store.setFailDrop(true)
