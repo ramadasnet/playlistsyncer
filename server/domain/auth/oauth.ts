@@ -303,8 +303,8 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         }
         // Apple posts the person's name only on the first authorization. A later login has no new name, so the generic fallback must not replace the saved one.
         const displayName = provider === "apple" && !normalizeDisplayName(transaction.displayNameHint || "") && conflictingAccount?.displayName ? conflictingAccount.displayName : profile.displayName
-        // Save the Spotify app the account was authorized under, both for token refreshes and for the user limit.
-        if (provider === "spotify" && transaction.oauthClientId && !user.spotifyClientId) {
+        // Save the Spotify app the account was authorized under, both for token refreshes and for the user limit. A user reconnected through another app moves to it.
+        if (provider === "spotify" && transaction.oauthClientId && user.spotifyClientId !== transaction.oauthClientId) {
             await db.users.updateOne({_id: user._id}, {$set: {spotifyClientId: transaction.oauthClientId, updatedAt: now}})
             user.spotifyClientId = transaction.oauthClientId
         }
@@ -337,11 +337,15 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
         setCookie(event, spotifyClientCookie, transaction.oauthClientId, {...oauthCookieOptions, maxAge: 60 * 60 * 24 * 365})
     }
     logger.info("OAuth.finish", provider, `User ${user._id!.toHexString()}`, `Provider account ${profile.id}`, transaction.linkingUserId ? "Account linked" : "Login completed")
-    if (resolved.created) {
-        await sendUserEventWebhooks("user.registered", user)
-    }
-    if (!transaction.linkingUserId) {
-        await sendUserEventWebhooks("user.login", user)
+    if (resolved.created || !transaction.linkingUserId) {
+        // createSession only writes lastLoginAt to the database, so send the stored state.
+        const eventUser = (await db.users.findOne({_id: user._id})) ?? user
+        if (resolved.created) {
+            await sendUserEventWebhooks("user.registered", eventUser)
+        }
+        if (!transaction.linkingUserId) {
+            await sendUserEventWebhooks("user.login", eventUser)
+        }
     }
     // Sign in with Apple returns identity only. The account page continues into MusicKit for the music user token.
     if (provider === "apple" && !conflictingAccount?.musicUserToken) {

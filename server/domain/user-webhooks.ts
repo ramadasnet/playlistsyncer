@@ -20,7 +20,7 @@ function webhookUser(user: UserDocument) {
 }
 
 // POST the event payload to every configured webhook. Delivery failures are logged, never thrown,
-// so a broken receiver cannot block a registration, login, or deletion.
+// so a broken receiver cannot block a registration, login, or deletion. Retries are off so a slow receiver cannot delay them either.
 export async function sendUserEventWebhooks(event: UserEventType, user: UserDocument): Promise<void> {
     const urls = getServerConfig().userWebhookUrls
     if (!urls.length) {
@@ -30,7 +30,7 @@ export async function sendUserEventWebhooks(event: UserEventType, user: UserDocu
     await Promise.all(
         urls.map(async (url) => {
             try {
-                const response = await fetchWithRetry(url, {method: "POST", headers: {"Content-Type": "application/json"}, body}, {label: "UserWebhook.post", timeoutMs: 10_000})
+                const response = await fetchWithRetry(url, {method: "POST", headers: {"Content-Type": "application/json"}, body}, {label: "UserWebhook.post", timeoutMs: 10_000, maxRetries: 0})
                 if (!response.ok) {
                     logger.warn("UserWebhook.post", event, `User ${user._id?.toHexString()}`, url, `Status ${response.status}`)
                 }
