@@ -150,5 +150,6 @@ export async function deleteUserAccount(user: UserDocument): Promise<void> {
             throw error
         }
     })
-    await sendUserEventWebhooks("user.deleted", user)
+    // Fire-and-forget: a slow receiver must not delay the delete response.
+    void sendUserEventWebhooks("user.deleted", user)
 }

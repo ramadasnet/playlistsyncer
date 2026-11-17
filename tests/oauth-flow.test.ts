@@ -30,6 +30,13 @@ let spotifyProfile: Record<string, unknown> = {}
 const webhookCalls: {url: string; payload: Record<string, any>}[] = []
 const tokenExchangeAuthorizations: string[] = []
 
+// Webhooks are sent fire-and-forget, so assertions wait for the calls to land.
+async function waitForWebhooks(count: number) {
+    for (let attempt = 0; attempt < 200 && webhookCalls.length < count; attempt++) {
+        await Bun.sleep(5)
+    }
+}
+
 const app = h3.createApp()
 app.use(
     h3
@@ -425,6 +432,7 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         const browser = new Browser()
 
         expect((await browser.callback(await browser.begin())).status).toBe(200)
+        await waitForWebhooks(2)
         expect(webhookCalls.map((call) => call.payload.event)).toEqual(["user.registered", "user.login"])
         expect(webhookCalls[0]!.payload.user).toMatchObject({displayName: "Listener", spotifyClientId: "spotify-client"})
         const userId = await trackSessionUser(browser)
@@ -433,6 +441,7 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         webhookCalls.length = 0
         const again = new Browser()
         expect((await again.callback(await again.begin())).status).toBe(200)
+        await waitForWebhooks(1)
         expect(webhookCalls.map((call) => call.payload.event)).toEqual(["user.login"])
 
         // Linking an account from an existing session is not a fresh login.
@@ -442,12 +451,14 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         await linking.signIn(linkingUser)
         spotifyProfile = {...spotifyProfile, id: `listener-${new ObjectId().toHexString()}`}
         expect((await linking.callback(await linking.begin())).status).toBe(200)
+        await Bun.sleep(20)
         expect(webhookCalls).toHaveLength(0)
 
         // Account deletion posts the removed user's details.
         const {deleteUserAccount} = await import("../server/domain/accounts")
         const db = await collections()
         await deleteUserAccount((await db.users.findOne({_id: userId}))!)
+        await waitForWebhooks(1)
         expect(webhookCalls.map((call) => call.payload.event)).toEqual(["user.deleted"])
         expect(webhookCalls[0]!.payload.user.id).toBe(userId!.toHexString())
     })

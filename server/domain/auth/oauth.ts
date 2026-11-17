@@ -340,11 +340,12 @@ export async function finishOAuth(event: H3Event, provider: Provider, code: stri
     if (resolved.created || !transaction.linkingUserId) {
         // createSession only writes lastLoginAt to the database, so send the stored state.
         const eventUser = (await db.users.findOne({_id: user._id})) ?? user
+        // Fire-and-forget: a slow receiver must not delay the login redirect.
         if (resolved.created) {
-            await sendUserEventWebhooks("user.registered", eventUser)
+            void sendUserEventWebhooks("user.registered", eventUser)
         }
         if (!transaction.linkingUserId) {
-            await sendUserEventWebhooks("user.login", eventUser)
+            void sendUserEventWebhooks("user.login", eventUser)
         }
     }
     // Sign in with Apple returns identity only. The account page continues into MusicKit for the music user token.
