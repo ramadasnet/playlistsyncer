@@ -41,11 +41,12 @@ const migrations = [
         id: "backfill-spotify-client-id",
         async run(database: Db) {
             // Users from before the credential pool were all authorized under the primary app unless their account says otherwise.
+            // Extension connections never authorized an OAuth app, so they must not count against an app's user limit.
             const primaryClientId = getServerConfig().spotifyClientId
             const users = database.collection("users")
             const accounts = await database
                 .collection("providerAccounts")
-                .find({provider: "spotify"}, {projection: {userId: 1, oauthClientId: 1}})
+                .find({provider: "spotify", connection: {$ne: "extension"}}, {projection: {userId: 1, oauthClientId: 1}})
                 .toArray()
             let updated = 0
             for (const account of accounts) {

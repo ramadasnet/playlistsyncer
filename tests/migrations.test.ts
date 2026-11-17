@@ -8,6 +8,7 @@ function memoryCollection(documents: Document[] = []) {
     const matches = (document: Document, filter: Document) =>
         Object.entries(filter).every(([key, value]) => {
             if (value && typeof value === "object" && "$in" in value) return (value.$in as unknown[]).includes(document[key] ?? null)
+            if (value && typeof value === "object" && "$ne" in value) return document[key] !== value.$ne
             if (value && typeof value === "object" && "$gt" in value) return Number(document[key]) > Number(value.$gt)
             return document[key] === value
         })
@@ -45,13 +46,15 @@ function fixture() {
         {_id: "legacy-spotify"},
         {_id: "second-app", spotifyClientId: ""},
         {_id: "kept-app", spotifyClientId: "kept-client"},
-        {_id: "apple-only"}
+        {_id: "apple-only"},
+        {_id: "extension-only"}
     ])
     const providerAccounts = memoryCollection([
         {_id: "a", provider: "spotify", userId: "legacy-spotify"},
         {_id: "b", provider: "spotify", userId: "second-app", oauthClientId: "second-client"},
         {_id: "c", provider: "spotify", userId: "kept-app", oauthClientId: "other-client"},
-        {_id: "d", provider: "apple", userId: "apple-only"}
+        {_id: "d", provider: "apple", userId: "apple-only"},
+        {_id: "e", provider: "spotify", userId: "extension-only", connection: "extension"}
     ])
     const tasks = memoryCollection([
         {_id: "locked", status: "paused", pauseReason: "entitlement", nextRunAt: tomorrow},
@@ -98,7 +101,7 @@ describe("database maintenance", () => {
         const store = fixture()
         await runMigrations(store.database as never)
 
-        const [listener, legacySpotify, secondApp, keptApp, appleOnly] = store.users.documents
+        const [listener, legacySpotify, secondApp, keptApp, appleOnly, extensionOnly] = store.users.documents
         expect(listener).toEqual({_id: "listener", email: "listener@example.com", weeklySyncSummaryEnabled: true})
         const [locked, paused, scheduled, due] = store.tasks.documents
         expect(locked).toMatchObject({status: "active"})
@@ -112,6 +115,7 @@ describe("database maintenance", () => {
         expect(secondApp?.spotifyClientId).toBe("second-client")
         expect(keptApp?.spotifyClientId).toBe("kept-client")
         expect(appleOnly).not.toHaveProperty("spotifyClientId")
+        expect(extensionOnly).not.toHaveProperty("spotifyClientId")
 
         locked!.status = "paused"
         locked!.pauseReason = "user"
