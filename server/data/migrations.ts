@@ -36,6 +36,31 @@ const migrations = [
             }
             logger.info("Database.migrate", `Unlocked tasks ${resumed.modifiedCount}`, `Cleaned users ${users.modifiedCount}`)
         }
+    },
+    {
+        id: "backfill-spotify-client-id",
+        async run(database: Db) {
+            // Users from before the credential pool were all authorized under the primary app unless their account says otherwise.
+            // Extension connections never authorized an OAuth app, so they must not count against an app's user limit.
+            const primaryClientId = getServerConfig().spotifyClientId
+            const users = database.collection("users")
+            const accounts = await database
+                .collection("providerAccounts")
+                .find({provider: "spotify", connection: {$ne: "extension"}}, {projection: {userId: 1, oauthClientId: 1}})
+                .toArray()
+            let updated = 0
+            for (const account of accounts) {
+                const clientId = account.oauthClientId || primaryClientId
+                if (!clientId) continue
+                // Token refreshes read the account's own app, so a legacy account must keep the app it was authorized under if the primary changes later.
+                if (!account.oauthClientId) {
+                    await database.collection("providerAccounts").updateOne({_id: account._id, oauthClientId: {$in: [null, ""]}}, {$set: {oauthClientId: clientId}})
+                }
+                const result = await users.updateOne({_id: account.userId, spotifyClientId: {$in: [null, ""]}}, {$set: {spotifyClientId: clientId}})
+                updated += result.modifiedCount
+            }
+            logger.info("Database.migrate", `Spotify users ${accounts.length}`, `Assigned to an app ${updated}`)
+        }
     }
 ]
 

@@ -23,6 +23,32 @@ const urlList = z.preprocess(
             : value,
     z.array(z.url({protocol: /^https$/})).default([])
 )
+// User event webhooks may point at internal receivers, so plain http is allowed.
+const webhookUrlList = z.preprocess(
+    (value) =>
+        typeof value === "string"
+            ? value
+                  .split(",")
+                  .map((url) => url.trim())
+                  .filter(Boolean)
+            : value,
+    z.array(z.url({protocol: /^https?$/})).default([])
+)
+// Additional Spotify app credentials as clientId:clientSecret pairs, comma-separated.
+const spotifyCredentialPairs = z.preprocess(
+    (value) =>
+        typeof value === "string"
+            ? value
+                  .split(",")
+                  .map((pair) => pair.trim())
+                  .filter(Boolean)
+                  .map((pair) => {
+                      const separator = pair.indexOf(":")
+                      return {clientId: pair.slice(0, separator < 0 ? undefined : separator).trim(), clientSecret: (separator < 0 ? "" : pair.slice(separator + 1)).trim()}
+                  })
+            : value,
+    z.array(z.object({clientId: z.string().min(1), clientSecret: z.string().min(1)})).default([])
+)
 const optionalPort = z.preprocess((value) => (value === "" || value === undefined || value === null ? 465 : value), z.coerce.number().int().min(1).max(65535))
 const booleanFlag = z.preprocess((value) => {
     const parsed = parseBooleanEnvFlag(value)
@@ -48,6 +74,8 @@ const serverConfigSchema = z.object({
     schedulerSecret: optionalCredential,
     spotifyClientId: optionalCredential,
     spotifyClientSecret: optionalCredential,
+    spotifyCredentials: spotifyCredentialPairs,
+    spotifyMaxUsersPerApp: z.preprocess((value) => (value === "" || value === undefined || value === null ? 5 : value), z.coerce.number().int().min(1)),
     googleClientId: optionalCredential,
     googleClientSecret: optionalCredential,
     amazonClientId: optionalCredential,
@@ -76,6 +104,7 @@ const serverConfigSchema = z.object({
     smtpFrom: optionalCredential,
     safeMode: booleanFlag,
     extensionRedirectUris: urlList,
+    userWebhookUrls: webhookUrlList,
     // Seconds a stopping process waits for in-flight sync runs; keep it below the container's stop grace period.
     shutdownTimeoutSeconds: z.coerce.number().int().min(1).default(8)
 })
@@ -106,6 +135,8 @@ export function getServerConfig(): ServerConfig {
             schedulerSecret: process.env.PLS_SCHEDULER_SECRET,
             spotifyClientId: process.env.PLS_SPOTIFY_CLIENT_ID,
             spotifyClientSecret: process.env.PLS_SPOTIFY_CLIENT_SECRET,
+            spotifyCredentials: process.env.PLS_SPOTIFY_CREDENTIALS,
+            spotifyMaxUsersPerApp: process.env.PLS_SPOTIFY_MAX_USERS_PER_APP,
             googleClientId: process.env.PLS_GOOGLE_CLIENT_ID,
             googleClientSecret: process.env.PLS_GOOGLE_CLIENT_SECRET,
             amazonClientId: process.env.PLS_AMAZON_CLIENT_ID,
@@ -134,6 +165,7 @@ export function getServerConfig(): ServerConfig {
             smtpFrom: process.env.PLS_SMTP_FROM,
             safeMode: process.env.PLS_SAFE_MODE,
             extensionRedirectUris: process.env.PLS_EXTENSION_REDIRECT_URIS,
+            userWebhookUrls: process.env.PLS_USER_WEBHOOK_URLS,
             shutdownTimeoutSeconds: process.env.PLS_SHUTDOWN_TIMEOUT_SECONDS
         })
     }

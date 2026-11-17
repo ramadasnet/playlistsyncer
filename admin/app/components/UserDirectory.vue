@@ -164,6 +164,8 @@ async function remove() {
                     <dd><DateLabel :value="detail.user.lastLoginAt" /></dd>
                     <dt>Pending email</dt>
                     <dd>{{ detail.user.pendingEmail || "None" }}</dd>
+                    <dt>Spotify app</dt>
+                    <dd>{{ detail.user.spotifyClientId || "—" }}</dd>
                     <dt>Connected accounts</dt>
                     <dd>
                         <span v-for="account in detail.accounts" :key="account.id" class="cell-secondary">{{ account.provider }} / {{ account.displayName }}</span

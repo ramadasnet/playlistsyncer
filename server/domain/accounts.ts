@@ -11,6 +11,7 @@ import {getAccountAdapter} from "./providers"
 import {isProviderEnabled} from "../utils/provider-availability"
 import {withUserLock} from "../utils/user-lock"
 import logger from "../utils/logger"
+import {sendUserEventWebhooks} from "./user-webhooks"
 
 // A deletion flag this old means the deleting process died, so it must not block the user forever.
 export const userDeletionFlagTtlMs = 10 * 60 * 1000
@@ -149,4 +150,6 @@ export async function deleteUserAccount(user: UserDocument): Promise<void> {
             throw error
         }
     })
+    // Fire-and-forget: a slow receiver must not delay the delete response.
+    void sendUserEventWebhooks("user.deleted", user)
 }

@@ -1,12 +1,14 @@
 import {describe, expect, test} from "bun:test"
 import {runMigrations} from "../server/data/migrations"
+import {getServerConfig} from "../server/utils/config"
 
 type Document = Record<string, unknown>
 
 function memoryCollection(documents: Document[] = []) {
     const matches = (document: Document, filter: Document) =>
         Object.entries(filter).every(([key, value]) => {
-            if (value && typeof value === "object" && "$in" in value) return (value.$in as unknown[]).includes(document[key])
+            if (value && typeof value === "object" && "$in" in value) return (value.$in as unknown[]).includes(document[key] ?? null)
+            if (value && typeof value === "object" && "$ne" in value) return document[key] !== value.$ne
             if (value && typeof value === "object" && "$gt" in value) return Number(document[key]) > Number(value.$gt)
             return document[key] === value
         })
@@ -22,21 +24,38 @@ function memoryCollection(documents: Document[] = []) {
             matching.forEach((document) => apply(document, update))
             return {modifiedCount: matching.length}
         },
-        async updateOne(filter: Document, update: {$set?: Document}, options: {upsert?: boolean}) {
+        find: (filter: Document) => ({toArray: async () => documents.filter((document) => matches(document, filter))}),
+        async updateOne(filter: Document, update: {$set?: Document}, options?: {upsert?: boolean}) {
             let document = documents.find((document) => matches(document, filter))
-            if (!document && options.upsert) {
+            if (!document && options?.upsert) {
                 document = {...filter}
                 documents.push(document)
             }
             if (document) apply(document, update)
+            return {modifiedCount: document ? 1 : 0}
         }
     }
 }
 
 function fixture() {
+    Object.assign(getServerConfig(), {spotifyClientId: "primary-client"})
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
     const due = new Date(Date.now() - 60_000)
-    const users = memoryCollection([{_id: "listener", tier: "free", creemCustomerId: "customer", creemSubscriptionId: "subscription", email: "listener@example.com", weeklySyncSummaryEnabled: true}])
+    const users = memoryCollection([
+        {_id: "listener", tier: "free", creemCustomerId: "customer", creemSubscriptionId: "subscription", email: "listener@example.com", weeklySyncSummaryEnabled: true},
+        {_id: "legacy-spotify"},
+        {_id: "second-app", spotifyClientId: ""},
+        {_id: "kept-app", spotifyClientId: "kept-client"},
+        {_id: "apple-only"},
+        {_id: "extension-only"}
+    ])
+    const providerAccounts = memoryCollection([
+        {_id: "a", provider: "spotify", userId: "legacy-spotify"},
+        {_id: "b", provider: "spotify", userId: "second-app", oauthClientId: "second-client"},
+        {_id: "c", provider: "spotify", userId: "kept-app", oauthClientId: "other-client"},
+        {_id: "d", provider: "apple", userId: "apple-only"},
+        {_id: "e", provider: "spotify", userId: "extension-only", connection: "extension"}
+    ])
     const tasks = memoryCollection([
         {_id: "locked", status: "paused", pauseReason: "entitlement", nextRunAt: tomorrow},
         {_id: "paused", status: "paused", pauseReason: "user", nextRunAt: tomorrow},
@@ -50,6 +69,7 @@ function fixture() {
         collection: (name: string) => {
             if (name === "users") return users
             if (name === "syncTasks") return tasks
+            if (name === "providerAccounts") return providerAccounts
             if (name === "migrations") return completed
             if (name === "webhookEvents")
                 return {
@@ -65,6 +85,7 @@ function fixture() {
     return {
         database,
         users,
+        providerAccounts,
         tasks,
         completed,
         due,
@@ -81,7 +102,8 @@ describe("database maintenance", () => {
         const store = fixture()
         await runMigrations(store.database as never)
 
-        expect(store.users.documents[0]).toEqual({_id: "listener", email: "listener@example.com", weeklySyncSummaryEnabled: true})
+        const [listener, legacySpotify, secondApp, keptApp, appleOnly, extensionOnly] = store.users.documents
+        expect(listener).toEqual({_id: "listener", email: "listener@example.com", weeklySyncSummaryEnabled: true})
         const [locked, paused, scheduled, due] = store.tasks.documents
         expect(locked).toMatchObject({status: "active"})
         expect(locked).not.toHaveProperty("pauseReason")
@@ -89,7 +111,13 @@ describe("database maintenance", () => {
         expect(Number(scheduled?.nextRunAt)).toBeLessThan(store.tomorrow.getTime())
         expect(due?.nextRunAt).toBe(store.due)
         expect(store.webhookExists()).toBe(false)
-        expect(store.completed.documents).toHaveLength(1)
+        expect(store.completed.documents).toHaveLength(2)
+        expect(legacySpotify?.spotifyClientId).toBe("primary-client")
+        expect(store.providerAccounts.documents.map((account) => account.oauthClientId)).toEqual(expect.arrayContaining(["primary-client", "second-client", "other-client"]))
+        expect(secondApp?.spotifyClientId).toBe("second-client")
+        expect(keptApp?.spotifyClientId).toBe("kept-client")
+        expect(appleOnly).not.toHaveProperty("spotifyClientId")
+        expect(extensionOnly).not.toHaveProperty("spotifyClientId")
 
         locked!.status = "paused"
         locked!.pauseReason = "user"
@@ -106,6 +134,6 @@ describe("database maintenance", () => {
         store.setFailDrop(false)
         await runMigrations(store.database as never)
         expect(store.webhookExists()).toBe(false)
-        expect(store.completed.documents).toHaveLength(1)
+        expect(store.completed.documents).toHaveLength(2)
     })
 })

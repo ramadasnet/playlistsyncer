@@ -154,6 +154,30 @@ describe("server configuration", () => {
         expect(() => parseServerConfig({safeMode: "maybe"})).toThrow()
     })
 
+    test("parses the Spotify credential pool and per-app user limit", () => {
+        const defaults = parseServerConfig({})
+        expect(defaults.spotifyCredentials).toEqual([])
+        expect(defaults.spotifyMaxUsersPerApp).toBe(5)
+
+        const config = parseServerConfig({spotifyCredentials: " second-id:second-secret , third-id:third-secret", spotifyMaxUsersPerApp: "25"})
+        expect(config.spotifyCredentials).toEqual([
+            {clientId: "second-id", clientSecret: "second-secret"},
+            {clientId: "third-id", clientSecret: "third-secret"}
+        ])
+        expect(config.spotifyMaxUsersPerApp).toBe(25)
+        expect(() => parseServerConfig({spotifyCredentials: "id-without-secret"})).toThrow()
+        expect(() => parseServerConfig({spotifyCredentials: ":secret-only"})).toThrow()
+        expect(() => parseServerConfig({spotifyMaxUsersPerApp: "0"})).toThrow()
+    })
+
+    test("parses user webhook URLs over http and https", () => {
+        expect(parseServerConfig({}).userWebhookUrls).toEqual([])
+        const config = parseServerConfig({userWebhookUrls: "https://example.com/hook, http://internal:9000/hook"})
+        expect(config.userWebhookUrls).toEqual(["https://example.com/hook", "http://internal:9000/hook"])
+        expect(() => parseServerConfig({userWebhookUrls: "ftp://example.com"})).toThrow()
+        expect(() => parseServerConfig({userWebhookUrls: "not-a-url"})).toThrow()
+    })
+
     test("resolves PLS_SAFE_MODE for the public header flag", () => {
         expect(resolvePublicSafeMode({})).toBe(false)
         expect(resolvePublicSafeMode({PLS_SAFE_MODE: "true"})).toBe(true)
