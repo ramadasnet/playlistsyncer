@@ -42,16 +42,19 @@ const migrations = [
         async run(database: Db) {
             // Users from before the credential pool were all authorized under the primary app unless their account says otherwise.
             // Extension connections never authorized an OAuth app, so they must not count against an app's user limit.
-            const primaryClientId = getServerConfig().spotifyClientId
+            const primaryClientId = getServerConfig().spotifyCredentials[0]?.clientId
             const users = database.collection("users")
             const accounts = await database
                 .collection("providerAccounts")
                 .find({provider: "spotify", connection: {$ne: "extension"}}, {projection: {userId: 1, oauthClientId: 1}})
                 .toArray()
+            // Without a configured app these accounts cannot be assigned, and recording the migration would leave them out for good.
+            if (!primaryClientId && accounts.some((account) => !account.oauthClientId)) {
+                throw new Error("Configure PLS_SPOTIFY_CREDENTIALS before running this migration: Spotify accounts without a recorded app need one")
+            }
             let updated = 0
             for (const account of accounts) {
-                const clientId = account.oauthClientId || primaryClientId
-                if (!clientId) continue
+                const clientId = account.oauthClientId || primaryClientId!
                 // Token refreshes read the account's own app, so a legacy account must keep the app it was authorized under if the primary changes later.
                 if (!account.oauthClientId) {
                     await database.collection("providerAccounts").updateOne({_id: account._id, oauthClientId: {$in: [null, ""]}}, {$set: {oauthClientId: clientId}})

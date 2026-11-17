@@ -150,8 +150,8 @@ Application settings use the `PLS_` prefix.
 | `PLS_SMTP_PASSWORD`                      | SMTP authentication password.                                                                                                               | Unset                                                                               |
 | `PLS_SMTP_FROM`                          | Sender name and address for outgoing mail.                                                                                                  | `PlaylistSyncer <PLS_SUPPORT_EMAIL>`                                                |
 | `PLS_TASKSYNC_INTERVAL`                  | Minutes after a successful sync until the next automatic run is due; also controls the public cadence label. Must be a positive integer.    | `720` (12 hours)                                                                    |
-| `PLS_SPOTIFY_CLIENT_ID`                  | Spotify OAuth client ID.                                                                                                                    | Unset                                                                               |
-| `PLS_SPOTIFY_CLIENT_SECRET`              | Spotify OAuth client secret.                                                                                                                | Unset                                                                               |
+| `PLS_SPOTIFY_CREDENTIALS`                | Comma-separated Spotify `clientId:clientSecret` pairs, in app selection order.                                                              | Unset                                                                               |
+| `PLS_SPOTIFY_MAX_USERS_PER_APP`          | Registered users per Spotify app before new registrations move to the next configured pair.                                                 | `5`                                                                                 |
 | `PLS_GOOGLE_CLIENT_ID`                   | Google OAuth client ID for YouTube.                                                                                                         | Unset                                                                               |
 | `PLS_GOOGLE_CLIENT_SECRET`               | Google OAuth client secret for YouTube.                                                                                                     | Unset                                                                               |
 | `PLS_TIDAL_CLIENT_ID`                    | TIDAL OAuth client ID.                                                                                                                      | Unset                                                                               |
@@ -192,9 +192,17 @@ Some of the environment variables are optional, and will dictate which features 
 
 ### Spotify
 
-Create a Spotify Web API app and supply `PLS_SPOTIFY_CLIENT_ID` and `PLS_SPOTIFY_CLIENT_SECRET`.
+Create a Spotify Web API app and set `PLS_SPOTIFY_CREDENTIALS` to its `clientId:clientSecret` pair. For multiple apps, separate the pairs with commas:
 
-Register this redirect URI exactly:
+```dotenv
+PLS_SPOTIFY_CREDENTIALS=client-id-1:client-secret-1,client-id-2:client-secret-2
+```
+
+The first pair is the default app. New registrations move to the next pair once an app reaches `PLS_SPOTIFY_MAX_USERS_PER_APP` (default `5`); returning users keep their assigned app. Without any pairs, Spotify is disabled.
+
+The separate `PLS_SPOTIFY_CLIENT_ID` and `PLS_SPOTIFY_CLIENT_SECRET` settings are no longer read. When upgrading, put that existing pair first in `PLS_SPOTIFY_CREDENTIALS`, followed by any additional apps. Keep the same client IDs and secrets so existing accounts can still log in and refresh tokens; legacy accounts without an app assignment use the first pair.
+
+Register this redirect URI exactly in every Spotify app:
 
 ```text
 ${PLS_APP_URL}/api/auth/spotify/callback

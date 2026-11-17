@@ -6,8 +6,7 @@ import {fetchRetryDefaults} from "../server/utils/fetch-retry"
 
 const originalFetch = globalThis.fetch
 const config = getServerConfig()
-const originalClientId = config.spotifyClientId
-const originalClientSecret = config.spotifyClientSecret
+const originalSpotifyCredentials = config.spotifyCredentials
 const originalSoundCloudClientId = config.soundcloudClientId
 const originalSoundCloudClientSecret = config.soundcloudClientSecret
 const originalAmazonClientId = config.amazonClientId
@@ -17,16 +16,14 @@ const fetchMock = mock(async (): Promise<Response> => new Response(JSON.stringif
 
 describe("OAuth provider profile requests", () => {
     beforeEach(() => {
-        config.spotifyClientId = "test-client-id"
-        config.spotifyClientSecret = "test-client-secret"
+        config.spotifyCredentials = [{clientId: "test-client-id", clientSecret: "test-client-secret"}]
         globalThis.fetch = fetchMock as typeof fetch
         fetchMock.mockReset()
         Object.assign(fetchRetryDefaults, {baseDelayMs: 0, maxDelayMs: 0})
     })
 
     afterAll(() => {
-        config.spotifyClientId = originalClientId
-        config.spotifyClientSecret = originalClientSecret
+        config.spotifyCredentials = originalSpotifyCredentials
         config.soundcloudClientId = originalSoundCloudClientId
         config.soundcloudClientSecret = originalSoundCloudClientSecret
         config.amazonClientId = originalAmazonClientId

@@ -34,7 +34,7 @@ const webhookUrlList = z.preprocess(
             : value,
     z.array(z.url({protocol: /^https?$/})).default([])
 )
-// Additional Spotify app credentials as clientId:clientSecret pairs, comma-separated.
+// Spotify app credentials as clientId:clientSecret pairs, comma-separated and in selection order.
 const spotifyCredentialPairs = z.preprocess(
     (value) =>
         typeof value === "string"
@@ -72,8 +72,6 @@ const serverConfigSchema = z.object({
     sessionSecret: optionalCredential,
     tokenEncryptionKey: optionalCredential,
     schedulerSecret: optionalCredential,
-    spotifyClientId: optionalCredential,
-    spotifyClientSecret: optionalCredential,
     spotifyCredentials: spotifyCredentialPairs,
     spotifyMaxUsersPerApp: z.preprocess((value) => (value === "" || value === undefined || value === null ? 5 : value), z.coerce.number().int().min(1)),
     googleClientId: optionalCredential,
@@ -133,8 +131,6 @@ export function getServerConfig(): ServerConfig {
             sessionSecret: process.env.PLS_SESSION_SECRET,
             tokenEncryptionKey: process.env.PLS_TOKEN_ENCRYPTION_KEY,
             schedulerSecret: process.env.PLS_SCHEDULER_SECRET,
-            spotifyClientId: process.env.PLS_SPOTIFY_CLIENT_ID,
-            spotifyClientSecret: process.env.PLS_SPOTIFY_CLIENT_SECRET,
             spotifyCredentials: process.env.PLS_SPOTIFY_CREDENTIALS,
             spotifyMaxUsersPerApp: process.env.PLS_SPOTIFY_MAX_USERS_PER_APP,
             googleClientId: process.env.PLS_GOOGLE_CLIENT_ID,
