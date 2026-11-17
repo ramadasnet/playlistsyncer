@@ -17,12 +17,10 @@ afterAll(() => {
 })
 
 describe("spotify credential pool", () => {
-    test("leads with the primary pair and deduplicates by client ID", () => {
+    test("preserves configured order and keeps the first pair for each client ID", () => {
         const pool = spotifyCredentialPool(
             parseServerConfig({
-                spotifyClientId: "primary-id",
-                spotifyClientSecret: "primary-secret",
-                spotifyCredentials: "primary-id:other-secret, second-id:second-secret"
+                spotifyCredentials: "primary-id:primary-secret, second-id:second-secret, primary-id:other-secret"
             })
         )
         expect(pool).toEqual([
@@ -37,7 +35,10 @@ describe("spotify credential pool", () => {
     })
 
     test("resolves the requested app credentials for OAuth", () => {
-        Object.assign(config, {spotifyClientId: "primary-id", spotifyClientSecret: "primary-secret", spotifyCredentials: [{clientId: "second-id", clientSecret: "second-secret"}]})
+        config.spotifyCredentials = [
+            {clientId: "primary-id", clientSecret: "primary-secret"},
+            {clientId: "second-id", clientSecret: "second-secret"}
+        ]
 
         expect(getOAuthProvider("spotify").clientId).toBe("primary-id")
         expect(getOAuthProvider("spotify", "second-id")).toMatchObject({clientId: "second-id", clientSecret: "second-secret"})

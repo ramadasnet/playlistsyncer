@@ -38,7 +38,7 @@ function memoryCollection(documents: Document[] = []) {
 }
 
 function fixture() {
-    Object.assign(getServerConfig(), {spotifyClientId: "primary-client"})
+    Object.assign(getServerConfig(), {spotifyCredentials: [{clientId: "primary-client", clientSecret: "primary-secret"}]})
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
     const due = new Date(Date.now() - 60_000)
     const users = memoryCollection([

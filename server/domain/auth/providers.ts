@@ -73,13 +73,11 @@ function profileDisplayName(fallback: string, ...names: (string | undefined)[]):
     return names.map((name) => name?.trim()).find(Boolean) || fallback
 }
 
-const oauthProviders: Record<Provider, OAuthProvider> = {
+const oauthProviders: Record<Exclude<Provider, "spotify">, OAuthProvider> & {spotify: Omit<OAuthProvider, "clientIdKey" | "clientSecretKey">} = {
     spotify: {
         authorizeUrl: "https://accounts.spotify.com/authorize",
         tokenUrl: "https://accounts.spotify.com/api/token",
         scopes: ["user-read-email", "playlist-read-private", "playlist-read-collaborative", "playlist-modify-private", "playlist-modify-public"],
-        clientIdKey: "spotifyClientId",
-        clientSecretKey: "spotifyClientSecret",
         tokenAuth: "basic",
         async fetchProfile(accessToken) {
             const profile = await fetchJson<{
@@ -238,12 +236,9 @@ export interface SpotifyAppCredentials {
 }
 
 // Spotify dev apps cap the registered users, so several apps can be pooled and rotated.
-// The primary PLS_SPOTIFY_CLIENT_ID/SECRET pair always leads the pool.
+// The first pair in PLS_SPOTIFY_CREDENTIALS leads the pool.
 export function spotifyCredentialPool(config: ServerConfig = getServerConfig()): SpotifyAppCredentials[] {
     const pool: SpotifyAppCredentials[] = []
-    if (config.spotifyClientId && config.spotifyClientSecret) {
-        pool.push({clientId: config.spotifyClientId, clientSecret: config.spotifyClientSecret})
-    }
     for (const entry of config.spotifyCredentials) {
         if (!pool.some((existing) => existing.clientId === entry.clientId)) {
             pool.push(entry)
@@ -253,16 +248,16 @@ export function spotifyCredentialPool(config: ServerConfig = getServerConfig()):
 }
 
 // Resolve an OAuth definition with its configured client credentials. A Spotify clientId picks that app from the pool.
-export function getOAuthProvider(provider: Provider, oauthClientId?: string): OAuthProvider & {clientId: string; clientSecret: string} {
-    const definition = oauthProviders[provider]
+export function getOAuthProvider(provider: Provider, oauthClientId?: string): Omit<OAuthProvider, "clientIdKey" | "clientSecretKey"> & {clientId: string; clientSecret: string} {
     if (provider === "spotify") {
         const pool = spotifyCredentialPool()
         const credentials = oauthClientId ? pool.find((entry) => entry.clientId === oauthClientId) : pool[0]
         if (!credentials) {
-            throw createError({statusCode: 503, statusMessage: "Missing required configuration: spotifyClientId"})
+            throw createError({statusCode: 503, statusMessage: "Missing required configuration: PLS_SPOTIFY_CREDENTIALS"})
         }
-        return {...definition, clientId: credentials.clientId, clientSecret: credentials.clientSecret}
+        return {...oauthProviders.spotify, clientId: credentials.clientId, clientSecret: credentials.clientSecret}
     }
+    const definition = oauthProviders[provider]
     return {
         ...definition,
         clientId: requireConfig(definition.clientIdKey) as string,

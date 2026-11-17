@@ -42,7 +42,7 @@ async function pickSpotifyCredentials(preferredClientId?: string): Promise<Spoti
     const config = getServerConfig()
     const pool = spotifyCredentialPool(config)
     if (!pool.length) {
-        throw createError({statusCode: 503, statusMessage: "Missing required configuration: spotifyClientId"})
+        throw createError({statusCode: 503, statusMessage: "Missing required configuration: PLS_SPOTIFY_CREDENTIALS"})
     }
     const preferred = preferredClientId ? pool.find((entry) => entry.clientId === preferredClientId) : undefined
     if (preferred) {

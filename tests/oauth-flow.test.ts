@@ -139,9 +139,7 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
         await ensureIndexes()
         Object.assign(config, {
             appUrl: baseUrl,
-            spotifyClientId: "spotify-client",
-            spotifyClientSecret: "spotify-secret",
-            spotifyCredentials: [],
+            spotifyCredentials: [{clientId: "spotify-client", clientSecret: "spotify-secret"}],
             spotifyMaxUsersPerApp: 5,
             userWebhookUrls: [],
             sessionSecret: config.sessionSecret || "oauth-flow-session",
@@ -384,7 +382,8 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
     })
 
     test("registers new users under the first Spotify app until its limit, then rotates", async () => {
-        Object.assign(config, {spotifyCredentials: [{clientId: "spotify-client-2", clientSecret: "spotify-secret-2"}], spotifyMaxUsersPerApp: 1})
+        config.spotifyCredentials.push({clientId: "spotify-client-2", clientSecret: "spotify-secret-2"})
+        config.spotifyMaxUsersPerApp = 1
         const db = await collections()
         // Users from earlier tests already hold the first app; drop the field so the limit starts clean.
         await db.users.updateMany({}, {$unset: {spotifyClientId: ""}})
@@ -412,7 +411,8 @@ describe.skipIf(!mongoUri)("OAuth callback binding against MongoDB", () => {
     })
 
     test("reuses the browser's Spotify app on the next login and the linking user's app", async () => {
-        Object.assign(config, {spotifyCredentials: [{clientId: "spotify-client-2", clientSecret: "spotify-secret-2"}], spotifyMaxUsersPerApp: 1})
+        config.spotifyCredentials.push({clientId: "spotify-client-2", clientSecret: "spotify-secret-2"})
+        config.spotifyMaxUsersPerApp = 1
         const db = await collections()
         await db.users.updateMany({}, {$unset: {spotifyClientId: ""}})
         const first = new Browser()

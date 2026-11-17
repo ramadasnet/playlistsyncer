@@ -12,9 +12,9 @@ const productionValues = {
 
 describe("server configuration", () => {
     test("treats blank optional credentials as unconfigured", () => {
-        const config = parseServerConfig({spotifyClientId: "", tokenEncryptionKey: ""})
+        const config = parseServerConfig({spotifyCredentials: "", tokenEncryptionKey: ""})
 
-        expect(config.spotifyClientId).toBeUndefined()
+        expect(config.spotifyCredentials).toEqual([])
         expect(config.tokenEncryptionKey).toBeUndefined()
         expect(config.mongodbDatabase).toBe("playlistsyncer")
         expect(config.smtpHost).toBe("smtp.mx.cloudflare.net")

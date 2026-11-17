@@ -42,7 +42,7 @@ const migrations = [
         async run(database: Db) {
             // Users from before the credential pool were all authorized under the primary app unless their account says otherwise.
             // Extension connections never authorized an OAuth app, so they must not count against an app's user limit.
-            const primaryClientId = getServerConfig().spotifyClientId
+            const primaryClientId = getServerConfig().spotifyCredentials[0]?.clientId
             const users = database.collection("users")
             const accounts = await database
                 .collection("providerAccounts")
