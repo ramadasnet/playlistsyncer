@@ -19,6 +19,12 @@ function webhookUser(user: UserDocument) {
     }
 }
 
+// Log the host and path only, so a secret in the query string stays out of the logs.
+function webhookTarget(url: string): string {
+    const parsed = new URL(url)
+    return `${parsed.hostname}${parsed.pathname}`
+}
+
 // POST the event payload to every configured webhook. Delivery failures are logged, never thrown,
 // so a broken receiver cannot block a registration, login, or deletion. Retries are off so a slow receiver cannot delay them either.
 export async function sendUserEventWebhooks(event: UserEventType, user: UserDocument): Promise<void> {
@@ -32,10 +38,10 @@ export async function sendUserEventWebhooks(event: UserEventType, user: UserDocu
             try {
                 const response = await fetchWithRetry(url, {method: "POST", headers: {"Content-Type": "application/json"}, body}, {label: "UserWebhook.post", timeoutMs: 10_000, maxRetries: 0})
                 if (!response.ok) {
-                    logger.warn("UserWebhook.post", event, `User ${user._id?.toHexString()}`, url, `Status ${response.status}`)
+                    logger.warn("UserWebhook.post", event, `User ${user._id?.toHexString()}`, webhookTarget(url), `Status ${response.status}`)
                 }
             } catch (error) {
-                logger.warn("UserWebhook.post", event, `User ${user._id?.toHexString()}`, url, error)
+                logger.warn("UserWebhook.post", event, `User ${user._id?.toHexString()}`, webhookTarget(url), error)
             }
         })
     )

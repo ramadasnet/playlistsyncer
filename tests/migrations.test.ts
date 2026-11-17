@@ -85,6 +85,7 @@ function fixture() {
     return {
         database,
         users,
+        providerAccounts,
         tasks,
         completed,
         due,
@@ -112,6 +113,7 @@ describe("database maintenance", () => {
         expect(store.webhookExists()).toBe(false)
         expect(store.completed.documents).toHaveLength(2)
         expect(legacySpotify?.spotifyClientId).toBe("primary-client")
+        expect(store.providerAccounts.documents.map((account) => account.oauthClientId)).toEqual(expect.arrayContaining(["primary-client", "second-client", "other-client"]))
         expect(secondApp?.spotifyClientId).toBe("second-client")
         expect(keptApp?.spotifyClientId).toBe("kept-client")
         expect(appleOnly).not.toHaveProperty("spotifyClientId")

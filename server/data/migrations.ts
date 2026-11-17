@@ -52,6 +52,10 @@ const migrations = [
             for (const account of accounts) {
                 const clientId = account.oauthClientId || primaryClientId
                 if (!clientId) continue
+                // Token refreshes read the account's own app, so a legacy account must keep the app it was authorized under if the primary changes later.
+                if (!account.oauthClientId) {
+                    await database.collection("providerAccounts").updateOne({_id: account._id, oauthClientId: {$in: [null, ""]}}, {$set: {oauthClientId: clientId}})
+                }
                 const result = await users.updateOne({_id: account.userId, spotifyClientId: {$in: [null, ""]}}, {$set: {spotifyClientId: clientId}})
                 updated += result.modifiedCount
             }
