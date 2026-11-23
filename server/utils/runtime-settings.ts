@@ -54,7 +54,7 @@ type SettingKey = FieldKeys<(typeof settingGroups)[number]>
 const settingKeys = settingGroups.flatMap(({fields}) => Object.keys(fields)) as SettingKey[]
 const settingsSchema = z.partialRecord(z.enum(settingKeys), z.string())
 export const settingsUpdateSchema = z.strictObject({
-    revision: z.uuid(),
+    revision: z.uuid().nullable(),
     changes: z.partialRecord(z.enum(settingKeys), z.string().max(16_384).nullable()).refine((changes) => Object.keys(changes).length > 0)
 })
 type Settings = z.infer<typeof settingsSchema>
@@ -99,27 +99,7 @@ async function settingsCollection() {
 }
 
 async function readSettingsDocument() {
-    const key = settingsEncryptionKey()
-    const collection = await settingsCollection()
-    const existing = await collection.findOne({_id: settingsId})
-    if (existing) return existing
-
-    const environment = getEnvironmentConfig()
-    const values: Settings = {}
-    for (const name of settingKeys) {
-        if (environment[name] !== undefined) values[name] = environment[name]
-    }
-    mergeRuntimeSettings(values, environment)
-    const encrypted = await encryptSecret(JSON.stringify(values), key)
-    try {
-        const seeded = await collection.findOneAndUpdate({_id: settingsId}, {$setOnInsert: {revision: randomUUID(), encrypted}}, {upsert: true, returnDocument: "after"})
-        if (seeded) return seeded
-    } catch (error) {
-        if (typeof error !== "object" || !error || !("code" in error) || error.code !== 11000) throw error
-    }
-    const seeded = await collection.findOne({_id: settingsId})
-    if (!seeded) throw new Error("Application settings could not be initialized")
-    return seeded
+    return (await settingsCollection()).findOne({_id: settingsId})
 }
 
 async function decodeSettings(document: SettingsDocument): Promise<Settings> {
@@ -131,7 +111,7 @@ async function decodeSettings(document: SettingsDocument): Promise<Settings> {
 
 export async function readRuntimeSettings() {
     const document = await readSettingsDocument()
-    return {revision: document.revision, values: await decodeSettings(document)}
+    return {revision: document?.revision ?? null, values: document ? await decodeSettings(document) : {}}
 }
 
 export async function updateRuntimeSettings({revision, changes}: SettingsUpdate) {
@@ -146,8 +126,17 @@ export async function updateRuntimeSettings({revision, changes}: SettingsUpdate)
     const encrypted = await encryptSecret(JSON.stringify(current.values), settingsEncryptionKey())
     const nextRevision = randomUUID()
     const collection = await settingsCollection()
-    const result = await collection.updateOne({_id: settingsId, revision}, {$set: {revision: nextRevision, encrypted}})
-    if (!result.matchedCount) throw new StaleRuntimeSettings()
+    if (revision === null) {
+        try {
+            await collection.insertOne({_id: settingsId, revision: nextRevision, encrypted})
+        } catch (error) {
+            if (typeof error === "object" && error && "code" in error && error.code === 11000) throw new StaleRuntimeSettings()
+            throw error
+        }
+    } else {
+        const result = await collection.updateOne({_id: settingsId, revision}, {$set: {revision: nextRevision, encrypted}})
+        if (!result.matchedCount) throw new StaleRuntimeSettings()
+    }
     applyServerConfig(config)
     return {revision: nextRevision, values: current.values}
 }
@@ -156,16 +145,17 @@ export let runtimeSettingsReady = Promise.resolve()
 
 // Refresh between requests and job runs, keeping the last validated snapshot after transient failures.
 export function watchRuntimeSettings() {
-    let revision: string | undefined
+    let revision: string | null | undefined
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
     async function refresh() {
         const document = await readSettingsDocument()
-        if (stopped || document.revision === revision) return
-        const config = mergeRuntimeSettings(await decodeSettings(document))
+        const nextRevision = document?.revision ?? null
+        if (stopped || nextRevision === revision) return
+        const config = mergeRuntimeSettings(document ? await decodeSettings(document) : {})
         if (!stopped) {
             applyServerConfig(config)
-            revision = document.revision
+            revision = nextRevision
         }
     }
     function schedule() {
@@ -173,7 +163,7 @@ export function watchRuntimeSettings() {
         timer = setTimeout(() => {
             void refresh()
                 .then(() => {
-                    if (revision) runtimeSettingsReady = Promise.resolve()
+                    if (revision !== undefined) runtimeSettingsReady = Promise.resolve()
                 })
                 .catch(() => logger.warn("Settings.refresh", "Could not refresh application settings; retaining the last validated settings"))
                 .finally(schedule)

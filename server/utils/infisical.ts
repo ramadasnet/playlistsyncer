@@ -8,8 +8,10 @@ interface InfisicalSecret {
 
 export const infisicalLoadedKeysEnv = "PLS_INFISICAL_LOADED_KEYS"
 
+const bootstrapKeys = new Set(["PLS_INFISICAL_CLIENT_ID", "PLS_INFISICAL_CLIENT_SECRET", "PLS_INFISICAL_PROJECT_ID", "PLS_INFISICAL_ENVIRONMENT", "PLS_INFISICAL_SECRET_PATH", "PLS_INFISICAL_SITE_URL", infisicalLoadedKeysEnv])
+
 /**
- * Copies the secrets of an Infisical environment into env, without replacing variables that already have a value.
+ * Applies Infisical values over deployment variables, except for Infisical's own configuration.
  * Does nothing unless PLS_INFISICAL_CLIENT_ID is set.
  * @param env Environment to read the Infisical settings from and to write the secrets to.
  * @returns Keys of the variables that were set.
@@ -46,10 +48,9 @@ export async function loadInfisicalSecrets(env: Record<string, string | undefine
     const values = new Map([...imports.flatMap((item) => item.secrets), ...secrets].map((secret) => [secret.secretKey, secret.secretValue]))
     const loadedKeys: string[] = []
     for (const [key, value] of values) {
-        if (!env[key]) {
-            env[key] = value
-            loadedKeys.push(key)
-        }
+        if (bootstrapKeys.has(key)) continue
+        env[key] = value
+        loadedKeys.push(key)
     }
     delete env.PLS_INFISICAL_CLIENT_SECRET
 

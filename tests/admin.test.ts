@@ -7,7 +7,7 @@ import * as data from "../server/data/collections"
 import * as accounts from "../server/domain/accounts"
 import * as activity from "../server/domain/sync/task-activity"
 import {clearServerConfigCache, getEnvironmentConfig, getServerConfig} from "../server/utils/config"
-import {mergeRuntimeSettings, watchRuntimeSettings} from "../server/utils/runtime-settings"
+import {mergeRuntimeSettings, readRuntimeSettings, watchRuntimeSettings} from "../server/utils/runtime-settings"
 import managementRoute from "../admin/server/api/[...path]"
 import {adminConfig, isAllowedAdmin, parseAdminConfig} from "../admin/server/utils/config"
 import {adminObjectId, deleteTask, deleteUser, taskView, updateTask, userView} from "../admin/server/utils/management"
@@ -216,12 +216,13 @@ describe("application settings", () => {
         expect(() => mergeRuntimeSettings({smtpPort: "-1"}, environment)).toThrow("Invalid application settings")
     })
 
-    test.skipIf(!savedEnv.PLS_MONGODB_URI)("authenticates, seeds encrypted settings, masks secrets, audits edits, and loads persisted changes", async () => {
+    test.skipIf(!savedEnv.PLS_MONGODB_URI)("authenticates, stores only encrypted overrides, masks secrets, audits edits, and loads persisted changes", async () => {
         process.env.PLS_ADMIN_ALLOWED_EMAILS = "igor@example.test"
         process.env.PLS_ADMIN_URL = "http://localhost:3009"
         process.env.PLS_TOKEN_ENCRYPTION_KEY = "settings-test-key"
         process.env.PLS_SMTP_PASSWORD = "deployment-password"
         process.env.PLS_SMTP_HOST = "smtp.deployment.example"
+        process.env.PLS_SMTP_USER = "deployment-user"
         const client = new MongoClient(savedEnv.PLS_MONGODB_URI!)
         const db = client.db(`pls_settings_test_${randomUUID()}`)
         const databaseSpy = spyOn(database, "getDatabase").mockResolvedValue(db)
@@ -234,7 +235,7 @@ describe("application settings", () => {
         app.use(router.handler)
         const handle = toWebHandler(app)
         const url = "http://localhost:3009/api/settings"
-        const patch = (revision: string, changes: Record<string, string | null>, origin = "http://localhost:3009") =>
+        const patch = (revision: string | null, changes: Record<string, string | null>, origin = "http://localhost:3009") =>
             handle(new Request(url, {method: "PATCH", headers: {cookie, origin, "content-type": "application/json"}, body: JSON.stringify({revision, changes})}))
         try {
             await db.collection("adminSessions").insertOne({
@@ -250,38 +251,54 @@ describe("application settings", () => {
             const text = await response.text()
             expect(text).not.toContain("deployment-password")
             expect(text).not.toContain("settings-test-key")
-            const seeded = JSON.parse(text)
-            expect(seeded.groups.flatMap((group: {fields: unknown[]}) => group.fields)).toContainEqual(expect.objectContaining({name: "smtpPassword", value: null, stored: true, configured: true}))
-            expect((await patch(seeded.revision, {smtpPort: "587"}, "https://other.example")).status).toBe(403)
-            expect((await patch(seeded.revision, {tokenEncryptionKey: "bad-key"})).status).toBe(400)
-            expect((await patch(seeded.revision, {smtpPort: "-1"})).status).toBe(400)
+            const initial = JSON.parse(text)
+            expect(initial.revision).toBeNull()
+            expect(initial.groups.flatMap((group: {fields: unknown[]}) => group.fields)).toContainEqual(expect.objectContaining({name: "smtpPassword", value: null, stored: false, configured: true}))
+            const initialSettings = watchRuntimeSettings()
+            try {
+                await initialSettings.ready
+                expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
+                expect(await db.collection("applicationSettings").countDocuments()).toBe(0)
+            } finally {
+                initialSettings.stop()
+            }
+            expect((await patch(initial.revision, {smtpPort: "587"}, "https://other.example")).status).toBe(403)
+            expect((await patch(initial.revision, {tokenEncryptionKey: "bad-key"})).status).toBe(400)
+            expect((await patch(initial.revision, {smtpPort: "-1"})).status).toBe(400)
 
-            const updated = await patch(seeded.revision, {smtpPassword: "database-password", smtpPort: "587", smtpHost: "smtp.database.example"})
+            const overrides = {smtpPassword: "database-password", smtpPort: "587", smtpHost: "smtp.database.example"}
+            const firstEdits = await Promise.all([patch(initial.revision, overrides), patch(initial.revision, overrides)])
+            expect(firstEdits.map(({status}) => status).sort()).toEqual([200, 409])
+            const updated = firstEdits.find(({ok}) => ok)!
             expect(updated.status).toBe(200)
             const updatedText = await updated.text()
             expect(updatedText).not.toContain("database-password")
-            expect((await patch(seeded.revision, {smtpPort: "465"})).status).toBe(409)
+            expect((await patch(initial.revision, {smtpPort: "465"})).status).toBe(409)
+            expect(await db.collection("applicationSettings").countDocuments()).toBe(1)
             const document = await db.collection("applicationSettings").findOne()
             expect(document?.encrypted.version).toBe(2)
             expect(JSON.stringify(document)).not.toContain("database-password")
             expect(JSON.stringify(document)).not.toContain("smtp.database.example")
+            expect((await readRuntimeSettings()).values).toEqual(overrides)
             const audit = await db.collection("adminAudit").findOne({action: "settings.update", status: "succeeded"})
             expect(audit?.details).toEqual({fields: ["smtpPassword", "smtpPort", "smtpHost"]})
             expect(audit?.actor).toBe("igor@example.test")
             expect(JSON.stringify(audit)).not.toContain("database-password")
 
+            process.env.PLS_SMTP_HOST = "smtp.infisical.example"
+            process.env.PLS_SMTP_USER = "infisical-user"
             clearServerConfigCache()
-            expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
+            expect(getServerConfig().smtpHost).toBe("smtp.infisical.example")
             const settings = watchRuntimeSettings()
             try {
                 await settings.ready
-                expect(getServerConfig()).toMatchObject({smtpHost: "smtp.database.example", smtpPort: 587, smtpPassword: "database-password"})
+                expect(getServerConfig()).toMatchObject({smtpHost: "smtp.database.example", smtpPort: 587, smtpPassword: "database-password", smtpUser: "infisical-user"})
             } finally {
                 settings.stop()
             }
             const reverted = await patch(JSON.parse(updatedText).revision, {smtpHost: null})
             expect(reverted.status).toBe(200)
-            expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
+            expect(getServerConfig().smtpHost).toBe("smtp.infisical.example")
         } finally {
             await db.dropDatabase()
             await client.close()

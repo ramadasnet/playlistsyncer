@@ -29,22 +29,40 @@ describe("Infisical secrets", () => {
         expect(fetchSpy).not.toHaveBeenCalled()
     })
 
-    test("sets missing variables and keeps values that are already set", async () => {
+    test("overrides deployment variables while protecting Infisical bootstrap settings", async () => {
         fetchSpy.mockResolvedValueOnce(Response.json({accessToken: "access-token"}))
         fetchSpy.mockResolvedValueOnce(
             Response.json({
-                secrets: [secret("PLS_SESSION_SECRET", "direct"), secret("PLS_MONGODB_URI", "mongodb://infisical"), secret("PLS_SMTP_HOST", "smtp.example.com")],
+                secrets: [
+                    secret("PLS_SESSION_SECRET", "direct"),
+                    secret("PLS_MONGODB_URI", "mongodb://infisical"),
+                    secret("PLS_SMTP_HOST", "smtp.example.com"),
+                    secret("PLS_SMTP_PASSWORD", ""),
+                    secret("PLS_INFISICAL_ENVIRONMENT", "prod"),
+                    secret("PLS_INFISICAL_SECRET_PATH", "/unexpected")
+                ],
                 imports: [{secrets: [secret("PLS_SESSION_SECRET", "imported"), secret("PLS_SCHEDULER_SECRET", "imported")]}]
             })
         )
-        const env: Record<string, string | undefined> = {...settings, PLS_INFISICAL_ENVIRONMENT: "staging", PLS_MONGODB_URI: "mongodb://local", PLS_SMTP_HOST: ""}
+        const env: Record<string, string | undefined> = {
+            ...settings,
+            PLS_INFISICAL_ENVIRONMENT: "staging",
+            PLS_MONGODB_URI: "mongodb://local",
+            PLS_SMTP_HOST: "",
+            PLS_SMTP_PASSWORD: "local-password",
+            PLS_SMTP_USER: "local-user"
+        }
 
-        expect(await loadInfisicalSecrets(env)).toEqual(["PLS_SESSION_SECRET", "PLS_SCHEDULER_SECRET", "PLS_SMTP_HOST"])
+        expect(await loadInfisicalSecrets(env)).toEqual(["PLS_SESSION_SECRET", "PLS_SCHEDULER_SECRET", "PLS_MONGODB_URI", "PLS_SMTP_HOST", "PLS_SMTP_PASSWORD"])
 
         expect(env.PLS_SESSION_SECRET).toBe("direct")
         expect(env.PLS_SCHEDULER_SECRET).toBe("imported")
-        expect(env.PLS_MONGODB_URI).toBe("mongodb://local")
+        expect(env.PLS_MONGODB_URI).toBe("mongodb://infisical")
         expect(env.PLS_SMTP_HOST).toBe("smtp.example.com")
+        expect(env.PLS_SMTP_PASSWORD).toBe("")
+        expect(env.PLS_SMTP_USER).toBe("local-user")
+        expect(env.PLS_INFISICAL_ENVIRONMENT).toBe("staging")
+        expect(env.PLS_INFISICAL_SECRET_PATH).toBeUndefined()
         expect(env.PLS_INFISICAL_CLIENT_SECRET).toBeUndefined()
 
         const [loginUrl, loginInit] = fetchSpy.mock.calls[0]!
