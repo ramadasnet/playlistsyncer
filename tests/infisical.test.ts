@@ -75,7 +75,7 @@ describe("Infisical secrets", () => {
         const [secretsUrl, secretsInit] = fetchSpy.mock.calls[1]!
         const url = new URL(String(secretsUrl))
         expect(url.pathname).toBe("/api/v4/secrets")
-        expect(Object.fromEntries(url.searchParams)).toEqual({projectId: "project-id", environment: "staging", secretPath: "/", expandSecretReferences: "true", includeImports: "true"})
+        expect(Object.fromEntries(url.searchParams)).toEqual({projectId: "project-id", environment: "staging", secretPath: "/", expandSecretReferences: "false", includeImports: "true"})
         expect(new Headers(secretsInit?.headers).get("Authorization")).toBe("Bearer access-token")
     })
 

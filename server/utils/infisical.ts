@@ -17,7 +17,8 @@ function infisicalConnection(env: Env): Connection | undefined {
         projectId,
         environment: env.PLS_INFISICAL_ENVIRONMENT || "prod",
         secretPath: env.PLS_INFISICAL_SECRET_PATH || "/",
-        siteUrl: env.PLS_INFISICAL_SITE_URL || "https://app.infisical.com"
+        siteUrl: env.PLS_INFISICAL_SITE_URL || "https://app.infisical.com",
+        expandSecretReferences: false
     }
 }
 
