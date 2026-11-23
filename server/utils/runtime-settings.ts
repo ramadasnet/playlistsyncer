@@ -7,7 +7,7 @@ import logger from "./logger"
 export const settingGroups = [
     {label: "Spotify", fields: {spotifyCredentials: {label: "App credentials", secret: true, hint: "Comma-separated client ID:secret pairs"}, spotifyMaxUsersPerApp: {label: "Maximum users per app"}}},
     {label: "YouTube Music", fields: {googleClientId: {label: "Google client ID"}, googleClientSecret: {label: "Google client secret", secret: true}}},
-    {label: "Amazon Music", fields: {amazonClientId: {label: "Client ID"}, amazonClientSecret: {label: "Client secret", secret: true}, amazonMusicApiBaseUrl: {label: "API base URL"}}},
+    {label: "Amazon Music", fields: {amazonClientId: {label: "Client ID"}, amazonClientSecret: {label: "Client secret", secret: true}}},
     {label: "TIDAL", fields: {tidalClientId: {label: "Client ID"}, tidalClientSecret: {label: "Client secret", secret: true}}},
     {label: "SoundCloud", fields: {soundcloudClientId: {label: "Client ID"}, soundcloudClientSecret: {label: "Client secret", secret: true}}},
     {
@@ -87,6 +87,22 @@ export function mergeRuntimeSettings(values: Settings, environment = runtimeDefa
     }
 }
 
+// Merge the stored values that still validate, so Admin can show and repair one that no longer parses.
+export function mergeValidRuntimeSettings(values: Settings) {
+    const valid = {...values}
+    for (;;) {
+        try {
+            return {config: mergeRuntimeSettings(valid), invalid: Object.keys(values).filter((name) => !Object.hasOwn(valid, name)) as SettingKey[]}
+        } catch (error) {
+            if (!(error instanceof InvalidRuntimeSettings)) throw error
+            const stored = error.fields.filter((name) => Object.hasOwn(valid, name)) as SettingKey[]
+            // The deployment defaults themselves are invalid; nothing stored in Infisical can be blamed.
+            if (!stored.length) throw error
+            for (const name of stored) delete valid[name]
+        }
+    }
+}
+
 export async function readRuntimeSettings(connection = runtimeInfisicalConnection()) {
     const values: Settings = {}
     if (!connection) return {revision: null, values}
@@ -111,7 +127,7 @@ export function updateRuntimeSettings({revision, changes}: SettingsUpdate) {
         const entries = Object.entries(changes) as [SettingKey, string][]
         const untrimmed = entries.filter(([, value]) => value.trim() !== value)
         if (untrimmed.length) throw new InvalidRuntimeSettings(untrimmed.map(([name]) => name))
-        const previous = mergeRuntimeSettings(current.values)
+        const previous = mergeValidRuntimeSettings(current.values).config
         const next = mergeRuntimeSettings({...current.values, ...changes})
         if ((next.smtpHost !== previous.smtpHost || next.smtpPort !== previous.smtpPort) && next.smtpUser && next.smtpPassword && next.smtpPassword === previous.smtpPassword) {
             throw new InvalidRuntimeSettings(["smtpPassword"])

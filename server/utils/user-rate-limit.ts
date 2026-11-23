@@ -28,7 +28,8 @@ export class SlidingWindowLimiter {
         const recent = (this.hits.get(key) || []).filter((at) => now - at < this.windowMs)
         if (recent.length >= this.limit) {
             this.hits.set(key, recent)
-            return recent[0]! + this.windowMs - now
+            // After the limit is lowered, wait until enough hits expire to fall below the new limit.
+            return recent[recent.length - this.limit]! + this.windowMs - now
         }
         recent.push(now)
         this.hits.set(key, recent)

@@ -94,7 +94,7 @@ async function save() {
                     <h2>{{ group.label }}</h2>
                     <p class="muted">{{ editing ? "Change only what you want to update. Leave secret inputs blank to keep their values." : "Effective settings and where they come from." }}</p>
                 </div>
-                <button v-if="!editing" type="button" @click="edit"><Pencil :size="16" /> Edit settings</button>
+                <button v-if="!editing" type="button" :disabled="status === 'pending'" @click="edit"><Pencil :size="16" /> Edit settings</button>
             </div>
             <p v-if="saved" class="notice" role="status">Settings saved. Running services pick up changes within about 10 seconds.</p>
             <dl v-if="!editing" class="settings-fields">
@@ -102,6 +102,7 @@ async function save() {
                     <dt>{{ field.label }}</dt>
                     <dd>{{ field.secret ? (field.configured ? "•••••••• (configured)" : "Not configured") : field.value || "Not set" }}</dd>
                     <dd class="muted setting-source">{{ field.stored ? "Infisical" : "Deployment / default" }}</dd>
+                    <dd v-if="field.invalid" class="notice error">Invalid value stored in Infisical; running services keep the last valid value until it is fixed.</dd>
                 </div>
             </dl>
             <form v-else @submit.prevent="save">

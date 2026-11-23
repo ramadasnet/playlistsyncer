@@ -1,11 +1,11 @@
 import {createError, type H3Event} from "h3"
 import {runtimeInfisicalConnection} from "../../../server/utils/infisical"
-import {InvalidRuntimeSettings, mergeRuntimeSettings, readRuntimeSettings, settingGroups, settingsUpdateSchema, StaleRuntimeSettings, updateRuntimeSettings} from "../../../server/utils/runtime-settings"
+import {InvalidRuntimeSettings, mergeValidRuntimeSettings, readRuntimeSettings, settingGroups, settingsUpdateSchema, StaleRuntimeSettings, updateRuntimeSettings} from "../../../server/utils/runtime-settings"
 import {audited} from "./management"
 
-/** Show effective non-secret values and whether write-only fields are configured. */
+/** Show effective non-secret values and whether write-only fields are configured. Invalid stored values are flagged so they can be repaired. */
 function settingsView({revision, values}: Awaited<ReturnType<typeof readRuntimeSettings>>) {
-    const config = mergeRuntimeSettings(values)
+    const {config, invalid} = mergeValidRuntimeSettings(values)
     return {
         revision,
         groups: settingGroups.map(({label, fields}) => ({
@@ -14,14 +14,16 @@ function settingsView({revision, values}: Awaited<ReturnType<typeof readRuntimeS
                 const name = key as keyof typeof values
                 const effective = config[name]
                 const secret = "secret" in field && field.secret
+                const isInvalid = invalid.includes(name)
                 return {
                     name,
                     label: field.label,
                     hint: "hint" in field ? field.hint : undefined,
                     secret,
-                    configured: Array.isArray(effective) ? effective.length > 0 : effective !== undefined,
+                    configured: isInvalid || (Array.isArray(effective) ? effective.length > 0 : effective !== undefined),
                     stored: Object.hasOwn(values, name),
-                    value: secret ? null : Array.isArray(effective) ? effective.join(", ") : String(effective ?? "")
+                    invalid: isInvalid,
+                    value: secret ? null : isInvalid ? (values[name] ?? "") : Array.isArray(effective) ? effective.join(", ") : String(effective ?? "")
                 }
             })
         }))
