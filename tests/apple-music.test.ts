@@ -21,6 +21,7 @@ import {encryptSecret} from "../server/utils/secrets"
 
 const {privateKey, publicKey} = generateKeyPairSync("ec", {namedCurve: "P-256"})
 const privateKeyPem = privateKey.export({type: "pkcs8", format: "pem"}).toString()
+const issueDeveloperToken = appleAuth.appleMusicDeveloperToken
 
 function decodePart(token: string, index: number) {
     return JSON.parse(Buffer.from(token.split(".")[index]!, "base64url").toString("utf8"))
@@ -47,11 +48,11 @@ describe("Apple tokens", () => {
         const replacement = generateKeyPairSync("ec", {namedCurve: "P-256"})
         try {
             applyServerConfig({...config, appleTeamId: "TEAM", appleSigninKeyId: "KEY123", appleSigninPrivateKey: privateKeyPem})
-            const first = appleAuth.appleMusicDeveloperToken(origin, now)
-            expect(appleAuth.appleMusicDeveloperToken(origin, now)).toBe(first)
+            const first = issueDeveloperToken(origin, now)
+            expect(issueDeveloperToken(origin, now)).toBe(first)
 
             applyServerConfig({...getServerConfig(), appleSigninPrivateKey: replacement.privateKey.export({type: "pkcs8", format: "pem"}).toString()})
-            const [header, payload, signature] = appleAuth.appleMusicDeveloperToken(origin, now).split(".")
+            const [header, payload, signature] = issueDeveloperToken(origin, now).split(".")
             expect(verify("sha256", Buffer.from(`${header}.${payload}`), {key: replacement.publicKey, dsaEncoding: "ieee-p1363"}, Buffer.from(signature!, "base64url"))).toBe(true)
         } finally {
             applyServerConfig(config)
