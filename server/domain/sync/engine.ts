@@ -57,6 +57,7 @@ interface SyncRunContext {
 export const syncLeaseHeartbeat = {intervalMs: 60 * 1000}
 
 interface SyncLeaseHold {
+    readonly safeMode: boolean
     assertHeld(): void
     extend(): Promise<void>
     stop(): void
@@ -64,6 +65,10 @@ interface SyncLeaseHold {
 
 const syncLeaseHold = new AsyncLocalStorage<SyncLeaseHold>()
 const syncLeaseLostMessage = "Sync lease was lost"
+
+function isRunInSafeMode(): boolean {
+    return syncLeaseHold.getStore()!.safeMode
+}
 
 // True when this run stopped because another run took its lease.
 function isSyncLeaseLostError(error: unknown): boolean {
@@ -108,6 +113,7 @@ function startSyncLeaseHold(taskId: ObjectId, leaseId: string): SyncLeaseHold {
     }, syncLeaseHeartbeat.intervalMs)
     heartbeat.unref()
     return {
+        safeMode: isSafeModeEnabled(),
         assertHeld() {
             if (lost) throw createError({statusCode: 409, statusMessage: syncLeaseLostMessage})
         },
@@ -285,7 +291,7 @@ async function applyDesired(
     retained: ProviderTrack[]
 }> {
     const adapter = getAccountAdapter(account)
-    const safeMode = isSafeModeEnabled()
+    const safeMode = isRunInSafeMode()
     // An unavailable entry with no snapshot identity is not a song we can reconcile, so it is not removed.
     current = withoutUnknownUnavailable(current)
     const currentByKey = countTracks(current)
@@ -583,7 +589,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         } else {
             identitySource = withoutUnknownUnavailable(sourceItems)
             const desired = reconcileOneWay(identitySource).desired
-            if (destinationItems.length && isSafeModeEnabled()) {
+            if (destinationItems.length && isRunInSafeMode()) {
                 for (const track of destinationItems) {
                     logger.info("Sync.safeMode", destinationAccount.provider, `Playlist ${task.destination.playlistId}`, "Would remove", formatSafeModeTrack(track))
                 }
@@ -609,7 +615,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
                 )
             }
             // Remember that the target was cleared, so a run that stops partway does not clear the tracks it already added.
-            if (!isSafeModeEnabled()) {
+            if (!isRunInSafeMode()) {
                 await db.syncSnapshots.updateOne({taskId: task._id!}, {$set: {sourceItems: [], destinationItems: [], createdAt: new Date()}}, {upsert: true})
             }
             destinationResult = await applyDesired(destinationAccount, task.destination.playlistId, [], desired, recordChanges, task.destination.name, toDestination)
@@ -638,7 +644,7 @@ async function executePlaylist(task: SyncTaskDocument, recordChanges: RecordTrac
         }
     }
 
-    if (isSafeModeEnabled()) {
+    if (isRunInSafeMode()) {
         logger.info("Sync.safeMode", `Task ${task._id!.toHexString()}`, "Skipping snapshot update")
     } else {
         const [verifiedSourceRead, verifiedDestinationRead] = await Promise.all([readPlaylistItems(sourceAccount, task.source.playlistId), readPlaylistItems(destinationAccount, task.destination.playlistId)])
@@ -715,7 +721,7 @@ async function mirrorPlaylist(
     for (const alias of result.aliases) verifiedDestinationAliases.set(alias.trackId, alias.canonicalKey)
     const withKey = (items: ProviderTrack[], aliases: Map<string, string>) =>
         withoutUnknownUnavailable(items.map((item) => ({...item, canonicalKey: aliases.get(item.itemId) || aliases.get(item.trackId) || (item.unavailable ? undefined : item.canonicalKey || trackKey(item))})))
-    const [verifiedSource, verifiedDestination] = isSafeModeEnabled()
+    const [verifiedSource, verifiedDestination] = isRunInSafeMode()
         ? [aliasedSource, aliasedDestination]
         : await Promise.all([sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylistId), destinationAdapter.getPlaylistItems(destinationAccount, destinationPlaylistId)])
     return {
@@ -813,7 +819,7 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
             destinationPlaylist = destinationPlaylists.find((playlist) => playlist.name === sourcePlaylist.name && !claimedDestinationIds.has(playlist.id))
         }
         if (!destinationPlaylist) {
-            if (isSafeModeEnabled()) {
+            if (isRunInSafeMode()) {
                 logSafeModeCreatePlaylist(destinationAccount.provider, sourcePlaylist.name)
                 const sourceItems = await sourceAdapter.getPlaylistItems(sourceAccount, sourcePlaylist.id)
                 return applyDesired(destinationAccount, `(new) ${sourcePlaylist.name}`, [], reconcileOneWay(withoutUnknownUnavailable(sourceItems)).desired, recordChanges, sourcePlaylist.name, {
@@ -875,7 +881,7 @@ async function executeAccount(task: SyncTaskDocument, recordChanges: RecordTrack
         throw firstFailure
     }
 
-    if (!isSafeModeEnabled()) {
+    if (!isRunInSafeMode()) {
         await saveAccountSnapshotBatches(task._id!, snapshotPlaylists)
     }
     logger.info(
@@ -923,7 +929,7 @@ async function copyPlaylistOnce(task: SyncTaskDocument, recordChanges: RecordTra
             if (!syncCase.recreateTarget) {
                 throw missingPlaylistError(toAccount, reverse ? "source" : "destination")
             }
-            if (isSafeModeEnabled()) {
+            if (isRunInSafeMode()) {
                 logSafeModeCreatePlaylist(toAccount.provider, toRef.name)
                 throw createError({statusCode: 503, statusMessage: safeModeWriteBlockedMessage})
             }
@@ -942,7 +948,7 @@ async function copyPlaylistOnce(task: SyncTaskDocument, recordChanges: RecordTra
             playlistId: fromRef.playlistId,
             playlistName: fromRef.name
         })
-        if (!isSafeModeEnabled()) {
+        if (!isRunInSafeMode()) {
             const [verifiedFromRead, verifiedToRead] = await Promise.all([readPlaylistItems(fromAccount, fromRef.playlistId), readPlaylistItems(toAccount, toPlaylistId)])
             if (verifiedFromRead.missing || verifiedToRead.missing) {
                 const missingFrom = verifiedFromRead.missing
@@ -1054,9 +1060,6 @@ export async function beginSyncTask(taskId: ObjectId, trigger: "created" | "manu
     const leaseId = randomUUID()
     const now = new Date()
     const taskLabel = current ? await describeTask(current) : ""
-    if (isSafeModeEnabled()) {
-        logger.warn("Sync.safeMode", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, "PLS_SAFE_MODE is enabled; music providers will not be written")
-    }
     logger.info("Sync.run", `Task ${taskId.toHexString()}`, taskLabel, `Trigger ${trigger}`, ...(reverseSync ? [reverseSync.direction, reverseSync.cadence, reverseSync.reason] : []), `Lease ${syncLeaseDurationMs / 60000}m`)
     const task = await db.syncTasks.findOneAndUpdate(
         {
@@ -1120,11 +1123,12 @@ export async function completeSyncTask(context: SyncRunContext) {
     }
     const leaseHold = startSyncLeaseHold(taskId, leaseId)
     try {
+        if (leaseHold.safeMode) logger.warn("Sync.safeMode", `Task ${taskId.toHexString()}`, `Trigger ${trigger}`, safeModeWriteBlockedMessage)
         const executed: SyncResult = await syncLeaseHold.run(leaseHold, async () => execute(task, recordChanges, reportProgress, reverseSync))
         // Additions and removals were counted as each write landed, including writes of a playlist that later failed.
         // Safe mode writes nothing, so its planned counts are kept.
         const recorded = await db.syncRuns.findOne({_id: runId})
-        const result: SyncResult = isSafeModeEnabled() ? executed : {...executed, additions: recorded?.additions ?? 0, removals: recorded?.removals ?? 0}
+        const result: SyncResult = leaseHold.safeMode ? executed : {...executed, additions: recorded?.additions ?? 0, removals: recorded?.removals ?? 0}
         const failedPlaylists = recorded?.failedPlaylists || []
         const missingSourcePlaylists = recorded?.missingSourcePlaylists || []
         const nextRunMs = syncIntervalMs(getServerConfig().syncIntervalMinutes)

@@ -10,6 +10,7 @@ import {nextQuotaResetAt} from "../server/domain/providers/http"
 import {beginSyncTask, completeSyncTask, failInterruptedRuns, failureBackoffMs, nextScheduledRunAt, runSyncTask, syncLeaseHeartbeat} from "../server/domain/sync/engine"
 import {linkSnapshotRow} from "../server/domain/sync/manual-match"
 import {withTaskLease} from "../server/domain/sync/task-activity"
+import {applyServerConfig, getServerConfig} from "../server/utils/config"
 import logger from "../server/utils/logger"
 import syncDue, {interleaveByUser} from "../server/jobs/routes/sync-due"
 
@@ -758,6 +759,33 @@ describe("restore and unavailable tracks", () => {
 })
 
 describe("two-way removals", () => {
+    test("a dry run does not update playlists or their baseline if safe mode is disabled during a search", async () => {
+        const sourceTrack = track("spotify", "1", "Dropped", "Artist", "US0000000001")
+        const destinationTrack = track("tidal", "1", "Dropped", "Artist", "US0000000001")
+        const newTrack = track("tidal", "2", "Added", "Artist", "US0000000002")
+        setPlaylist("spotify", "src", "Mix", [sourceTrack])
+        setPlaylist("tidal", "dst", "Mix", [destinationTrack])
+        catalogs.spotify = [track("spotify", "2", "Added", "Artist", "US0000000002")]
+        const taskId = await insertTask({direction: "two-way", source: side("spotify", "src"), destination: side("tidal", "dst")})
+        await runSyncTask(taskId, "created")
+        const previous = JSON.stringify(await db.syncSnapshots.findOne({taskId}))
+
+        setPlaylist("spotify", "src", "Mix", [])
+        setPlaylist("tidal", "dst", "Mix", [destinationTrack, newTrack])
+        const config = getServerConfig()
+        try {
+            applyServerConfig({...config, safeMode: true})
+            beforeSearch = () => applyServerConfig({...config, safeMode: false})
+            await expect(runSyncTask(taskId, "scheduled")).resolves.toMatchObject({additions: 1, removals: 1})
+            expect(getServerConfig().safeMode).toBe(false)
+            expect(JSON.stringify(await db.syncSnapshots.findOne({taskId}))).toBe(previous)
+            expect(calls.added).toEqual([])
+            expect(calls.removed).toEqual([])
+        } finally {
+            applyServerConfig(config)
+        }
+    })
+
     test("a two-way removal of a track matched by ISRC reaches the other side", async () => {
         const kept = track("spotify", "1", "Kept", "Artist", "US0000000001")
         const dropped = track("spotify", "2", "Dropped", "Artist", "US0000000002")
