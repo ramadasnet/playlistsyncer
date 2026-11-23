@@ -1,5 +1,5 @@
 // Sign the ES256 tokens required by Sign in with Apple and the Apple Music API, and read Apple ID tokens.
-import {createPrivateKey, sign} from "node:crypto"
+import {createHash, createPrivateKey, sign} from "node:crypto"
 import type {ProviderAccountDocument} from "~~/shared/types/domain"
 import {requireConfig} from "../../utils/config"
 import {decryptSecret} from "../../utils/secrets"
@@ -10,7 +10,7 @@ const clientSecretSeconds = 5 * 60
 const developerTokenSeconds = 12 * 60 * 60
 const developerTokenRenewMs = 60 * 60 * 1000
 
-const developerTokens = new Map<string, {token: string; expiresAt: number}>()
+const developerTokens = new Map<string, {token: string; expiresAt: number; credentials: string}>()
 
 function base64UrlJson(value: object): string {
     return Buffer.from(JSON.stringify(value)).toString("base64url")
@@ -37,20 +37,26 @@ export function appleClientSecret(now = Date.now()): string {
 
 // A token for the browser is limited to this site's origin. Server requests send no Origin, so their token has no origin claim.
 export function appleMusicDeveloperToken(origin?: string, now = Date.now()): string {
+    const keyId = requireConfig("appleSigninKeyId")
+    const privateKey = requireConfig("appleSigninPrivateKey")
+    const teamId = requireConfig("appleTeamId")
+    const credentials = createHash("sha256")
+        .update(JSON.stringify([keyId, privateKey, teamId]))
+        .digest("hex")
     const cacheKey = origin || ""
     const cached = developerTokens.get(cacheKey)
-    if (cached && cached.expiresAt - now > developerTokenRenewMs) {
+    if (cached?.credentials === credentials && cached.expiresAt - now > developerTokenRenewMs) {
         return cached.token
     }
     const issuedAt = Math.floor(now / 1000)
     const expiresAt = issuedAt + developerTokenSeconds
-    const token = signAppleJwt(requireConfig("appleSigninKeyId"), requireConfig("appleSigninPrivateKey"), {
-        iss: requireConfig("appleTeamId"),
+    const token = signAppleJwt(keyId, privateKey, {
+        iss: teamId,
         iat: issuedAt,
         exp: expiresAt,
         ...(origin ? {origin: [origin]} : {})
     })
-    developerTokens.set(cacheKey, {token, expiresAt: expiresAt * 1000})
+    developerTokens.set(cacheKey, {token, expiresAt: expiresAt * 1000, credentials})
     return token
 }
 

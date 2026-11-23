@@ -1,4 +1,5 @@
 import type {getTask, getUser, listTasks, listUsers, statistics} from "../server/utils/management"
+import type {getSettings} from "../server/utils/settings"
 
 type JsonValue<Value> = Value extends Date ? string : Value extends readonly (infer Item)[] ? JsonValue<Item>[] : Value extends object ? {[Key in keyof Value]: JsonValue<Value[Key]>} : Value
 
@@ -7,3 +8,4 @@ export type UserList = JsonValue<Awaited<ReturnType<typeof listUsers>>>
 export type TaskDetail = JsonValue<Awaited<ReturnType<typeof getTask>>>
 export type TaskList = JsonValue<Awaited<ReturnType<typeof listTasks>>>
 export type Statistics = JsonValue<Awaited<ReturnType<typeof statistics>>>
+export type ApplicationSettings = JsonValue<Awaited<ReturnType<typeof getSettings>>>

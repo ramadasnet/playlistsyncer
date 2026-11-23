@@ -34,6 +34,7 @@
         "oauth4webapi": "^3.8.8",
         "pinia": "^4.1.0",
         "pm2": "^7.1.1",
+        "setmeup": "2.1.1",
         "vue": "^3.5.44",
         "vue-router": "^5.4.0",
         "zod": "^4.6.7"
@@ -58,5 +59,8 @@
     "reviewAgents": {
         "draft": "@greptile",
         "ready": "@cubic"
+    },
+    "patchedDependencies": {
+        "setmeup@2.1.1": "patches/setmeup@2.1.1.patch"
     }
 }

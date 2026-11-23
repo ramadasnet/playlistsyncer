@@ -14,13 +14,14 @@ import {appleAdapter} from "../server/domain/providers/apple"
 import {fetchRetryDefaults} from "../server/utils/fetch-retry"
 import {ProviderRateLimiter, providerRateLimiters} from "../server/domain/providers/rate-limit"
 import {isProviderEnabled} from "../server/utils/provider-availability"
-import {clearServerConfigCache, parseServerConfig} from "../server/utils/config"
+import {applyServerConfig, clearServerConfigCache, getServerConfig, parseServerConfig} from "../server/utils/config"
 import {encryptSecret} from "../server/utils/secrets"
 
 ;(globalThis as {createError?: (input: {statusCode: number; statusMessage: string}) => Error}).createError = (input) => Object.assign(new Error(input.statusMessage), input)
 
 const {privateKey, publicKey} = generateKeyPairSync("ec", {namedCurve: "P-256"})
 const privateKeyPem = privateKey.export({type: "pkcs8", format: "pem"}).toString()
+const issueDeveloperToken = appleAuth.appleMusicDeveloperToken
 
 function decodePart(token: string, index: number) {
     return JSON.parse(Buffer.from(token.split(".")[index]!, "base64url").toString("utf8"))
@@ -38,6 +39,25 @@ describe("Apple tokens", () => {
         expect(decodePart(token, 0)).toEqual({alg: "ES256", kid: "KEY123"})
         expect(decodePart(token, 1)).toEqual({iss: "TEAM", iat: 1})
         expect(verify("sha256", Buffer.from(`${header}.${payload}`), {key: publicKey, dsaEncoding: "ieee-p1363"}, Buffer.from(signature!, "base64url"))).toBe(true)
+    })
+
+    test("refreshes the developer token when the private key rotates at the same origin", () => {
+        const config = getServerConfig()
+        const origin = "https://music.example.com"
+        const now = 1_700_000_000_000
+        const replacement = generateKeyPairSync("ec", {namedCurve: "P-256"})
+        try {
+            applyServerConfig({...config, appleTeamId: "TEAM", appleSigninKeyId: "KEY123", appleSigninPrivateKey: privateKeyPem})
+            const first = issueDeveloperToken(origin, now)
+            expect(issueDeveloperToken(origin, now)).toBe(first)
+
+            applyServerConfig({...getServerConfig(), appleSigninPrivateKey: replacement.privateKey.export({type: "pkcs8", format: "pem"}).toString()})
+            const [header, payload, signature] = issueDeveloperToken(origin, now).split(".")
+            expect(verify("sha256", Buffer.from(`${header}.${payload}`), {key: replacement.publicKey, dsaEncoding: "ieee-p1363"}, Buffer.from(signature!, "base64url"))).toBe(true)
+        } finally {
+            applyServerConfig(config)
+            appleAuth.clearAppleMusicDeveloperTokens()
+        }
     })
 
     test("reads a valid ID token and requires its issuer, audience, expiry, and nonce", () => {

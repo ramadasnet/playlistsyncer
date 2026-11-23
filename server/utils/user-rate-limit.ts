@@ -13,7 +13,7 @@ export class SlidingWindowLimiter {
 
     constructor(
         readonly label: string,
-        readonly limit: number,
+        public limit: number,
         readonly windowMs: number,
         private readonly now: () => number = Date.now
     ) {}
@@ -28,7 +28,8 @@ export class SlidingWindowLimiter {
         const recent = (this.hits.get(key) || []).filter((at) => now - at < this.windowMs)
         if (recent.length >= this.limit) {
             this.hits.set(key, recent)
-            return recent[0]! + this.windowMs - now
+            // After the limit is lowered, wait until enough hits expire to fall below the new limit.
+            return recent[recent.length - this.limit]! + this.windowMs - now
         }
         recent.push(now)
         this.hits.set(key, recent)
@@ -66,6 +67,8 @@ let providerRequestLimiter: SlidingWindowLimiter | undefined
 
 // Cap requests that call music providers, so one user cannot drain the provider rate limit shared by every user.
 export function enforceProviderRequestLimit(event: H3Event, userId: ObjectId): void {
-    providerRequestLimiter ??= new SlidingWindowLimiter("providerRequests", getServerConfig().userProviderRequestsPerMinute, 60_000)
+    const limit = getServerConfig().userProviderRequestsPerMinute
+    providerRequestLimiter ??= new SlidingWindowLimiter("providerRequests", limit, 60_000)
+    providerRequestLimiter.limit = limit
     enforceUserRateLimit(providerRequestLimiter, userId, "Too many music provider requests. Wait a minute and try again.", event)
 }

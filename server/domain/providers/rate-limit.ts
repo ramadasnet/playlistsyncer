@@ -38,7 +38,7 @@ export class ProviderRateLimiter {
 
     constructor(
         readonly provider: Provider,
-        readonly maxRequestsPerMinute: number,
+        private readonly configuredRate: number | (() => number),
         options: {now?: () => number; cooldownMs?: number; wait?: typeof wait} = {}
     ) {
         this.now = options.now ?? Date.now
@@ -46,9 +46,14 @@ export class ProviderRateLimiter {
         this.wait = options.wait ?? wait
     }
 
+    get maxRequestsPerMinute(): number {
+        return typeof this.configuredRate === "function" ? this.configuredRate() : this.configuredRate
+    }
+
     // Spacing between request starts, widened while recovering from a rate limit.
     get intervalMs(): number {
-        return this.maxRequestsPerMinute > 0 ? (60_000 / this.maxRequestsPerMinute) * this.slowdown : 0
+        const rate = this.maxRequestsPerMinute
+        return rate > 0 ? (60_000 / rate) * this.slowdown : 0
     }
 
     get pausedForMs(): number {
@@ -86,7 +91,8 @@ export class ProviderRateLimiter {
         if (newEpisode) {
             this.slowdown = Math.min(maxSlowdown, this.slowdown * 2)
             this.slowdownChangedAt = now
-            const pacing = this.maxRequestsPerMinute > 0 ? `Pacing ${Math.floor(this.maxRequestsPerMinute / this.slowdown)}/min` : "Pacing unlimited"
+            const rate = this.maxRequestsPerMinute
+            const pacing = rate > 0 ? `Pacing ${Math.floor(rate / this.slowdown)}/min` : "Pacing unlimited"
             logger.warn("Provider.rateLimit", this.provider, `Paused ${Math.ceil(cooldownMs / 1000)}s`, pacing)
         }
     }
@@ -107,7 +113,7 @@ export const providerRateLimiters = new Map<Provider, ProviderRateLimiter>()
 export function getProviderRateLimiter(provider: Provider): ProviderRateLimiter {
     let limiter = providerRateLimiters.get(provider)
     if (!limiter) {
-        limiter = new ProviderRateLimiter(provider, getServerConfig()[`${provider}MaxRequestsPerMinute`])
+        limiter = new ProviderRateLimiter(provider, () => getServerConfig()[`${provider}MaxRequestsPerMinute`])
         providerRateLimiters.set(provider, limiter)
     }
     return limiter

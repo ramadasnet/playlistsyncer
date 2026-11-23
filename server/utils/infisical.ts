@@ -1,57 +1,82 @@
-// Load secrets from an Infisical project into the environment at process startup.
-// No logger or fetch-retry here: the preload runs outside the Nitro bundle, and a second anyhow instance would log uncaught errors twice.
+import setmeup from "setmeup"
 
-interface InfisicalSecret {
-    secretKey: string
-    secretValue: string
+type Env = Record<string, string | undefined>
+type SecretValues = Record<string, string>
+type Connection = setmeup.InfisicalOptions & {clientId: string; clientSecret: string; projectId: string}
+
+const preloadStateKey = Symbol.for("playlistsyncer.infisical.preload")
+const state = globalThis as typeof globalThis & {[preloadStateKey]?: {fallback: Env; connection: Connection}}
+
+function infisicalConnection(env: Env): Connection | undefined {
+    const {PLS_INFISICAL_CLIENT_ID: clientId, PLS_INFISICAL_CLIENT_SECRET: clientSecret, PLS_INFISICAL_PROJECT_ID: projectId} = env
+    if (!clientId) return undefined
+    if (!clientSecret || !projectId) throw new Error("PLS_INFISICAL_CLIENT_SECRET and PLS_INFISICAL_PROJECT_ID are required when PLS_INFISICAL_CLIENT_ID is set")
+    return {
+        clientId,
+        clientSecret,
+        projectId,
+        environment: env.PLS_INFISICAL_ENVIRONMENT || "prod",
+        secretPath: env.PLS_INFISICAL_SECRET_PATH || "/",
+        siteUrl: env.PLS_INFISICAL_SITE_URL || "https://app.infisical.com",
+        expandSecretReferences: false
+    }
 }
 
-export const infisicalLoadedKeysEnv = "PLS_INFISICAL_LOADED_KEYS"
+export function runtimeInfisicalConnection() {
+    return state[preloadStateKey]?.connection ?? infisicalConnection(process.env)
+}
 
-/**
- * Copies the secrets of an Infisical environment into env, without replacing variables that already have a value.
- * Does nothing unless PLS_INFISICAL_CLIENT_ID is set.
- * @param env Environment to read the Infisical settings from and to write the secrets to.
- * @returns Keys of the variables that were set.
- */
-export async function loadInfisicalSecrets(env: Record<string, string | undefined> = process.env): Promise<string[]> {
-    const {PLS_INFISICAL_CLIENT_ID: clientId, PLS_INFISICAL_CLIENT_SECRET: clientSecret, PLS_INFISICAL_PROJECT_ID: projectId} = env
-    if (!clientId) {
-        return []
-    }
-    if (!clientSecret || !projectId) {
-        throw new Error("PLS_INFISICAL_CLIENT_SECRET and PLS_INFISICAL_PROJECT_ID are required when PLS_INFISICAL_CLIENT_ID is set")
-    }
-    const siteUrl = env.PLS_INFISICAL_SITE_URL || "https://app.infisical.com"
+export function infisicalFallback(name: string) {
+    const fallback = state[preloadStateKey]?.fallback
+    return fallback && Object.hasOwn(fallback, name) ? fallback[name] : process.env[name]
+}
 
-    const login = await fetch(new URL("/api/v1/auth/universal-auth/login", siteUrl), {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({clientId, clientSecret}),
-        signal: AbortSignal.timeout(10_000)
-    })
-    if (!login.ok) {
-        throw new Error(`Infisical login failed: ${login.status} ${await login.text()}`)
+function flatten(data: unknown, values: SecretValues, prefix = "") {
+    if (!data || typeof data !== "object") return
+    for (const [part, value] of Object.entries(data)) {
+        const name = prefix + part
+        if (typeof value === "string") values[name] = value
+        else if (value && typeof value === "object") flatten(value, values, name + "_")
     }
-    const {accessToken} = (await login.json()) as {accessToken: string}
+}
 
-    const query = new URLSearchParams({projectId, environment: env.PLS_INFISICAL_ENVIRONMENT || "prod", secretPath: env.PLS_INFISICAL_SECRET_PATH || "/"})
-    const response = await fetch(new URL(`/api/v4/secrets?${query}`, siteUrl), {headers: {Authorization: `Bearer ${accessToken}`}, signal: AbortSignal.timeout(10_000)})
-    if (!response.ok) {
-        throw new Error(`Infisical secrets request failed: ${response.status} ${await response.text()}`)
+export async function readInfisicalSecrets(connection: Connection): Promise<SecretValues> {
+    const values: SecretValues = Object.create(null)
+    try {
+        flatten(await setmeup.newInstance().loadFromInfisical({...connection, rawValues: true}), values)
+    } catch {
+        throw new Error("Could not load Infisical secrets")
     }
-    const {secrets, imports = []} = (await response.json()) as {secrets: InfisicalSecret[]; imports?: {secrets: InfisicalSecret[]}[]}
+    return values
+}
 
-    // Secrets defined in the path itself come last, so they win over imported ones.
-    const values = new Map([...imports.flatMap((item) => item.secrets), ...secrets].map((secret) => [secret.secretKey, secret.secretValue]))
-    const loadedKeys: string[] = []
-    for (const [key, value] of values) {
-        if (!env[key]) {
-            env[key] = value
-            loadedKeys.push(key)
-        }
+export async function saveInfisicalSecrets(values: SecretValues, connection: Connection) {
+    const nested: Record<string, unknown> = {}
+    for (const [name, value] of Object.entries(values)) {
+        const parts = name.split("_")
+        const key = parts.pop()!
+        let target = nested
+        for (const part of parts) target = (target[part] ??= {}) as Record<string, unknown>
+        target[key] = value
+    }
+    try {
+        await setmeup.newInstance().saveToInfisical(nested, connection)
+    } catch {
+        throw new Error("Could not save Infisical secrets")
+    }
+}
+
+const bootstrapKeys = new Set(["PLS_INFISICAL_CLIENT_ID", "PLS_INFISICAL_CLIENT_SECRET", "PLS_INFISICAL_PROJECT_ID", "PLS_INFISICAL_ENVIRONMENT", "PLS_INFISICAL_SECRET_PATH", "PLS_INFISICAL_SITE_URL"])
+
+export async function preloadInfisicalSecrets(env: Env = process.env) {
+    const connection = infisicalConnection(env)
+    if (!connection) return
+    const fallback: Env = Object.create(null)
+    for (const [name, value] of Object.entries(await readInfisicalSecrets(connection))) {
+        if (bootstrapKeys.has(name)) continue
+        fallback[name] = env[name]
+        env[name] = value
     }
     delete env.PLS_INFISICAL_CLIENT_SECRET
-
-    return loadedKeys
+    if (env === process.env) state[preloadStateKey] = {connection, fallback}
 }
