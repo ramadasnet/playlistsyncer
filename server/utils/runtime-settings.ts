@@ -111,7 +111,11 @@ export function updateRuntimeSettings({revision, changes}: SettingsUpdate) {
         const entries = Object.entries(changes) as [SettingKey, string][]
         const untrimmed = entries.filter(([, value]) => value.trim() !== value)
         if (untrimmed.length) throw new InvalidRuntimeSettings(untrimmed.map(([name]) => name))
-        mergeRuntimeSettings({...current.values, ...changes})
+        const previous = mergeRuntimeSettings(current.values)
+        const next = mergeRuntimeSettings({...current.values, ...changes})
+        if ((next.smtpHost !== previous.smtpHost || next.smtpPort !== previous.smtpPort) && next.smtpUser && next.smtpPassword && next.smtpPassword === previous.smtpPassword) {
+            throw new InvalidRuntimeSettings(["smtpPassword"])
+        }
         await saveInfisicalSecrets(Object.fromEntries(entries.map(([name, value]) => [serverConfigKeys[name], value])), connection)
 
         const saved = await readRuntimeSettings(connection)

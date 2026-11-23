@@ -283,6 +283,9 @@ describe("application settings", () => {
             expect((await patch(initial.revision, {smtpPort: "587"}, "https://other.example")).status).toBe(403)
             expect((await patch(initial.revision, {tokenEncryptionKey: "bad-key"})).status).toBe(400)
             expect((await patch(initial.revision, {smtpPort: "-1"})).status).toBe(400)
+            expect((await patch(initial.revision, {smtpHost: "smtp.new.example", smtpPassword: "deployment-password"})).status).toBe(400)
+            expect((await patch(initial.revision, {smtpPort: "587"})).status).toBe(400)
+            expect(writes).toEqual([])
 
             const overrides = {smtpPassword: "new-password", smtpPort: "587", smtpHost: "smtp.infisical.example"}
             const firstEdits = await Promise.all([patch(initial.revision, overrides), patch(initial.revision, overrides)])
