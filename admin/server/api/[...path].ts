@@ -1,12 +1,15 @@
 import {createError, defineEventHandler, getRouterParam, readBody} from "h3"
 import {ZodError} from "zod"
 import {deleteTask, deleteUser, getTask, getUser, listTasks, listUsers, statistics, updateTask, updateUser} from "../utils/management"
+import {getSettings, patchSettings} from "../utils/settings"
 
 export default defineEventHandler(async (event) => {
     const path = (getRouterParam(event, "path") || "").split("/")
     const [resource, id, action] = path
     if (path.length > 3) throw createError({statusCode: 404})
     try {
+        if (event.method === "GET" && resource === "settings" && path.length === 1) return await getSettings()
+        if (event.method === "PATCH" && resource === "settings" && path.length === 1) return await patchSettings(event, await readBody(event))
         if (event.method === "GET" && resource === "stats" && !id) return await statistics()
         if (event.method === "GET" && resource === "users" && !action) return id ? await getUser(id) : await listUsers(event)
         if (event.method === "GET" && resource === "tasks" && !action) return id ? await getTask(id) : await listTasks(event)

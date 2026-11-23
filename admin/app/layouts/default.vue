@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Activity, ChartNoAxesCombined, LogOut, Users} from "lucide-vue-next"
+import {Activity, ChartNoAxesCombined, LogOut, Settings, Users} from "lucide-vue-next"
 import {errorLabel} from "../utils/format"
 
 const {data: session, refresh} = await useFetch("/api/session", {key: "admin-session"})
@@ -35,6 +35,7 @@ async function logout() {
             <NuxtLink to="/"><ChartNoAxesCombined :size="18" />Overview</NuxtLink>
             <NuxtLink to="/users"><Users :size="18" />Users</NuxtLink>
             <NuxtLink to="/tasks"><Activity :size="18" />Sync tasks</NuxtLink>
+            <NuxtLink to="/settings"><Settings :size="18" />Settings</NuxtLink>
         </nav>
         <main class="workspace">
             <p v-if="logoutError" role="alert" class="notice error">{{ logoutError }}</p>

@@ -1,11 +1,14 @@
 import {afterEach, describe, expect, spyOn, test} from "bun:test"
-import {createApp, createError, defineEventHandler, toWebHandler} from "h3"
-import {ObjectId} from "mongodb"
+import {createHash, randomUUID} from "node:crypto"
+import {createApp, createError, createRouter, defineEventHandler, toWebHandler} from "h3"
+import {MongoClient, ObjectId} from "mongodb"
 import * as database from "../server/utils/database"
 import * as data from "../server/data/collections"
 import * as accounts from "../server/domain/accounts"
 import * as activity from "../server/domain/sync/task-activity"
-import {clearServerConfigCache} from "../server/utils/config"
+import {clearServerConfigCache, getEnvironmentConfig, getServerConfig} from "../server/utils/config"
+import {mergeRuntimeSettings, watchRuntimeSettings} from "../server/utils/runtime-settings"
+import managementRoute from "../admin/server/api/[...path]"
 import {adminConfig, isAllowedAdmin, parseAdminConfig} from "../admin/server/utils/config"
 import {adminObjectId, deleteTask, deleteUser, taskView, updateTask, userView} from "../admin/server/utils/management"
 import security from "../admin/server/middleware/security"
@@ -59,7 +62,7 @@ describe("admin access boundary", () => {
     test("all management APIs deny anonymous requests without opening the database", async () => {
         const db = spyOn(database, "getDatabase").mockRejectedValue(new Error("Must not connect"))
         restorers.push(() => db.mockRestore())
-        for (const path of ["users", "tasks", "stats"]) {
+        for (const path of ["users", "tasks", "stats", "settings"]) {
             const response = await protectedRequest()(new Request(`http://localhost:3009/api/${path}`))
             expect(response.status).toBe(401)
             expect(response.headers.get("cache-control")).toBe("no-store")
@@ -199,5 +202,89 @@ describe("privileged admin mutations", () => {
         await expect(deleteTask({context: {admin: {email: "igor@ramadas.net"}}} as never, task._id!.toHexString())).resolves.toEqual({ok: true})
         expect(deletions).toHaveLength(1)
         expect(history).toEqual([{taskId: task._id}, {taskId: task._id}])
+    })
+})
+
+describe("application settings", () => {
+    test("merges stored values over deployment defaults and validates the result", () => {
+        const environment = {...getEnvironmentConfig(), smtpHost: "smtp.deployment.example", smtpPassword: "deployment-password", safeMode: "true"}
+        const config = mergeRuntimeSettings({smtpHost: "smtp.database.example", smtpPassword: "", safeMode: "false"}, environment)
+        expect(config.smtpHost).toBe("smtp.database.example")
+        expect(config.smtpPassword).toBeUndefined()
+        expect(config.safeMode).toBe(false)
+        expect(mergeRuntimeSettings({}, environment).smtpPassword).toBe("deployment-password")
+        expect(() => mergeRuntimeSettings({smtpPort: "-1"}, environment)).toThrow("Invalid application settings")
+    })
+
+    test.skipIf(!savedEnv.PLS_MONGODB_URI)("authenticates, seeds encrypted settings, masks secrets, audits edits, and loads persisted changes", async () => {
+        process.env.PLS_ADMIN_ALLOWED_EMAILS = "igor@example.test"
+        process.env.PLS_ADMIN_URL = "http://localhost:3009"
+        process.env.PLS_TOKEN_ENCRYPTION_KEY = "settings-test-key"
+        process.env.PLS_SMTP_PASSWORD = "deployment-password"
+        process.env.PLS_SMTP_HOST = "smtp.deployment.example"
+        const client = new MongoClient(savedEnv.PLS_MONGODB_URI!)
+        const db = client.db(`pls_settings_test_${randomUUID()}`)
+        const databaseSpy = spyOn(database, "getDatabase").mockResolvedValue(db)
+        restorers.push(() => databaseSpy.mockRestore())
+        const cookie = "pls_admin=settings-test-session"
+        const app = createApp({onError: () => undefined})
+        const router = createRouter()
+        router.use("/api/**:path", managementRoute)
+        app.use(security)
+        app.use(router.handler)
+        const handle = toWebHandler(app)
+        const url = "http://localhost:3009/api/settings"
+        const patch = (revision: string, changes: Record<string, string | null>, origin = "http://localhost:3009") =>
+            handle(new Request(url, {method: "PATCH", headers: {cookie, origin, "content-type": "application/json"}, body: JSON.stringify({revision, changes})}))
+        try {
+            await db.collection("adminSessions").insertOne({
+                email: "igor@example.test",
+                name: "Igor",
+                tokenHash: createHash("sha256").update("settings-test-session").digest("hex"),
+                expiresAt: new Date(Date.now() + 60_000)
+            })
+            expect((await handle(new Request(url))).status).toBe(401)
+            const response = await handle(new Request(url, {headers: {cookie}}))
+            expect(response.status).toBe(200)
+            expect(response.headers.get("cache-control")).toBe("no-store")
+            const text = await response.text()
+            expect(text).not.toContain("deployment-password")
+            expect(text).not.toContain("settings-test-key")
+            const seeded = JSON.parse(text)
+            expect(seeded.groups.flatMap((group: {fields: unknown[]}) => group.fields)).toContainEqual(expect.objectContaining({name: "smtpPassword", value: null, stored: true, configured: true}))
+            expect((await patch(seeded.revision, {smtpPort: "587"}, "https://other.example")).status).toBe(403)
+            expect((await patch(seeded.revision, {tokenEncryptionKey: "bad-key"})).status).toBe(400)
+            expect((await patch(seeded.revision, {smtpPort: "-1"})).status).toBe(400)
+
+            const updated = await patch(seeded.revision, {smtpPassword: "database-password", smtpPort: "587", smtpHost: "smtp.database.example"})
+            expect(updated.status).toBe(200)
+            const updatedText = await updated.text()
+            expect(updatedText).not.toContain("database-password")
+            expect((await patch(seeded.revision, {smtpPort: "465"})).status).toBe(409)
+            const document = await db.collection("applicationSettings").findOne()
+            expect(document?.encrypted.version).toBe(2)
+            expect(JSON.stringify(document)).not.toContain("database-password")
+            expect(JSON.stringify(document)).not.toContain("smtp.database.example")
+            const audit = await db.collection("adminAudit").findOne({action: "settings.update", status: "succeeded"})
+            expect(audit?.details).toEqual({fields: ["smtpPassword", "smtpPort", "smtpHost"]})
+            expect(audit?.actor).toBe("igor@example.test")
+            expect(JSON.stringify(audit)).not.toContain("database-password")
+
+            clearServerConfigCache()
+            expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
+            const settings = watchRuntimeSettings()
+            try {
+                await settings.ready
+                expect(getServerConfig()).toMatchObject({smtpHost: "smtp.database.example", smtpPort: 587, smtpPassword: "database-password"})
+            } finally {
+                settings.stop()
+            }
+            const reverted = await patch(JSON.parse(updatedText).revision, {smtpHost: null})
+            expect(reverted.status).toBe(200)
+            expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
+        } finally {
+            await db.dropDatabase()
+            await client.close()
+        }
     })
 })

@@ -116,57 +116,62 @@ export function parseServerConfig(values: Record<string, unknown>): ServerConfig
 
 let cachedConfig: ServerConfig | undefined
 
+export function applyServerConfig(config: ServerConfig): void {
+    cachedConfig = config
+}
+
 // Drop the cached configuration so a test can observe environment changes.
 export function clearServerConfigCache(): void {
     cachedConfig = undefined
 }
 
-// Load configuration once so every request observes the same validated values.
-export function getServerConfig(): ServerConfig {
-    if (!cachedConfig) {
-        cachedConfig = parseServerConfig({
-            appUrl: resolveAppUrl(process.env),
-            mongodbUri: process.env.PLS_MONGODB_URI,
-            mongodbDatabase: process.env.PLS_MONGODB_DATABASE,
-            sessionSecret: process.env.PLS_SESSION_SECRET,
-            tokenEncryptionKey: process.env.PLS_TOKEN_ENCRYPTION_KEY,
-            schedulerSecret: process.env.PLS_SCHEDULER_SECRET,
-            spotifyCredentials: process.env.PLS_SPOTIFY_CREDENTIALS,
-            spotifyMaxUsersPerApp: process.env.PLS_SPOTIFY_MAX_USERS_PER_APP,
-            googleClientId: process.env.PLS_GOOGLE_CLIENT_ID,
-            googleClientSecret: process.env.PLS_GOOGLE_CLIENT_SECRET,
-            amazonClientId: process.env.PLS_AMAZON_CLIENT_ID,
-            amazonClientSecret: process.env.PLS_AMAZON_CLIENT_SECRET,
-            amazonMusicApiBaseUrl: process.env.PLS_AMAZON_MUSIC_API_BASE_URL,
-            tidalClientId: process.env.PLS_TIDAL_CLIENT_ID,
-            tidalClientSecret: process.env.PLS_TIDAL_CLIENT_SECRET,
-            soundcloudClientId: process.env.PLS_SOUNDCLOUD_CLIENT_ID,
-            soundcloudClientSecret: process.env.PLS_SOUNDCLOUD_CLIENT_SECRET,
-            appleTeamId: process.env.PLS_APPLE_TEAM_ID,
-            appleClientId: process.env.PLS_APPLE_CLIENT_ID,
-            appleSigninKeyId: process.env.PLS_APPLE_SIGNIN_KEY_ID,
-            appleSigninPrivateKey: process.env.PLS_APPLE_SIGNIN_PRIVATE_KEY,
-            spotifyMaxRequestsPerMinute: process.env.PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE,
-            youtubeMaxRequestsPerMinute: process.env.PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE,
-            tidalMaxRequestsPerMinute: process.env.PLS_TIDAL_MAX_REQUESTS_PER_MINUTE,
-            soundcloudMaxRequestsPerMinute: process.env.PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE,
-            appleMaxRequestsPerMinute: process.env.PLS_APPLE_MAX_REQUESTS_PER_MINUTE,
-            amazonMaxRequestsPerMinute: process.env.PLS_AMAZON_MAX_REQUESTS_PER_MINUTE,
-            userProviderRequestsPerMinute: process.env.PLS_USER_PROVIDER_REQUESTS_PER_MINUTE,
-            syncIntervalMinutes: process.env.PLS_TASKSYNC_INTERVAL,
-            smtpHost: process.env.PLS_SMTP_HOST,
-            smtpPort: process.env.PLS_SMTP_PORT,
-            smtpUser: process.env.PLS_SMTP_USER,
-            smtpPassword: process.env.PLS_SMTP_PASSWORD,
-            smtpFrom: process.env.PLS_SMTP_FROM,
-            safeMode: process.env.PLS_SAFE_MODE,
-            extensionRedirectUris: process.env.PLS_EXTENSION_REDIRECT_URIS,
-            userWebhookUrls: process.env.PLS_USER_WEBHOOK_URLS,
-            shutdownTimeoutSeconds: process.env.PLS_SHUTDOWN_TIMEOUT_SECONDS
-        })
+// Read the deployment defaults before applying persisted overrides.
+export function getEnvironmentConfig() {
+    return {
+        appUrl: resolveAppUrl(process.env),
+        mongodbUri: process.env.PLS_MONGODB_URI,
+        mongodbDatabase: process.env.PLS_MONGODB_DATABASE,
+        sessionSecret: process.env.PLS_SESSION_SECRET,
+        tokenEncryptionKey: process.env.PLS_TOKEN_ENCRYPTION_KEY,
+        schedulerSecret: process.env.PLS_SCHEDULER_SECRET,
+        spotifyCredentials: process.env.PLS_SPOTIFY_CREDENTIALS,
+        spotifyMaxUsersPerApp: process.env.PLS_SPOTIFY_MAX_USERS_PER_APP,
+        googleClientId: process.env.PLS_GOOGLE_CLIENT_ID,
+        googleClientSecret: process.env.PLS_GOOGLE_CLIENT_SECRET,
+        amazonClientId: process.env.PLS_AMAZON_CLIENT_ID,
+        amazonClientSecret: process.env.PLS_AMAZON_CLIENT_SECRET,
+        amazonMusicApiBaseUrl: process.env.PLS_AMAZON_MUSIC_API_BASE_URL,
+        tidalClientId: process.env.PLS_TIDAL_CLIENT_ID,
+        tidalClientSecret: process.env.PLS_TIDAL_CLIENT_SECRET,
+        soundcloudClientId: process.env.PLS_SOUNDCLOUD_CLIENT_ID,
+        soundcloudClientSecret: process.env.PLS_SOUNDCLOUD_CLIENT_SECRET,
+        appleTeamId: process.env.PLS_APPLE_TEAM_ID,
+        appleClientId: process.env.PLS_APPLE_CLIENT_ID,
+        appleSigninKeyId: process.env.PLS_APPLE_SIGNIN_KEY_ID,
+        appleSigninPrivateKey: process.env.PLS_APPLE_SIGNIN_PRIVATE_KEY,
+        spotifyMaxRequestsPerMinute: process.env.PLS_SPOTIFY_MAX_REQUESTS_PER_MINUTE,
+        youtubeMaxRequestsPerMinute: process.env.PLS_YOUTUBE_MAX_REQUESTS_PER_MINUTE,
+        tidalMaxRequestsPerMinute: process.env.PLS_TIDAL_MAX_REQUESTS_PER_MINUTE,
+        soundcloudMaxRequestsPerMinute: process.env.PLS_SOUNDCLOUD_MAX_REQUESTS_PER_MINUTE,
+        appleMaxRequestsPerMinute: process.env.PLS_APPLE_MAX_REQUESTS_PER_MINUTE,
+        amazonMaxRequestsPerMinute: process.env.PLS_AMAZON_MAX_REQUESTS_PER_MINUTE,
+        userProviderRequestsPerMinute: process.env.PLS_USER_PROVIDER_REQUESTS_PER_MINUTE,
+        syncIntervalMinutes: process.env.PLS_TASKSYNC_INTERVAL,
+        smtpHost: process.env.PLS_SMTP_HOST,
+        smtpPort: process.env.PLS_SMTP_PORT,
+        smtpUser: process.env.PLS_SMTP_USER,
+        smtpPassword: process.env.PLS_SMTP_PASSWORD,
+        smtpFrom: process.env.PLS_SMTP_FROM,
+        safeMode: process.env.PLS_SAFE_MODE,
+        extensionRedirectUris: process.env.PLS_EXTENSION_REDIRECT_URIS,
+        userWebhookUrls: process.env.PLS_USER_WEBHOOK_URLS,
+        shutdownTimeoutSeconds: process.env.PLS_SHUTDOWN_TIMEOUT_SECONDS
     }
+}
 
-    return cachedConfig
+// Keep synchronous consumers on the last validated configuration.
+export function getServerConfig(): ServerConfig {
+    return (cachedConfig ??= parseServerConfig(getEnvironmentConfig()))
 }
 
 // Unspecified, private, shared (CGNAT), loopback, and link-local ranges cannot be a public origin.
@@ -207,6 +212,11 @@ function isNonPublicHostname(hostname: string): boolean {
     return version !== 0 && nonPublicAddresses.check(address, version === 6 ? "ipv6" : "ipv4")
 }
 
+export function isPublicAppOrigin(origin: string): boolean {
+    const url = new URL(origin)
+    return url.protocol === "https:" && !isNonPublicHostname(url.hostname)
+}
+
 /**
  * Lists configuration problems for one process before it starts serving.
  * @param config Parsed server configuration.
@@ -229,8 +239,7 @@ export function checkStartupConfig(config: ServerConfig, role: "website" | "jobs
     for (const [name, value] of Object.entries(required)) {
         if (!value) errors.push(`${name} is required`)
     }
-    const appUrl = new URL(config.appUrl)
-    if (appUrl.protocol !== "https:" || isNonPublicHostname(appUrl.hostname)) {
+    if (!isPublicAppOrigin(config.appUrl)) {
         errors.push(`PLS_APP_URL must be the public https origin, not ${config.appUrl}`)
     }
     if (!config.smtpHost) {

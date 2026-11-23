@@ -78,6 +78,12 @@ Set `PLS_ADMIN_ALLOWED_EMAILS=igor@ramadas.net` in production. Create a Google O
 
 Staff login is independent from consumer music-provider accounts. Admin sessions are opaque database-backed, host-only HTTP-only cookies; production cookies use the `__Host-` prefix. Every protected request rechecks the configured email allowlist. Mutation requests must carry the exact configured admin origin. Keep Google MFA enabled on staff accounts; an identity-aware proxy can add another access boundary.
 
+Use **Settings** to edit consumer provider credentials, SMTP, rate limits, and other application settings. The website, jobs worker, and admin must share the same MongoDB database and `PLS_TOKEN_ENCRYPTION_KEY`. The first settings load seeds an encrypted document from the configured environment or Infisical values; no migration is required. Supply the same deployment defaults to all three processes.
+
+Database values override deployment values. To remove an override, choose **Use deployment value**; **Clear value** instead stores an empty value for a secret. Existing secrets are never returned to the browser, and the admin audit records which settings changed without recording their values. Running website and jobs processes pick up changes on their next refresh (about 10 seconds). In-flight work may already be using the prior configuration. Update provider redirect registrations separately when changing the public site origin or provider applications.
+
+MongoDB connection settings, the token encryption key, session and scheduler secrets, and admin sign-in settings remain deployment-only.
+
 Build a **separate** image from the repository root with `docker build -f admin/Dockerfile -t playlistsyncer-admin .`. Its Dockerfile-specific ignore file includes admin sources while excluding local credentials and generated files. The independent Admin CI workflow validates the admin and publishes `ghcr.io/<owner>/<repository>-admin` on relevant master pushes. Admin-only source changes do not trigger the consumer CI/image workflow; shared server/domain changes trigger both. Supply the shared MongoDB and admin settings to this service. An Infisical machine identity can supply these settings just as it does for the consumer service.
 
 Route the admin service's port 3009 behind an HTTPS reverse proxy. Preserve the external origin and the `Origin` header; do not route admin APIs through the consumer hostname. The image does not run the consumer site or scheduler. Admin code/configuration changes should trigger the admin build pipeline; shared server/domain changes should validate both apps. Deploying this app, configuring DNS, and creating Google credentials remain explicit operational steps.
@@ -140,7 +146,7 @@ Application settings use the `PLS_` prefix.
 | `PLS_SHUTDOWN_TIMEOUT_SECONDS`           | Seconds a stopping process waits for its in-flight sync runs before marking them failed; keep it below PM2's kill grace period.             | `8`                                                                                 |
 | `PLS_SAFE_MODE`                          | Block writes to music providers and log the intended changes.                                                                               | `false`                                                                             |
 | `PLS_SESSION_SECRET`                     | Secret used for server-side session and email-confirmation tokens.                                                                          | Unset; required for sessions and for a production website start                     |
-| `PLS_TOKEN_ENCRYPTION_KEY`               | Key material for encrypting provider tokens and OAuth verifiers.                                                                            | Unset; required for OAuth and for a production start                                |
+| `PLS_TOKEN_ENCRYPTION_KEY`               | Key material for encrypting provider tokens, OAuth verifiers, and database-backed application settings.                                     | Unset; required for OAuth, admin settings, and for a production start               |
 | `PLS_SCHEDULER_SECRET`                   | Bearer secret protecting scheduled job endpoints.                                                                                           | Unset; required for jobs and for a production jobs start                            |
 | `PLS_MONGODB_URI`                        | MongoDB connection URI.                                                                                                                     | Unset                                                                               |
 | `PLS_MONGODB_DATABASE`                   | Database name within MongoDB.                                                                                                               | `playlistsyncer`                                                                    |
@@ -178,7 +184,7 @@ Application settings use the `PLS_` prefix.
 
 Some of the environment variables are optional, and will dictate which features are enabled or disabled in the service.
 
-- Changing `PLS_TOKEN_ENCRYPTION_KEY` after deployment makes previously encrypted OAuth tokens and credentials unreadable; keep the key stable.
+- Changing `PLS_TOKEN_ENCRYPTION_KEY` after deployment makes previously encrypted OAuth tokens, credentials, and application settings unreadable; keep the key stable.
 - Cloudflare SMTP is the default (`smtp.mx.cloudflare.net`, user `api_token`, port 465). To send emails, set `PLS_SMTP_PASSWORD` and a sender with `PLS_SMTP_FROM` or `PLS_SUPPORT_EMAIL`; host, port, and user can be overridden.
 - When SMTP is not configured, confirmation emails are skipped. In non-production the account page can expose a development confirmation link.
 - Provider API rate limits are configured individually, set to `0` to disable:
@@ -360,7 +366,7 @@ Instead of putting every secret in `.env`, the processes can load them from Infi
 | `PLS_INFISICAL_SECRET_PATH`   | Infisical folder path that holds the secrets.                                                   | `/`                                            |
 | `PLS_INFISICAL_SITE_URL`      | Infisical instance URL, for the EU cloud or a self-hosted instance.                             | `https://app.infisical.com`                    |
 
-The website and the jobs process preload `server/preload.ts` before reading configuration. Development (`make dev`), `bun run start`, `bun run jobs`, and PM2 (also used by the default Docker command) pass that preload explicitly. Builds, typechecks, and tests do not contact Infisical. Variables that already have a value in the environment are kept, so values in `.env` or `compose.yaml` win over Infisical. If Infisical cannot be reached, the process exits and the restart policy tries again. Secrets are never written to disk or baked into the image; rotate a secret in Infisical and restart the processes to apply it.
+The website and the jobs process preload `server/preload.ts` before reading configuration. Development (`make dev`), `bun run start`, `bun run jobs`, and PM2 (also used by the default Docker command) pass that preload explicitly. Builds, typechecks, and tests do not contact Infisical. Variables that already have a value in the environment are kept, so values in `.env` or `compose.yaml` win over Infisical. If Infisical cannot be reached, the process exits and the restart policy tries again. Secrets are never written to disk or baked into the image. Rotate deployment-only secrets in Infisical and restart the processes; update database-backed secrets in Admin Settings or remove their database overrides before using new deployment values.
 
 ### Docker Compose
 
