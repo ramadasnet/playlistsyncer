@@ -37,6 +37,20 @@ function setField(field: Field, value: string) {
     else changes.value[field.name] = value
 }
 
+function pasteField(field: Field, event: ClipboardEvent) {
+    if (field.name !== "appleSigninPrivateKey") return
+    const pasted = event.clipboardData?.getData("text")
+    if (!pasted || !/[\r\n]/.test(pasted)) return
+    event.preventDefault()
+    const input = event.target as HTMLInputElement
+    const replacement = pasted.trim().replace(/\r\n?|\n/g, "\\n")
+    const start = input.selectionStart ?? 0
+    const end = input.selectionEnd ?? start
+    if (input.value.length - (end - start) + replacement.length > input.maxLength) return
+    input.setRangeText(replacement, start, end, "end")
+    setField(field, input.value)
+}
+
 async function save() {
     if (!data.value || !dirty.value || saving.value) return
     saving.value = true
@@ -103,6 +117,7 @@ async function save() {
                             :autocomplete="field.secret ? 'new-password' : 'off'"
                             :maxlength="16384"
                             @input="setField(field, ($event.target as HTMLInputElement).value)"
+                            @paste="pasteField(field, $event)"
                         />
                         <span v-if="field.hint" :id="field.name + '-hint'" class="muted">{{ field.hint }}</span>
                         <div class="field-actions">
