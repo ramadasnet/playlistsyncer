@@ -66,7 +66,7 @@ const appUrl = z
     .prefault(() => resolveAppUrl({NODE_ENV: process.env.NODE_ENV}))
 
 const serverConfigSchema = z.object({
-    appUrl,
+    appUrl: z.preprocess((value) => (value === "" ? undefined : value), appUrl),
     mongodbUri: optionalCredential,
     mongodbDatabase: z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).default("playlistsyncer")),
     sessionSecret: optionalCredential,

@@ -6,7 +6,7 @@ import * as database from "../server/utils/database"
 import * as data from "../server/data/collections"
 import * as accounts from "../server/domain/accounts"
 import * as activity from "../server/domain/sync/task-activity"
-import {clearServerConfigCache, getEnvironmentConfig, getServerConfig} from "../server/utils/config"
+import {clearServerConfigCache, getEnvironmentConfig, getServerConfig, resolveAppUrl} from "../server/utils/config"
 import {mergeRuntimeSettings, readRuntimeSettings, watchRuntimeSettings} from "../server/utils/runtime-settings"
 import managementRoute from "../admin/server/api/[...path]"
 import {adminConfig, isAllowedAdmin, parseAdminConfig} from "../admin/server/utils/config"
@@ -214,6 +214,7 @@ describe("application settings", () => {
         expect(config.safeMode).toBe(false)
         expect(mergeRuntimeSettings({}, environment).smtpPassword).toBe("deployment-password")
         expect(() => mergeRuntimeSettings({smtpPort: "-1"}, environment)).toThrow("Invalid application settings")
+        expect(mergeRuntimeSettings({appUrl: ""}, {...environment, appUrl: "https://configured.example.com"}).appUrl).toBe(new URL(resolveAppUrl({NODE_ENV: process.env.NODE_ENV})).origin)
     })
 
     test.skipIf(!savedEnv.PLS_MONGODB_URI)("authenticates, writes changed settings to Infisical, masks secrets, audits edits, and refreshes", async () => {
