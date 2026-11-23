@@ -1,0 +1,23 @@
+diff --git a/lib/index.js b/lib/index.js
+index 9e3398ca03e7a6419ccf5afc00b14a6f5ff796ea..ba02d810f03234ef72f76bf7641977db5648ef9f 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -176,7 +176,7 @@ class SetMeUp {
+             return null;
+         }
+         const values = await (0, infisical_1.getInfisicalSecrets)(connection, await (0, infisical_1.infisicalLogin)(connection));
+-        const entries = [...values].map(([key, value]) => [key, (0, infisical_1.parseInfisicalValue)(value)]);
++        const entries = [...values].map(([key, value]) => [key, options.rawValues ? value : (0, infisical_1.parseInfisicalValue)(value)]);
+         const { result, loadedKeys } = this.parseFlatKeys(entries, options.lowercase, "SetMeUp.loadFromInfisical");
+         const hasResult = Object.keys(result).length > 0;
+         if (hasResult) {
+diff --git a/lib/types.d.ts b/lib/types.d.ts
+index 21a307659604f4175cc34ddee19f46172f040b3f..1dd102d9ac5447b55260ba0108e7f5cc021631ac 100644
+--- a/lib/types.d.ts
++++ b/lib/types.d.ts
+@@ -27,4 +27,5 @@ export interface InfisicalOptions {
+     siteUrl?: string;
+     overwrite?: boolean;
+     lowercase?: boolean;
++    rawValues?: boolean;
+ }

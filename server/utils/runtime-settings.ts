@@ -1,9 +1,8 @@
-import {randomUUID} from "node:crypto"
+import {createHmac} from "node:crypto"
 import {z} from "zod"
-import {applyServerConfig, getEnvironmentConfig, isPublicAppOrigin, parseServerConfig} from "./config"
-import {getDatabase} from "./database"
+import {applyServerConfig, getEnvironmentConfig, isPublicAppOrigin, parseServerConfig, serverConfigKeys} from "./config"
+import {infisicalFallback, readInfisicalSecrets, runtimeInfisicalConnection, saveInfisicalSecrets} from "./infisical"
 import logger from "./logger"
-import {decryptSecret, encryptSecret} from "./secrets"
 
 export const settingGroups = [
     {label: "Spotify", fields: {spotifyCredentials: {label: "App credentials", secret: true, hint: "Comma-separated client ID:secret pairs"}, spotifyMaxUsersPerApp: {label: "Maximum users per app"}}},
@@ -54,19 +53,14 @@ type SettingKey = FieldKeys<(typeof settingGroups)[number]>
 const settingKeys = settingGroups.flatMap(({fields}) => Object.keys(fields)) as SettingKey[]
 const settingsSchema = z.partialRecord(z.enum(settingKeys), z.string())
 export const settingsUpdateSchema = z.strictObject({
-    revision: z.uuid().nullable(),
-    changes: z.partialRecord(z.enum(settingKeys), z.string().max(16_384).nullable()).refine((changes) => Object.keys(changes).length > 0)
+    revision: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/)
+        .nullable(),
+    changes: z.partialRecord(z.enum(settingKeys), z.string().max(16_384)).refine((changes) => Object.keys(changes).length > 0)
 })
 type Settings = z.infer<typeof settingsSchema>
 type SettingsUpdate = z.infer<typeof settingsUpdateSchema>
-
-interface SettingsDocument {
-    _id: string
-    revision: string
-    encrypted: Awaited<ReturnType<typeof encryptSecret>>
-}
-
-const settingsId = "application"
 
 export class InvalidRuntimeSettings extends Error {
     constructor(readonly fields: string[]) {
@@ -76,7 +70,12 @@ export class InvalidRuntimeSettings extends Error {
 
 export class StaleRuntimeSettings extends Error {}
 
-export function mergeRuntimeSettings(values: Settings, environment = getEnvironmentConfig()) {
+function runtimeDefaults() {
+    const fallback = Object.fromEntries(settingKeys.map((name) => [serverConfigKeys[name], infisicalFallback(serverConfigKeys[name])]))
+    return getEnvironmentConfig({...process.env, ...fallback})
+}
+
+export function mergeRuntimeSettings(values: Settings, environment = runtimeDefaults()) {
     const merged = {...environment, ...values}
     try {
         const config = parseServerConfig(merged)
@@ -88,71 +87,57 @@ export function mergeRuntimeSettings(values: Settings, environment = getEnvironm
     }
 }
 
-function settingsEncryptionKey() {
-    const key = getEnvironmentConfig().tokenEncryptionKey
-    if (!key) throw new Error("PLS_TOKEN_ENCRYPTION_KEY is required for database settings")
-    return `playlistsyncer:settings:v1:${key}`
-}
-
-async function settingsCollection() {
-    return (await getDatabase()).collection<SettingsDocument>("applicationSettings")
-}
-
-async function readSettingsDocument() {
-    return (await settingsCollection()).findOne({_id: settingsId})
-}
-
-async function decodeSettings(document: SettingsDocument): Promise<Settings> {
-    const values: unknown = JSON.parse(await decryptSecret(document.encrypted, settingsEncryptionKey()))
-    const parsed = settingsSchema.safeParse(values)
-    if (!parsed.success) throw new Error("Invalid stored application settings")
-    return parsed.data
-}
-
-export async function readRuntimeSettings() {
-    const document = await readSettingsDocument()
-    return {revision: document?.revision ?? null, values: document ? await decodeSettings(document) : {}}
-}
-
-export async function updateRuntimeSettings({revision, changes}: SettingsUpdate) {
-    const current = await readRuntimeSettings()
-    if (current.revision !== revision) throw new StaleRuntimeSettings()
+export async function readRuntimeSettings(connection = runtimeInfisicalConnection()) {
+    const values: Settings = {}
+    if (!connection) return {revision: null, values}
+    const secrets = await readInfisicalSecrets(connection)
     for (const name of settingKeys) {
-        const value = changes[name]
-        if (value === null) delete current.values[name]
-        else if (value !== undefined) current.values[name] = value
+        const value = secrets[serverConfigKeys[name]]
+        if (value !== undefined) values[name] = value
     }
-    const config = mergeRuntimeSettings(current.values)
-    const encrypted = await encryptSecret(JSON.stringify(current.values), settingsEncryptionKey())
-    const nextRevision = randomUUID()
-    const collection = await settingsCollection()
-    if (revision === null) {
-        try {
-            await collection.insertOne({_id: settingsId, revision: nextRevision, encrypted})
-        } catch (error) {
-            if (typeof error === "object" && error && "code" in error && error.code === 11000) throw new StaleRuntimeSettings()
-            throw error
-        }
-    } else {
-        const result = await collection.updateOne({_id: settingsId, revision}, {$set: {revision: nextRevision, encrypted}})
-        if (!result.matchedCount) throw new StaleRuntimeSettings()
-    }
-    applyServerConfig(config)
-    return {revision: nextRevision, values: current.values}
+    const revision = Object.keys(values).length ? createHmac("sha256", connection.clientSecret).update(JSON.stringify(values)).digest("hex") : null
+    return {revision, values}
+}
+
+let pendingUpdate = Promise.resolve()
+
+export function updateRuntimeSettings({revision, changes}: SettingsUpdate) {
+    const update = pendingUpdate.then(async () => {
+        const connection = runtimeInfisicalConnection()
+        if (!connection) throw new Error("Infisical is not configured")
+        const current = await readRuntimeSettings(connection)
+        if (current.revision !== revision) throw new StaleRuntimeSettings()
+
+        const entries = Object.entries(changes) as [SettingKey, string][]
+        const untrimmed = entries.filter(([, value]) => value.trim() !== value)
+        if (untrimmed.length) throw new InvalidRuntimeSettings(untrimmed.map(([name]) => name))
+        mergeRuntimeSettings({...current.values, ...changes})
+        await saveInfisicalSecrets(Object.fromEntries(entries.map(([name, value]) => [serverConfigKeys[name], value])), connection)
+
+        const saved = await readRuntimeSettings(connection)
+        if (entries.some(([name, value]) => saved.values[name] !== value)) throw new Error("Saved settings are not yet visible in Infisical")
+        applyServerConfig(mergeRuntimeSettings(saved.values))
+        return saved
+    })
+    pendingUpdate = update.then(
+        () => undefined,
+        () => undefined
+    )
+    return update
 }
 
 export let runtimeSettingsReady = Promise.resolve()
 
 // Refresh between requests and job runs, keeping the last validated snapshot after transient failures.
 export function watchRuntimeSettings() {
+    const connection = runtimeInfisicalConnection()
     let revision: string | null | undefined
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
     async function refresh() {
-        const document = await readSettingsDocument()
-        const nextRevision = document?.revision ?? null
+        const {revision: nextRevision, values} = await readRuntimeSettings(connection)
         if (stopped || nextRevision === revision) return
-        const config = mergeRuntimeSettings(document ? await decodeSettings(document) : {})
+        const config = mergeRuntimeSettings(values)
         if (!stopped) {
             applyServerConfig(config)
             revision = nextRevision
@@ -170,7 +155,7 @@ export function watchRuntimeSettings() {
         }, 10_000)
         timer.unref()
     }
-    const ready = getEnvironmentConfig().tokenEncryptionKey ? refresh().finally(schedule) : Promise.resolve()
+    const ready = connection ? refresh().finally(schedule) : Promise.resolve()
     runtimeSettingsReady = ready
     return {
         ready,

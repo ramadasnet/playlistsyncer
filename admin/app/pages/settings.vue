@@ -11,7 +11,7 @@ const editing = ref(false)
 const saving = ref(false)
 const saved = ref(false)
 const saveError = ref("")
-const changes = ref<Partial<Record<Field["name"], string | null>>>({})
+const changes = ref<Partial<Record<Field["name"], string>>>({})
 const dirty = computed(() => Object.keys(changes.value).length > 0)
 
 function selectGroup(label: string) {
@@ -67,7 +67,7 @@ async function save() {
     <template v-if="data && group">
         <div class="settings-notice">
             <LockKeyhole :size="18" aria-hidden="true" />
-            <span>Settings are encrypted in the database. Existing secrets are never shown here.</span>
+            <span>Settings are stored in Infisical. Existing secrets are never shown here.</span>
         </div>
         <nav class="settings-groups" aria-label="Settings categories">
             <button v-for="item in data.groups" :key="item.label" type="button" :aria-pressed="selected === item.label" :disabled="editing" @click="selectGroup(item.label)">
@@ -87,7 +87,7 @@ async function save() {
                 <div v-for="field in group.fields" :key="field.name" class="setting-field">
                     <dt>{{ field.label }}</dt>
                     <dd>{{ field.secret ? (field.configured ? "•••••••• (configured)" : "Not configured") : field.value || "Not set" }}</dd>
-                    <dd class="muted setting-source">{{ field.stored ? "Database" : "Deployment / default" }}</dd>
+                    <dd class="muted setting-source">{{ field.stored ? "Infisical" : "Deployment / default" }}</dd>
                 </div>
             </dl>
             <form v-else @submit.prevent="save">
@@ -100,19 +100,17 @@ async function save() {
                             :aria-describedby="field.hint ? field.name + '-hint' : undefined"
                             :value="changes[field.name] ?? field.value ?? ''"
                             :placeholder="field.secret ? (field.configured ? 'Enter a replacement' : 'Not configured') : undefined"
-                            :disabled="changes[field.name] === null"
                             :autocomplete="field.secret ? 'new-password' : 'off'"
                             :maxlength="16384"
                             @input="setField(field, ($event.target as HTMLInputElement).value)"
                         />
                         <span v-if="field.hint" :id="field.name + '-hint'" class="muted">{{ field.hint }}</span>
                         <div class="field-actions">
-                            <template v-if="changes[field.name] === null || (field.secret && changes[field.name] === '')">
-                                <span class="muted">{{ changes[field.name] === null ? "Will use deployment value" : "Will clear this value" }}</span>
+                            <template v-if="field.secret && changes[field.name] === ''">
+                                <span class="muted">Will clear this value</span>
                                 <button type="button" @click="delete changes[field.name]">Undo</button>
                             </template>
                             <template v-else>
-                                <button v-if="field.stored" type="button" @click="changes[field.name] = null">Use deployment value</button>
                                 <button v-if="field.secret && field.configured" type="button" @click="changes[field.name] = ''">Clear value</button>
                             </template>
                         </div>

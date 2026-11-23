@@ -8,7 +8,6 @@ import {watchRuntimeSettings} from "../utils/runtime-settings"
 export default defineNitroPlugin((nitroApp) => {
     if (!getServerConfig().mongodbUri) {
         logger.warn("Database.init", "PLS_MONGODB_URI is not configured, database-backed routes are unavailable")
-        return
     }
     const settings = watchRuntimeSettings()
     void settings.ready.catch(() => logger.error("Settings.init", "Could not load application settings"))

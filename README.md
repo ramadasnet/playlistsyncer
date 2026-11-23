@@ -78,9 +78,9 @@ Set `PLS_ADMIN_ALLOWED_EMAILS=igor@ramadas.net` in production. Create a Google O
 
 Staff login is independent from consumer music-provider accounts. Admin sessions are opaque database-backed, host-only HTTP-only cookies; production cookies use the `__Host-` prefix. Every protected request rechecks the configured email allowlist. Mutation requests must carry the exact configured admin origin. Keep Google MFA enabled on staff accounts; an identity-aware proxy can add another access boundary.
 
-Use **Settings** to edit consumer provider credentials, SMTP, rate limits, and other application settings. The website, jobs worker, and admin must share the same MongoDB database and `PLS_TOKEN_ENCRYPTION_KEY`. The first admin edit creates a single encrypted document containing only overrides; reading settings never copies environment or Infisical values into MongoDB. No migration is required. Supply the same deployment defaults to all three processes.
+Use **Settings** to edit consumer provider credentials, SMTP, rate limits, and other application settings. Configure the admin, website, and jobs worker to read the same Infisical project, environment, and path. The admin identity also needs permission to create and update secrets there. The editor writes only changed settings to Infisical, not to MongoDB. The admin still uses MongoDB for sessions and audit records.
 
-Settings are applied in order: environment variables, then Infisical, then database overrides. To remove an override and fall back to Infisical or the environment, choose **Use deployment value**; **Clear value** instead stores an empty value for a secret. Existing secrets are never returned to the browser, and the admin audit records which settings changed without recording their values. Running website and jobs processes pick up changes on their next refresh (about 10 seconds). In-flight work may already be using the prior configuration. Update provider redirect registrations separately when changing the public site origin or provider applications.
+Infisical values override environment variables. To fall back to the deployment value, remove the setting in Infisical (including any imported value). **Clear value** stores an empty value for a secret instead. Existing secrets are never returned to the browser, and the admin audit records which settings changed without recording their values. Running website and jobs processes pick up valid changes on their next refresh (about 10 seconds). In-flight work may already be using the prior configuration. Update provider redirect registrations separately when changing the public site origin or provider applications.
 
 MongoDB connection settings, the token encryption key, session and scheduler secrets, and admin sign-in settings remain deployment-only.
 
@@ -184,7 +184,7 @@ Application settings use the `PLS_` prefix.
 
 Some of the environment variables are optional, and will dictate which features are enabled or disabled in the service.
 
-- Changing `PLS_TOKEN_ENCRYPTION_KEY` after deployment makes previously encrypted OAuth tokens, credentials, and application settings unreadable; keep the key stable.
+- Changing `PLS_TOKEN_ENCRYPTION_KEY` after deployment makes previously encrypted OAuth tokens and credentials unreadable; keep the key stable.
 - Cloudflare SMTP is the default (`smtp.mx.cloudflare.net`, user `api_token`, port 465). To send emails, set `PLS_SMTP_PASSWORD` and a sender with `PLS_SMTP_FROM` or `PLS_SUPPORT_EMAIL`; host, port, and user can be overridden.
 - When SMTP is not configured, confirmation emails are skipped. In non-production the account page can expose a development confirmation link.
 - Provider API rate limits are configured individually, set to `0` to disable:
@@ -366,7 +366,7 @@ Instead of putting every secret in `.env`, the processes can load them from Infi
 | `PLS_INFISICAL_SECRET_PATH`   | Infisical folder path that holds the secrets.                                                   | `/`                                            |
 | `PLS_INFISICAL_SITE_URL`      | Infisical instance URL, for the EU cloud or a self-hosted instance.                             | `https://app.infisical.com`                    |
 
-The website, jobs worker, and admin preload `server/preload.ts` before reading configuration. The development and start scripts and PM2 (also used by the default Docker command) pass that preload explicitly. Builds, typechecks, and tests do not contact Infisical. Infisical values override matching environment variables, including values from `.env` or `compose.yaml`; Infisical's own connection settings must come from the deployment environment. If Infisical cannot be reached, the process exits and the restart policy tries again. Secrets are never written to disk or baked into the image. Restart the processes to apply changes in Infisical; any existing database overrides still take precedence.
+The website, jobs worker, and admin use SetMeUp to load Infisical values in `server/preload.ts`. The development and start scripts and PM2 (also used by the default Docker command) pass that preload explicitly. Builds, typechecks, and tests do not contact Infisical. Infisical values override matching environment variables, including values from `.env` or `compose.yaml`; Infisical's connection settings must come from the deployment environment. If Infisical cannot be reached at startup, the process exits and the restart policy tries again. A failed periodic refresh keeps the last validated settings. Deployment-only settings require a restart. Secrets are never written to disk or baked into the image.
 
 ### Docker Compose
 

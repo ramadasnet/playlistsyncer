@@ -1,5 +1,5 @@
 import {createError, type H3Event} from "h3"
-import {getEnvironmentConfig} from "../../../server/utils/config"
+import {runtimeInfisicalConnection} from "../../../server/utils/infisical"
 import {InvalidRuntimeSettings, mergeRuntimeSettings, readRuntimeSettings, settingGroups, settingsUpdateSchema, StaleRuntimeSettings, updateRuntimeSettings} from "../../../server/utils/runtime-settings"
 import {audited} from "./management"
 
@@ -29,7 +29,7 @@ function settingsView({revision, values}: Awaited<ReturnType<typeof readRuntimeS
 }
 
 function assertSettingsAvailable() {
-    if (!getEnvironmentConfig().tokenEncryptionKey) throw createError({statusCode: 503, statusMessage: "Application settings encryption key is not configured"})
+    if (!runtimeInfisicalConnection()) throw createError({statusCode: 503, statusMessage: "Infisical is not configured"})
 }
 
 export async function getSettings() {
