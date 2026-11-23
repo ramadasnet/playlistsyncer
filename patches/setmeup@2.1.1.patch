@@ -1,8 +1,9 @@
 diff --git a/lib/index.js b/lib/index.js
-index 9e3398ca03e7a6419ccf5afc00b14a6f5ff796ea..ba02d810f03234ef72f76bf7641977db5648ef9f 100644
+index 9e3398c..7b02ed5 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -176,7 +176,7 @@ class SetMeUp {
+@@ -175,8 +175,8 @@ class SetMeUp {
+                 logger.debug("SetMeUp.loadFromInfisical", "No Infisical client ID set, won't load");
              return null;
          }
 -        const values = await (0, infisical_1.getInfisicalSecrets)(connection, await (0, infisical_1.infisicalLogin)(connection));
@@ -12,7 +13,9 @@ index 9e3398ca03e7a6419ccf5afc00b14a6f5ff796ea..ba02d810f03234ef72f76bf7641977db
          const { result, loadedKeys } = this.parseFlatKeys(entries, options.lowercase, "SetMeUp.loadFromInfisical");
          const hasResult = Object.keys(result).length > 0;
          if (hasResult) {
-@@ -204,5 +204,5 @@ class SetMeUp {
+@@ -202,7 +202,7 @@ class SetMeUp {
+             throw new Error(`Infisical trims secret values, can't save values with leading or trailing whitespace: ${untrimmed.join(", ")}`);
+         }
          const accessToken = await (0, infisical_1.infisicalLogin)(connection);
 -        const existing = await (0, infisical_1.getInfisicalSecrets)(connection, accessToken);
 +        const existing = await (0, infisical_1.getInfisicalSecrets)(connection, accessToken, options?.expandSecretReferences);
@@ -20,9 +23,13 @@ index 9e3398ca03e7a6419ccf5afc00b14a6f5ff796ea..ba02d810f03234ef72f76bf7641977db
          const conflicts = [...existing.keys()].filter((existingKey) => !savedKeys.includes(existingKey) && savedKeys.some((key) => existingKey.startsWith(`${key}_`)));
          if (conflicts.length > 0) {
 diff --git a/lib/infisical.js b/lib/infisical.js
+index ddc2950..78c3931 100644
 --- a/lib/infisical.js
 +++ b/lib/infisical.js
-@@ -55,8 +55,8 @@ async function infisicalRequest(connection, accessToken, method, urlPath, body) {
+@@ -53,12 +53,12 @@ async function infisicalRequest(connection, accessToken, method, urlPath, body)
+     }
+     return response.json();
+ }
 -async function getInfisicalSecrets(connection, accessToken) {
 +async function getInfisicalSecrets(connection, accessToken, expandSecretReferences = true) {
      const query = new URLSearchParams({
@@ -33,8 +40,9 @@ diff --git a/lib/infisical.js b/lib/infisical.js
 +        expandSecretReferences: String(expandSecretReferences),
          includeImports: "true"
      });
+     const response = await infisicalRequest(connection, accessToken, "GET", `/api/v4/secrets?${query}`);
 diff --git a/lib/types.d.ts b/lib/types.d.ts
-index 21a307659604f4175cc34ddee19f46172f040b3f..1dd102d9ac5447b55260ba0108e7f5cc021631ac 100644
+index 21a3076..e3ea8a5 100644
 --- a/lib/types.d.ts
 +++ b/lib/types.d.ts
 @@ -27,4 +27,6 @@ export interface InfisicalOptions {
