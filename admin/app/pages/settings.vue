@@ -92,17 +92,17 @@ async function save() {
             <div class="section-heading">
                 <div>
                     <h2>{{ group.label }}</h2>
-                    <p class="muted">{{ editing ? "Change only what you want to update. Leave secret inputs blank to keep their values." : "Effective settings and where they come from." }}</p>
+                    <p class="muted">{{ editing ? "Change only what you want to update. Leave secret inputs blank to keep their values." : "Saved settings and where they come from. The website and jobs worker apply them on restart." }}</p>
                 </div>
                 <button v-if="!editing" type="button" :disabled="status === 'pending'" @click="edit"><Pencil :size="16" /> Edit settings</button>
             </div>
-            <p v-if="saved" class="notice" role="status">Settings saved. Running services pick up changes within about 10 seconds.</p>
+            <p v-if="saved" class="notice" role="status">Settings saved. Restart the website and jobs worker to apply them.</p>
             <dl v-if="!editing" class="settings-fields">
                 <div v-for="field in group.fields" :key="field.name" class="setting-field">
                     <dt>{{ field.label }}</dt>
                     <dd>{{ field.secret ? (field.configured ? "•••••••• (configured)" : "Not configured") : field.value || "Not set" }}</dd>
                     <dd class="muted setting-source">{{ field.stored ? "Infisical" : "Deployment / default" }}</dd>
-                    <dd v-if="field.invalid" class="notice error">Invalid value stored in Infisical; running services keep the last valid value until it is fixed.</dd>
+                    <dd v-if="field.invalid" class="notice error">Invalid value stored in Infisical; the website and jobs worker will not start until it is fixed.</dd>
                 </div>
             </dl>
             <form v-else @submit.prevent="save">

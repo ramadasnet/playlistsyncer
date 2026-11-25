@@ -1,12 +1,10 @@
 // Keep public runtime config aligned with the server environment on every request.
 
 import {getServerConfig} from "../utils/config"
-import {runtimeSettingsReady} from "../utils/runtime-settings"
 
 // Public settings otherwise retain their build-time values when the app is deployed with PLS_ variables.
 export default defineNitroPlugin((nitroApp) => {
-    nitroApp.hooks.hook("request", async (event) => {
-        await runtimeSettingsReady.catch(() => undefined)
+    nitroApp.hooks.hook("request", (event) => {
         const serverConfig = getServerConfig()
         const config = useRuntimeConfig(event)
         config.public.appName = process.env.PLS_APP_NAME || config.public.appName

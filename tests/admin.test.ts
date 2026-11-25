@@ -7,7 +7,7 @@ import * as data from "../server/data/collections"
 import * as accounts from "../server/domain/accounts"
 import * as activity from "../server/domain/sync/task-activity"
 import {clearServerConfigCache, getEnvironmentConfig, getServerConfig, resolveAppUrl} from "../server/utils/config"
-import {mergeRuntimeSettings, readRuntimeSettings, watchRuntimeSettings} from "../server/utils/runtime-settings"
+import {mergeRuntimeSettings, readRuntimeSettings} from "../server/utils/runtime-settings"
 import managementRoute from "../admin/server/api/[...path]"
 import {adminConfig, isAllowedAdmin, parseAdminConfig} from "../admin/server/utils/config"
 import {adminObjectId, deleteTask, deleteUser, taskView, updateTask, userView} from "../admin/server/utils/management"
@@ -217,7 +217,7 @@ describe("application settings", () => {
         expect(mergeRuntimeSettings({appUrl: ""}, {...environment, appUrl: "https://configured.example.com"}).appUrl).toBe(new URL(resolveAppUrl({NODE_ENV: process.env.NODE_ENV})).origin)
     })
 
-    test.skipIf(!savedEnv.PLS_MONGODB_URI)("authenticates, writes changed settings to Infisical, masks secrets, audits edits, and refreshes", async () => {
+    test.skipIf(!savedEnv.PLS_MONGODB_URI)("authenticates, writes changed settings to Infisical, masks secrets, and audits edits", async () => {
         process.env.PLS_ADMIN_ALLOWED_EMAILS = "igor@example.test"
         process.env.PLS_ADMIN_URL = "http://localhost:3009"
         process.env.PLS_TOKEN_ENCRYPTION_KEY = "settings-test-key"
@@ -273,14 +273,8 @@ describe("application settings", () => {
             const initial = JSON.parse(text)
             expect(initial.revision).toBeNull()
             expect(initial.groups.flatMap((group: {fields: unknown[]}) => group.fields)).toContainEqual(expect.objectContaining({name: "smtpPassword", value: null, stored: false, configured: true}))
-            const initialSettings = watchRuntimeSettings()
-            try {
-                await initialSettings.ready
-                expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
-                expect(writes).toEqual([])
-            } finally {
-                initialSettings.stop()
-            }
+            expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
+            expect(writes).toEqual([])
             expect((await patch(initial.revision, {smtpPort: "587"}, "https://other.example")).status).toBe(403)
             expect((await patch(initial.revision, {tokenEncryptionKey: "bad-key"})).status).toBe(400)
             expect((await patch(initial.revision, {smtpPort: "-1"})).status).toBe(400)
@@ -318,15 +312,13 @@ describe("application settings", () => {
 
             secrets.set("PLS_SMTP_USER", "infisical-user")
             secrets.set("PLS_TOKEN_ENCRYPTION_KEY", "not-reloaded")
-            clearServerConfigCache()
-            expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
-            const settings = watchRuntimeSettings()
-            try {
-                await settings.ready
-                expect(getServerConfig()).toMatchObject({smtpHost: "smtp.infisical.example", smtpPort: 587, smtpPassword: "new-password", smtpUser: "infisical-user", tokenEncryptionKey: "settings-test-key"})
-            } finally {
-                settings.stop()
-            }
+            expect(mergeRuntimeSettings((await readRuntimeSettings()).values)).toMatchObject({
+                smtpHost: "smtp.infisical.example",
+                smtpPort: 587,
+                smtpPassword: "new-password",
+                smtpUser: "infisical-user",
+                tokenEncryptionKey: "settings-test-key"
+            })
             expect((await patch(JSON.parse(updatedText).revision, {smtpHost: "another.example"})).status).toBe(409)
             const {revision} = await readRuntimeSettings()
             const cleared = await patch(revision, {smtpPassword: ""})
@@ -335,13 +327,7 @@ describe("application settings", () => {
             expect(getServerConfig().smtpPassword).toBeUndefined()
 
             secrets.delete("PLS_SMTP_HOST")
-            const afterDeletion = watchRuntimeSettings()
-            try {
-                await afterDeletion.ready
-                expect(getServerConfig().smtpHost).toBe("smtp.deployment.example")
-            } finally {
-                afterDeletion.stop()
-            }
+            expect(mergeRuntimeSettings((await readRuntimeSettings()).values).smtpHost).toBe("smtp.deployment.example")
         } finally {
             await db.dropDatabase()
             await client.close()
