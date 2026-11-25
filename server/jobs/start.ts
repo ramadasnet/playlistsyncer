@@ -5,7 +5,6 @@ import {ensureIndexes} from "../data/collections"
 import {assertStartupConfig, getServerConfig} from "../utils/config"
 import {closeDatabase} from "../utils/database"
 import logger from "../utils/logger"
-import {watchRuntimeSettings} from "../utils/runtime-settings"
 import {drainSyncRuns} from "../utils/shutdown"
 import {createJobsApp} from "./app"
 import {drainNonSyncRequests} from "./requests"
@@ -30,8 +29,6 @@ export async function startJobsServer(): Promise<Server> {
     if (!getServerConfig().mongodbUri) {
         throw new Error("PLS_MONGODB_URI is not configured")
     }
-    const settings = watchRuntimeSettings()
-    await settings.ready
     const config = getServerConfig()
     if (config.safeMode) {
         logger.warn("Jobs.startup", "PLS_SAFE_MODE is enabled; music providers will not be written")
@@ -54,7 +51,6 @@ export async function startJobsServer(): Promise<Server> {
 
     const shutdown = async (signal: string) => {
         logger.info("Jobs.shutdown", signal)
-        settings.stop()
         await shutdownJobsServer(server, getServerConfig().shutdownTimeoutSeconds * 1000)
         process.exit(0)
     }

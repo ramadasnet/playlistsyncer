@@ -2,7 +2,6 @@ import {createHmac} from "node:crypto"
 import {z} from "zod"
 import {applyServerConfig, getEnvironmentConfig, isPublicAppOrigin, parseServerConfig, serverConfigKeys} from "./config"
 import {infisicalFallback, readInfisicalSecrets, runtimeInfisicalConnection, saveInfisicalSecrets} from "./infisical"
-import logger from "./logger"
 
 export const settingGroups = [
     {label: "Spotify", fields: {spotifyCredentials: {label: "App credentials", secret: true, hint: "Comma-separated client ID:secret pairs"}, spotifyMaxUsersPerApp: {label: "Maximum users per app"}}},
@@ -144,44 +143,4 @@ export function updateRuntimeSettings({revision, changes}: SettingsUpdate) {
         () => undefined
     )
     return update
-}
-
-export let runtimeSettingsReady = Promise.resolve()
-
-// Refresh between requests and job runs, keeping the last validated snapshot after transient failures.
-export function watchRuntimeSettings() {
-    const connection = runtimeInfisicalConnection()
-    let revision: string | null | undefined
-    let stopped = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    async function refresh() {
-        const {revision: nextRevision, values} = await readRuntimeSettings(connection)
-        if (stopped || nextRevision === revision) return
-        const config = mergeRuntimeSettings(values)
-        if (!stopped) {
-            applyServerConfig(config)
-            revision = nextRevision
-        }
-    }
-    function schedule() {
-        if (stopped) return
-        timer = setTimeout(() => {
-            void refresh()
-                .then(() => {
-                    if (revision !== undefined) runtimeSettingsReady = Promise.resolve()
-                })
-                .catch(() => logger.warn("Settings.refresh", "Could not refresh application settings; retaining the last validated settings"))
-                .finally(schedule)
-        }, 10_000)
-        timer.unref()
-    }
-    const ready = connection ? refresh().finally(schedule) : Promise.resolve()
-    runtimeSettingsReady = ready
-    return {
-        ready,
-        stop: () => {
-            stopped = true
-            clearTimeout(timer)
-        }
-    }
 }
