@@ -92,7 +92,7 @@ async function save() {
             <div class="section-heading">
                 <div>
                     <h2>{{ group.label }}</h2>
-                    <p class="muted">{{ editing ? "Change only what you want to update. Leave secret inputs blank to keep their values." : "Effective settings and where they come from." }}</p>
+                    <p class="muted">{{ editing ? "Change only what you want to update. Leave secret inputs blank to keep their values." : "Saved settings and where they come from. The website and jobs worker apply them on restart." }}</p>
                 </div>
                 <button v-if="!editing" type="button" :disabled="status === 'pending'" @click="edit"><Pencil :size="16" /> Edit settings</button>
             </div>
